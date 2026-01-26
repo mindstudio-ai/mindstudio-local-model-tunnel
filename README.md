@@ -2,6 +2,8 @@
 
 Run local models with MindStudio.
 
+Only Ollama is supported right now, with more providers coming soon.
+
 ## Prerequisites
 
 - Node.js 18+
@@ -19,6 +21,9 @@ npm install -g @mindstudio/local-model-tunnel
 # Authenticate with MindStudio
 mindstudio-local auth
 
+# Register your local models on MindStudio
+mindstudio-local register
+
 # Start the tunnel
 mindstudio-local start
 ```
@@ -28,9 +33,9 @@ mindstudio-local start
 | Command    | Description                               |
 | ---------- | ----------------------------------------- |
 | `auth`     | Authenticate with MindStudio via browser  |
+| `register` | Register all local models with MindStudio |
 | `start`    | Start the local model tunnel              |
 | `models`   | List available local Ollama models        |
-| `register` | Register all local models with MindStudio |
 | `status`   | Check connection status                   |
 | `config`   | Show current configuration                |
 | `logout`   | Remove stored credentials                 |
@@ -40,9 +45,6 @@ mindstudio-local start
 ```bash
 # Use custom Ollama URL
 mindstudio-local start --ollama-url http://localhost:11434
-
-# Switch environment (developer use)
-mindstudio-local --env local start
 ```
 
 ## How It Works
