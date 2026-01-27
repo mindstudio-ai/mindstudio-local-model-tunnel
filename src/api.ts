@@ -122,7 +122,7 @@ export async function registerLocalModel(modelName: string): Promise<void> {
   const response = await fetch(`${baseUrl}/v1/local-models/models/create`, {
     method: "POST",
     headers: getHeaders(),
-    body: JSON.stringify({ modelName }),
+    body: JSON.stringify({ modelName, provider: "ollama" }),
   });
 
   if (!response.ok) {
