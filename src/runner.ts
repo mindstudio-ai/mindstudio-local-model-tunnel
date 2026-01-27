@@ -6,6 +6,7 @@ import {
   submitProgress,
   submitResult,
   LocalModelRequest,
+  disconnectHeartbeat,
 } from "./api.js";
 
 export class LocalModelRunner {
@@ -189,7 +190,8 @@ export class LocalModelRunner {
     }
   }
 
-  private stop(): void {
+  private async stop(): Promise<void> {
+    await disconnectHeartbeat();
     console.log(chalk.yellow("\n\nShutting down...\n"));
     this.isRunning = false;
     this.spinner?.stop();

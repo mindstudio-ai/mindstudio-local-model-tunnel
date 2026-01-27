@@ -198,3 +198,17 @@ export async function pollDeviceAuth(token: string): Promise<{
 
   return data;
 }
+
+export async function disconnectHeartbeat(): Promise<void> {
+  const baseUrl = getApiBaseUrl();
+
+  const response = await fetch(`${baseUrl}/v1/local-models/disconnect`, {
+    method: "POST",
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Heartbeat disconnect failed: ${response.status} ${error}`);
+  }
+}
