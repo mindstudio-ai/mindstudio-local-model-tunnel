@@ -10,6 +10,7 @@ interface EnvironmentConfig {
 interface ConfigSchema {
   environment: Environment;
   ollamaBaseUrl: string;
+  lmstudioBaseUrl: string;
   environments: {
     prod: EnvironmentConfig;
     local: EnvironmentConfig;
@@ -21,6 +22,7 @@ const config = new Conf<ConfigSchema>({
   defaults: {
     environment: "prod",
     ollamaBaseUrl: "http://localhost:11434",
+    lmstudioBaseUrl: "http://localhost:1234/v1",
     environments: {
       prod: {
         apiBaseUrl: "https://api.mindstudio.ai",
@@ -82,6 +84,15 @@ export function getOllamaBaseUrl(): string {
 
 export function setOllamaBaseUrl(url: string): void {
   config.set("ollamaBaseUrl", url);
+}
+
+// LM Studio (shared across environments)
+export function getLMStudioBaseUrl(): string {
+  return config.get("lmstudioBaseUrl");
+}
+
+export function setLMStudioBaseUrl(url: string): void {
+  config.set("lmstudioBaseUrl", url);
 }
 
 export function getConfigPath(): string {

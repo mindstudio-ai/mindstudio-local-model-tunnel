@@ -9,14 +9,21 @@ import {
   setApiKey,
   clearApiKey,
   getConfigPath,
-  setApiBaseUrl,
   setOllamaBaseUrl,
+  setLMStudioBaseUrl,
   getEnvironment,
   setEnvironment,
   getEnvironmentInfo,
   type Environment,
+  getOllamaBaseUrl,
+  getLMStudioBaseUrl,
 } from "./config.js";
-import { isOllamaRunning, discoverModels } from "./ollama.js";
+import {
+  discoverAllModels,
+  getProviderStatuses,
+  isAnyProviderRunning,
+  type LocalModel,
+} from "./providers/index.js";
 import {
   getRegisteredModels,
   pollDeviceAuth,
@@ -63,11 +70,12 @@ function envBadge(): string {
   return chalk.bgGreen.black(" PROD ");
 }
 
-const displayModels = (models: any[]) => {
+const displayModels = (models: LocalModel[]) => {
   console.log(chalk.blue("\nAvailable Models\n"));
 
   models.forEach((m) => {
-    console.log(`  ${chalk.green("*")} ${m.name}`);
+    const providerTag = chalk.blue(`[${m.provider}]`);
+    console.log(`  ${chalk.green("*")} ${m.name} ${providerTag}`);
   });
 
   console.log("");
@@ -153,25 +161,47 @@ program
       if (isValid) {
         console.log(chalk.green("✓ MindStudio: Connected"));
       } else {
-        console.log(chalk.red("MindStudio: Invalid API key"));
+        console.log(chalk.red("✗ MindStudio: Invalid API key"));
       }
     } else {
-      console.log(chalk.yellow("MindStudio: Not authenticated"));
+      console.log(chalk.yellow("○ MindStudio: Not authenticated"));
     }
 
-    // Check Ollama
-    const ollamaRunning = await isOllamaRunning();
-    if (ollamaRunning) {
-      console.log(chalk.green("✓ Ollama: Running"));
-      console.log("");
+    // Check all providers
+    const providerStatuses = await getProviderStatuses();
+    for (const { provider, running } of providerStatuses) {
+      if (running) {
+        console.log(chalk.green(`✓ ${provider.displayName}: Running`));
+      } else {
+        console.log(chalk.gray(`○ ${provider.displayName}: Not running`));
+      }
+    }
 
-      const models = await discoverModels();
+    // Show models if any provider is running
+    const models = await discoverAllModels();
+    if (models.length > 0) {
       displayModels(models);
-    } else {
-      console.log(chalk.red("Ollama: Not running"));
     }
 
     console.log("");
+  });
+
+program
+  .command("set-config")
+  .description("Set configuration")
+  .option("--ollama-url <url>", "Override Ollama base URL")
+  .option("--lmstudio-url <url>", "Override LM Studio base URL")
+  .action(async (options) => {
+    if (options.ollamaUrl) {
+      setOllamaBaseUrl(options.ollamaUrl);
+      console.log(chalk.green(`Ollama base URL set to ${options.ollamaUrl}`));
+    }
+    if (options.lmstudioUrl) {
+      setLMStudioBaseUrl(options.lmstudioUrl);
+      console.log(
+        chalk.green(`LM Studio base URL set to ${options.lmstudioUrl}`)
+      );
+    }
   });
 
 // Start command
@@ -179,9 +209,13 @@ program
   .command("start")
   .description("Start the local model tunnel")
   .option("--ollama-url <url>", "Override Ollama base URL")
+  .option("--lmstudio-url <url>", "Override LM Studio base URL")
   .action(async (options) => {
     if (options.ollamaUrl) {
       setOllamaBaseUrl(options.ollamaUrl);
+    }
+    if (options.lmstudioUrl) {
+      setLMStudioBaseUrl(options.lmstudioUrl);
     }
 
     const info = getEnvironmentInfo();
@@ -209,11 +243,13 @@ program
     }
     spinner.succeed(`Connected to MindStudio ${envBadge()}`);
 
-    // Check Ollama
-    const ollamaRunning = await isOllamaRunning();
-    if (!ollamaRunning) {
-      console.log(chalk.red("\nOllama is not running."));
-      console.log(chalk.white("Start it with: ollama serve\n"));
+    // Check if any provider is running
+    const anyProviderRunning = await isAnyProviderRunning();
+    if (!anyProviderRunning) {
+      console.log(chalk.red("\nNo local model provider is running."));
+      console.log(chalk.white("Start one of the following:"));
+      console.log(chalk.white("  Ollama: ollama serve"));
+      console.log(chalk.white("  LM Studio: Start the local server\n"));
       process.exit(1);
     }
 
@@ -227,19 +263,21 @@ program
   .command("models")
   .description("List available local models")
   .action(async () => {
-    const ollamaRunning = await isOllamaRunning();
+    const anyProviderRunning = await isAnyProviderRunning();
 
-    if (!ollamaRunning) {
-      console.log(chalk.red("\nOllama is not running."));
-      console.log(chalk.white("  Start it with: ollama serve\n"));
+    if (!anyProviderRunning) {
+      console.log(chalk.red("\nNo local model provider is running."));
+      console.log(chalk.white("  Start Ollama: ollama serve"));
+      console.log(chalk.white("  Start LM Studio: Enable local server\n"));
       process.exit(1);
     }
 
-    const models = await discoverModels();
+    const models = await discoverAllModels();
 
     if (models.length === 0) {
       console.log(chalk.yellow("\nNo models found."));
-      console.log(chalk.white("Pull a model with: ollama pull llama3.2\n"));
+      console.log(chalk.white("  Ollama: ollama pull llama3.2"));
+      console.log(chalk.white("  LM Studio: Load a model in the app\n"));
       return;
     }
 
@@ -258,6 +296,8 @@ program
     console.log(`  Config file:  ${chalk.white(getConfigPath())}`);
     console.log(`  Environment:  ${chalk.cyan(info.current)}`);
     console.log(`  API URL:      ${chalk.white(info.apiBaseUrl)}`);
+    console.log(`  Ollama Base URL:   ${chalk.white(getOllamaBaseUrl())}`);
+    console.log(`  LM Studio Base URL: ${chalk.white(getLMStudioBaseUrl())}`);
     console.log(
       `  API key:      ${
         info.hasApiKey ? chalk.green("Set") : chalk.yellow("Not set")
@@ -313,22 +353,24 @@ program
       process.exit(1);
     }
 
-    // Check if Ollama is running
-    const ollamaRunning = await isOllamaRunning();
-    if (!ollamaRunning) {
-      console.log(chalk.red("\nOllama is not running."));
-      console.log(chalk.white("  Start it with: ollama serve\n"));
+    // Check if any provider is running
+    const anyProviderRunning = await isAnyProviderRunning();
+    if (!anyProviderRunning) {
+      console.log(chalk.red("\nNo local model provider is running."));
+      console.log(chalk.white("  Start Ollama: ollama serve"));
+      console.log(chalk.white("  Start LM Studio: Enable local server\n"));
       process.exit(1);
     }
 
-    // Get all local models
+    // Get all local models from all providers
     const spinner = ora("Loading local models...").start();
-    const localModels = await discoverModels();
+    const localModels = await discoverAllModels();
     spinner.succeed();
 
     if (localModels.length === 0) {
       spinner.fail(chalk.yellow("No local models found."));
-      console.log(chalk.white("  Pull a model with: ollama pull llama3.2\n"));
+      console.log(chalk.white("  Ollama: ollama pull llama3.2"));
+      console.log(chalk.white("  LM Studio: Load a model in the app\n"));
       process.exit(1);
     }
 
@@ -351,8 +393,9 @@ program
     try {
       console.log("\n");
       for (const model of unregisteredModels) {
-        await registerLocalModel(model.name);
-        console.log(chalk.green(`✓ ${model.name}\n`));
+        await registerLocalModel(model.name, model.provider);
+        const providerTag = chalk.blue(`[${model.provider}]`);
+        console.log(chalk.green(`✓ ${model.name} ${providerTag}\n`));
       }
 
       registerSpinner.succeed(

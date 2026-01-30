@@ -12,7 +12,7 @@ Only Ollama is supported right now, with more providers coming soon.
 ## Installation
 
 ```bash
-npm install -g @mindstudio/local-model-tunnel
+npm install -g @mindstudio-ai/local-model-tunnel
 ```
 
 ## Quick Start

@@ -116,13 +116,16 @@ export async function verifyApiKey(): Promise<boolean> {
   }
 }
 
-export async function registerLocalModel(modelName: string): Promise<void> {
+export async function registerLocalModel(
+  modelName: string,
+  provider: string = "ollama"
+): Promise<void> {
   const baseUrl = getApiBaseUrl();
 
   const response = await fetch(`${baseUrl}/v1/local-models/models/create`, {
     method: "POST",
     headers: getHeaders(),
-    body: JSON.stringify({ modelName, provider: "ollama" }),
+    body: JSON.stringify({ modelName, provider }),
   });
 
   if (!response.ok) {
