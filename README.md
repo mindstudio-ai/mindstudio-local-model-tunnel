@@ -14,7 +14,7 @@ With more coming soon...
 - Node.js 18+
 - At least one of these:
   - [Ollama](https://ollama.ai) installed and running with `ollama serve`
-  - [LM Studio](https://lmstudio.ai/) installed and running
+  - [LM Studio](https://lmstudio.ai/) installed and local server running
 
 ## Installation
 
