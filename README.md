@@ -2,12 +2,19 @@
 
 Run local models with MindStudio.
 
-Only Ollama is supported right now, with more providers coming soon.
+Providers supported:
+
+- [Ollama](https://ollama.ai)
+- [LM Studio](https://lmstudio.ai/)
+
+With more coming soon...
 
 ## Prerequisites
 
 - Node.js 18+
-- [Ollama](https://ollama.ai) installed and running
+- At least one of these:
+  - [Ollama](https://ollama.ai) installed and running with `ollama serve`
+  - [LM Studio](https://lmstudio.ai/) installed and running
 
 ## Installation
 
@@ -50,9 +57,9 @@ mindstudio-local start --ollama-url http://localhost:11434
 ## How It Works
 
 1. Authenticates with your MindStudio account
-2. Discovers local Ollama models
+2. Discovers your local models
 3. Polls MindStudio for inference requests
-4. Routes requests to local Ollama and streams responses back
+4. Routes requests to local server and streams responses back
 
 ## License
 
