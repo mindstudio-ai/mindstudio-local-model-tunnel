@@ -45,13 +45,15 @@ mindstudio-local start
 | `models`   | List available local Ollama models        |
 | `status`   | Check connection status                   |
 | `config`   | Show current configuration                |
+| `set-config`   | Set configuration                |
 | `logout`   | Remove stored credentials                 |
 
-## Options
+## Configuration Options
 
 ```bash
-# Use custom Ollama URL
-mindstudio-local start --ollama-url http://localhost:11434
+# Use custom provider URLs
+mindstudio-local set-config --ollama-url http://localhost:11434
+mindstudio-local set-config --lmstudio-url http://localhost:1234
 ```
 
 ## How It Works
