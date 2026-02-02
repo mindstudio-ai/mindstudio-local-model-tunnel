@@ -1,6 +1,6 @@
 import { getLMStudioBaseUrl } from "../config.js";
 import type {
-  Provider,
+  TextProvider,
   LocalModel,
   ChatMessage,
   ChatOptions,
@@ -17,9 +17,10 @@ interface LMStudioModelsResponse {
   data: LMStudioModel[];
 }
 
-export class LMStudioProvider implements Provider {
+export class LMStudioProvider implements TextProvider {
   readonly name = "lmstudio" as const;
   readonly displayName = "LM Studio";
+  readonly capability = "text" as const;
 
   private getBaseUrl(): string {
     return getLMStudioBaseUrl();
@@ -50,6 +51,7 @@ export class LMStudioProvider implements Provider {
       return data.data.map((m) => ({
         name: m.id,
         provider: this.name,
+        capability: "text" as const,
       }));
     } catch {
       return [];

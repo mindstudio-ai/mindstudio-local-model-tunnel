@@ -1,19 +1,49 @@
 // Main exports for programmatic use
 export { LocalModelRunner } from "./runner.js";
 export {
+  // Discovery functions
   discoverAllModels,
+  discoverAllModelsWithParameters,
+  discoverModelsByCapability,
   discoverRunningProviders,
   getProvider,
   getProviderStatuses,
   isAnyProviderRunning,
+  // Provider-specific getters
+  getTextProvider,
+  getTextProviders,
+  getImageProvider,
+  getImageProviders,
+  // Type guards
+  isTextProvider,
+  isImageProvider,
+  // Provider classes
   OllamaProvider,
   LMStudioProvider,
+  StableDiffusionProvider,
+  // Types
   type Provider,
+  type TextProvider,
+  type ImageProvider,
   type LocalModel,
   type ProviderType,
+  type TextProviderType,
+  type ImageProviderType,
+  type ModelCapability,
   type ChatMessage,
   type ChatOptions,
   type ChatResponse,
+  type ImageGenerationOptions,
+  type ImageGenerationResult,
+  type ImageGenerationProgress,
+  // Parameter schema types
+  type ParameterSchema,
+  type SelectParameterSchema,
+  type NumberParameterSchema,
+  type TextParameterSchema,
+  type BooleanParameterSchema,
+  type SelectOption,
+  type NumberOptions,
 } from "./providers/index.js";
 export {
   getApiKey,
@@ -25,6 +55,8 @@ export {
   setOllamaBaseUrl,
   getLMStudioBaseUrl,
   setLMStudioBaseUrl,
+  getStableDiffusionBaseUrl,
+  setStableDiffusionBaseUrl,
   getEnvironment,
   setEnvironment,
   type Environment,
@@ -33,5 +65,12 @@ export {
   verifyApiKey,
   pollForRequest,
   submitProgress,
+  submitGenerationProgress,
   submitResult,
+  registerLocalModel,
+  type TextResult,
+  type ImageResult,
+  type RequestResult,
+  type RegisterModelOptions,
+  type ModelTypeMindStudio,
 } from "./api.js";

@@ -53,6 +53,9 @@ export async function pollForRequest(
   return data.request;
 }
 
+/**
+ * Progress update for text generation (streaming content)
+ */
 export async function submitProgress(
   requestId: string,
   content: string
@@ -73,13 +76,65 @@ export async function submitProgress(
   }
 }
 
+/**
+ * Progress update for image/video generation (step-based)
+ */
+export async function submitGenerationProgress(
+  requestId: string,
+  step: number,
+  totalSteps: number,
+  preview?: string
+): Promise<void> {
+  const baseUrl = getApiBaseUrl();
+
+  const response = await fetch(
+    `${baseUrl}/v1/local-models/requests/${requestId}/progress`,
+    {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({
+        type: "generation",
+        step,
+        totalSteps,
+        preview,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    console.warn(`Generation progress update failed: ${response.status}`);
+  }
+}
+
+/**
+ * Result for text/chat completions
+ */
+export interface TextResult {
+  content?: string;
+  usage?: { promptTokens: number; completionTokens: number };
+}
+
+/**
+ * Result for image generation
+ */
+export interface ImageResult {
+  /** Base64-encoded image data */
+  imageBase64: string;
+  /** MIME type (e.g., "image/png") */
+  mimeType: string;
+  /** Seed used for generation */
+  seed?: number;
+}
+
+/**
+ * Combined result type
+ */
+export type RequestResult = TextResult | ImageResult;
+
 export async function submitResult(
   requestId: string,
   success: boolean,
-  result?: {
-    content?: string;
-    usage?: { promptTokens: number; completionTokens: number };
-  },
+  result?: RequestResult,
   error?: string
 ): Promise<void> {
   const baseUrl = getApiBaseUrl();
@@ -116,16 +171,54 @@ export async function verifyApiKey(): Promise<boolean> {
   }
 }
 
+export type ModelTypeMindStudio =
+  | "llm_chat"
+  | "image_generation"
+  | "video_generation";
+
+export interface RegisterModelOptions {
+  modelName: string;
+  provider: string;
+  modelType?: ModelTypeMindStudio;
+  /** Parameter schemas for configurable options */
+  parameters?: unknown[];
+}
+
 export async function registerLocalModel(
-  modelName: string,
-  provider: string = "ollama"
+  modelNameOrOptions: string | RegisterModelOptions,
+  provider: string = "ollama",
+  modelType: ModelTypeMindStudio = "llm_chat"
 ): Promise<void> {
   const baseUrl = getApiBaseUrl();
+
+  let payload: {
+    modelName: string;
+    provider: string;
+    modelType: ModelTypeMindStudio;
+    parameters?: unknown[];
+  };
+
+  if (typeof modelNameOrOptions === "string") {
+    // Legacy signature
+    payload = {
+      modelName: modelNameOrOptions,
+      provider,
+      modelType,
+    };
+  } else {
+    // New options object signature
+    payload = {
+      modelName: modelNameOrOptions.modelName,
+      provider: modelNameOrOptions.provider,
+      modelType: modelNameOrOptions.modelType || "llm_chat",
+      parameters: modelNameOrOptions.parameters,
+    };
+  }
 
   const response = await fetch(`${baseUrl}/v1/local-models/models/create`, {
     method: "POST",
     headers: getHeaders(),
-    body: JSON.stringify({ modelName, provider }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {

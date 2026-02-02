@@ -3,16 +3,35 @@ import ora, { Ora } from "ora";
 import {
   discoverAllModels,
   getProvider,
+  isTextProvider,
+  isImageProvider,
   type LocalModel,
   type Provider,
+  type TextProvider,
+  type ImageProvider,
 } from "./providers/index.js";
 import {
   pollForRequest,
   submitProgress,
+  submitGenerationProgress,
   submitResult,
   LocalModelRequest,
   disconnectHeartbeat,
 } from "./api.js";
+import { displayModels } from "./helpers.js";
+
+const LogoString = `
+       @@@@@@@       @@@@@@@
+      @@@@@@@@@@   @@@@@@@@@@
+     @@@@@@@@@@@  @@@@@@@@@@@
+    @@@@@@@@@@@@ @@@@@@@@@@@@  @
+   @@@@@@@@@@@@ @@@@@@@@@@@@  @@@
+  @@@@@@@@@@@@ @@@@@@@@@@@@  @@@@@
+ @@@@@@@@@@@@ @@@@@@@@@@@@ @@@@@@@@
+@@@@@@@@@@@@ @@@@@@@@@@@@ @@@@@@@@@@
+@@@@@@@@@@@  @@@@@@@@@@@  @@@@@@@@@@
+@@@@@@@@@@   @@@@@@@@@@   @@@@@@@@@@
+ @@@@@@@       @@@@@@@      @@@@@@@ `;
 
 export class LocalModelRunner {
   private isRunning = false;
@@ -22,6 +41,7 @@ export class LocalModelRunner {
 
   async start(): Promise<void> {
     console.clear();
+    console.log(chalk.white(LogoString));
     console.log(chalk.blue("\nMindStudio Local Model Tunnel\n"));
 
     // Discover available models from all providers
@@ -29,28 +49,17 @@ export class LocalModelRunner {
 
     if (models.length === 0) {
       console.log(chalk.yellow("No local models found."));
-      console.log(chalk.white("   Make sure Ollama or LM Studio is running."));
-      console.log(chalk.white("   Ollama: ollama serve"));
-      console.log(chalk.white("   LM Studio: Start the local server\n"));
+      console.log(chalk.white("   Make sure a provider is running:"));
+      console.log(chalk.white("   • Ollama: ollama serve"));
+      console.log(chalk.white("   • LM Studio: Start the local server"));
+      console.log(chalk.white("   • Stable Diffusion: Start AUTOMATIC1111\n"));
       return;
     }
 
     // Build model -> provider mapping
     this.buildModelProviderMap(models);
 
-    console.log(chalk.green("✓ Found models:"));
-    models.forEach((m) => {
-      const size = m.parameterSize
-        ? m.parameterSize
-        : m.size
-        ? `${Math.round(m.size / 1e9)}GB`
-        : "";
-      const sizeStr = size ? ` (${size})` : "";
-      console.log(
-        chalk.white(`  • ${m.name}${sizeStr} `) + chalk.blue(`[${m.provider}]`)
-      );
-    });
-    console.log("");
+    displayModels(models);
 
     const modelNames = models.map((m) => m.name);
 
@@ -115,10 +124,9 @@ export class LocalModelRunner {
   }
 
   private async processRequest(request: LocalModelRequest): Promise<void> {
-    const startTime = Date.now();
-
     this.spinner?.stop();
     console.log(chalk.cyan(`\n⚡ Processing: ${request.modelId}`));
+    console.log(chalk.gray(`  Request type: ${request.requestType}`));
 
     // Find the provider for this model
     const provider = this.modelProviderMap.get(request.modelId);
@@ -132,6 +140,49 @@ export class LocalModelRunner {
     }
 
     console.log(chalk.gray(`  Using provider: ${provider.displayName}`));
+
+    // Route to appropriate handler based on request type
+    switch (request.requestType) {
+      case "llm_chat":
+        await this.handleTextRequest(request, provider);
+        break;
+      case "image_generation":
+        await this.handleImageRequest(request, provider);
+        break;
+      case "video_generation":
+        console.log(chalk.yellow("Video generation not yet supported"));
+        await submitResult(
+          request.id,
+          false,
+          undefined,
+          "Video generation not yet supported"
+        );
+        break;
+      default:
+        console.log(chalk.red(`Unknown request type: ${request.requestType}`));
+        await submitResult(
+          request.id,
+          false,
+          undefined,
+          `Unknown request type: ${request.requestType}`
+        );
+    }
+
+    this.restoreSpinner();
+  }
+
+  private async handleTextRequest(
+    request: LocalModelRequest,
+    provider: Provider
+  ): Promise<void> {
+    const startTime = Date.now();
+
+    if (!isTextProvider(provider)) {
+      const message = `Provider ${provider.displayName} does not support text generation`;
+      console.log(chalk.red(`\nFailed: ${message}\n`));
+      await submitResult(request.id, false, undefined, message);
+      return;
+    }
 
     try {
       // Build messages for the provider
@@ -185,29 +236,107 @@ export class LocalModelRunner {
         )
       );
     } catch (error) {
-      if (error instanceof Error && (error as any).status_code === 404) {
-        const message = `Model ${request.modelId} not found. Is it registered on your local server?`;
+      this.handleRequestError(request, error);
+    }
+  }
 
-        console.log(chalk.red(`\nFailed: ${message}\n`));
-        await submitResult(request.id, false, undefined, message);
-        this.restoreSpinner();
-        return;
-      }
+  private async handleImageRequest(
+    request: LocalModelRequest,
+    provider: Provider
+  ): Promise<void> {
+    const startTime = Date.now();
 
-      let message = error instanceof Error ? error.message : "Unknown error";
-
-      if (message === "fetch failed") {
-        message =
-          "Failed to connect to the API. Please make sure your local model server is running.";
-      }
-
-      console.log(error);
-      console.log(chalk.red(`\n✗ Failed: ${message}\n`));
-
+    if (!isImageProvider(provider)) {
+      const message = `Provider ${provider.displayName} does not support image generation`;
+      console.log(chalk.red(`\nFailed: ${message}\n`));
       await submitResult(request.id, false, undefined, message);
+      return;
     }
 
-    this.restoreSpinner();
+    try {
+      const prompt = request.payload.prompt || "";
+      const config = request.payload.config || {};
+
+      console.log(chalk.gray(`  Prompt: "${prompt.slice(0, 50)}..."`));
+
+      // Generate image with progress updates if supported
+      let result;
+      if (provider.generateImageWithProgress) {
+        result = await provider.generateImageWithProgress(
+          request.modelId,
+          prompt,
+          {
+            negativePrompt: config.negativePrompt as string | undefined,
+            width: config.width as number | undefined,
+            height: config.height as number | undefined,
+            steps: config.steps as number | undefined,
+            cfgScale: config.cfgScale as number | undefined,
+            seed: config.seed as number | undefined,
+            sampler: config.sampler as string | undefined,
+          },
+          async (progress) => {
+            await submitGenerationProgress(
+              request.id,
+              progress.step,
+              progress.totalSteps,
+              progress.preview
+            );
+            process.stdout.write(
+              chalk.white(`\r  Step ${progress.step}/${progress.totalSteps}...`)
+            );
+          }
+        );
+      } else {
+        result = await provider.generateImage(request.modelId, prompt, {
+          negativePrompt: config.negativePrompt as string | undefined,
+          width: config.width as number | undefined,
+          height: config.height as number | undefined,
+          steps: config.steps as number | undefined,
+          cfgScale: config.cfgScale as number | undefined,
+          seed: config.seed as number | undefined,
+          sampler: config.sampler as string | undefined,
+        });
+      }
+
+      // Submit result with image data
+      await submitResult(request.id, true, {
+        imageBase64: result.imageBase64,
+        mimeType: result.mimeType,
+        seed: result.seed,
+      });
+
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+      const sizeKB = Math.round((result.imageBase64.length * 3) / 4 / 1024);
+      console.log(
+        chalk.green(`\n✓ Generated image in ${duration}s (${sizeKB}KB)\n`)
+      );
+    } catch (error) {
+      this.handleRequestError(request, error);
+    }
+  }
+
+  private async handleRequestError(
+    request: LocalModelRequest,
+    error: unknown
+  ): Promise<void> {
+    if (error instanceof Error && (error as any).status_code === 404) {
+      const message = `Model ${request.modelId} not found. Is it registered on your local server?`;
+      console.log(chalk.red(`\nFailed: ${message}\n`));
+      await submitResult(request.id, false, undefined, message);
+      return;
+    }
+
+    let message = error instanceof Error ? error.message : "Unknown error";
+
+    if (message === "fetch failed") {
+      message =
+        "Failed to connect to the API. Please make sure your local model server is running.";
+    }
+
+    console.log(error);
+    console.log(chalk.red(`\n✗ Failed: ${message}\n`));
+
+    await submitResult(request.id, false, undefined, message);
   }
 
   private restoreSpinner(): void {

@@ -11,15 +11,18 @@ import {
   getConfigPath,
   setOllamaBaseUrl,
   setLMStudioBaseUrl,
+  setStableDiffusionBaseUrl,
   getEnvironment,
   setEnvironment,
   getEnvironmentInfo,
   type Environment,
   getOllamaBaseUrl,
   getLMStudioBaseUrl,
+  getStableDiffusionBaseUrl,
 } from "./config.js";
 import {
   discoverAllModels,
+  discoverAllModelsWithParameters,
   getProviderStatuses,
   isAnyProviderRunning,
   type LocalModel,
@@ -32,6 +35,7 @@ import {
   verifyApiKey,
 } from "./api.js";
 import { LocalModelRunner } from "./runner.js";
+import { displayModels } from "./helpers.js";
 
 const program = new Command();
 
@@ -69,17 +73,6 @@ function envBadge(): string {
   }
   return chalk.bgGreen.black(" PROD ");
 }
-
-const displayModels = (models: LocalModel[]) => {
-  console.log(chalk.blue("\nAvailable Models\n"));
-
-  models.forEach((m) => {
-    const providerTag = chalk.blue(`[${m.provider}]`);
-    console.log(`  ${chalk.green("*")} ${m.name} ${providerTag}`);
-  });
-
-  console.log("");
-};
 
 // Auth command
 program
@@ -191,6 +184,7 @@ program
   .description("Set configuration")
   .option("--ollama-url <url>", "Override Ollama base URL")
   .option("--lmstudio-url <url>", "Override LM Studio base URL")
+  .option("--sd-url <url>", "Override Stable Diffusion base URL")
   .action(async (options) => {
     if (options.ollamaUrl) {
       setOllamaBaseUrl(options.ollamaUrl);
@@ -202,6 +196,12 @@ program
         chalk.green(`LM Studio base URL set to ${options.lmstudioUrl}`)
       );
     }
+    if (options.sdUrl) {
+      setStableDiffusionBaseUrl(options.sdUrl);
+      console.log(
+        chalk.green(`Stable Diffusion base URL set to ${options.sdUrl}`)
+      );
+    }
   });
 
 // Start command
@@ -210,12 +210,16 @@ program
   .description("Start the local model tunnel")
   .option("--ollama-url <url>", "Override Ollama base URL")
   .option("--lmstudio-url <url>", "Override LM Studio base URL")
+  .option("--sd-url <url>", "Override Stable Diffusion base URL")
   .action(async (options) => {
     if (options.ollamaUrl) {
       setOllamaBaseUrl(options.ollamaUrl);
     }
     if (options.lmstudioUrl) {
       setLMStudioBaseUrl(options.lmstudioUrl);
+    }
+    if (options.sdUrl) {
+      setStableDiffusionBaseUrl(options.sdUrl);
     }
 
     const info = getEnvironmentInfo();
@@ -249,7 +253,8 @@ program
       console.log(chalk.red("\nNo local model provider is running."));
       console.log(chalk.white("Start one of the following:"));
       console.log(chalk.white("  Ollama: ollama serve"));
-      console.log(chalk.white("  LM Studio: Start the local server\n"));
+      console.log(chalk.white("  LM Studio: Start the local server"));
+      console.log(chalk.white("  Stable Diffusion: Start AUTOMATIC1111\n"));
       process.exit(1);
     }
 
@@ -268,7 +273,10 @@ program
     if (!anyProviderRunning) {
       console.log(chalk.red("\nNo local model provider is running."));
       console.log(chalk.white("  Start Ollama: ollama serve"));
-      console.log(chalk.white("  Start LM Studio: Enable local server\n"));
+      console.log(chalk.white("  Start LM Studio: Enable local server"));
+      console.log(
+        chalk.white("  Start Stable Diffusion: Launch AUTOMATIC1111\n")
+      );
       process.exit(1);
     }
 
@@ -277,7 +285,10 @@ program
     if (models.length === 0) {
       console.log(chalk.yellow("\nNo models found."));
       console.log(chalk.white("  Ollama: ollama pull llama3.2"));
-      console.log(chalk.white("  LM Studio: Load a model in the app\n"));
+      console.log(chalk.white("  LM Studio: Load a model in the app"));
+      console.log(
+        chalk.white("  Stable Diffusion: Models in models/Stable-diffusion/\n")
+      );
       return;
     }
 
@@ -293,15 +304,19 @@ program
   .action(() => {
     const info = getEnvironmentInfo();
     console.log(chalk.blue(`\nConfiguration ${envBadge()}\n`));
-    console.log(`  Config file:  ${chalk.white(getConfigPath())}`);
-    console.log(`  Environment:  ${chalk.cyan(info.current)}`);
-    console.log(`  API URL:      ${chalk.white(info.apiBaseUrl)}`);
-    console.log(`  Ollama Base URL:   ${chalk.white(getOllamaBaseUrl())}`);
-    console.log(`  LM Studio Base URL: ${chalk.white(getLMStudioBaseUrl())}`);
+    console.log(`  Config file:     ${chalk.white(getConfigPath())}`);
+    console.log(`  Environment:     ${chalk.cyan(info.current)}`);
+    console.log(`  API URL:         ${chalk.white(info.apiBaseUrl)}`);
     console.log(
-      `  API key:      ${
+      `  API key:         ${
         info.hasApiKey ? chalk.green("Set") : chalk.yellow("Not set")
       }`
+    );
+    console.log(chalk.blue("\nProvider URLs\n"));
+    console.log(`  Ollama:          ${chalk.white(getOllamaBaseUrl())}`);
+    console.log(`  LM Studio:       ${chalk.white(getLMStudioBaseUrl())}`);
+    console.log(
+      `  Stable Diffusion: ${chalk.white(getStableDiffusionBaseUrl())}`
     );
     console.log("");
   });
@@ -358,19 +373,25 @@ program
     if (!anyProviderRunning) {
       console.log(chalk.red("\nNo local model provider is running."));
       console.log(chalk.white("  Start Ollama: ollama serve"));
-      console.log(chalk.white("  Start LM Studio: Enable local server\n"));
+      console.log(chalk.white("  Start LM Studio: Enable local server"));
+      console.log(
+        chalk.white("  Start Stable Diffusion: Launch AUTOMATIC1111\n")
+      );
       process.exit(1);
     }
 
-    // Get all local models from all providers
+    // Get all local models from all providers (with parameter schemas)
     const spinner = ora("Loading local models...").start();
-    const localModels = await discoverAllModels();
+    const localModels = await discoverAllModelsWithParameters();
     spinner.succeed();
 
     if (localModels.length === 0) {
       spinner.fail(chalk.yellow("No local models found."));
       console.log(chalk.white("  Ollama: ollama pull llama3.2"));
-      console.log(chalk.white("  LM Studio: Load a model in the app\n"));
+      console.log(chalk.white("  LM Studio: Load a model in the app"));
+      console.log(
+        chalk.white("  Stable Diffusion: Models in models/Stable-diffusion/\n")
+      );
       process.exit(1);
     }
 
@@ -393,9 +414,29 @@ program
     try {
       console.log("\n");
       for (const model of unregisteredModels) {
-        await registerLocalModel(model.name, model.provider);
-        const providerTag = chalk.blue(`[${model.provider}]`);
-        console.log(chalk.green(`✓ ${model.name} ${providerTag}\n`));
+        const modelTypeMap = {
+          text: "llm_chat",
+          image: "image_generation",
+          video: "video_generation",
+        } as const;
+
+        const modelType =
+          modelTypeMap[model.capability as keyof typeof modelTypeMap];
+
+        await registerLocalModel({
+          modelName: model.name,
+          provider: model.provider,
+          modelType,
+          parameters: model.parameters,
+        });
+
+        const providerTag = chalk.gray(`[${model.provider}]`);
+        const paramsInfo = model.parameters
+          ? chalk.cyan(` (${model.parameters.length} params)`)
+          : "";
+        console.log(
+          chalk.green(`✓ ${model.name} ${providerTag}${paramsInfo}\n`)
+        );
       }
 
       registerSpinner.succeed(

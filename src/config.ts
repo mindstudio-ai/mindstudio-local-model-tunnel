@@ -11,6 +11,7 @@ interface ConfigSchema {
   environment: Environment;
   ollamaBaseUrl: string;
   lmstudioBaseUrl: string;
+  stableDiffusionBaseUrl: string;
   environments: {
     prod: EnvironmentConfig;
     local: EnvironmentConfig;
@@ -23,6 +24,7 @@ const config = new Conf<ConfigSchema>({
     environment: "prod",
     ollamaBaseUrl: "http://localhost:11434",
     lmstudioBaseUrl: "http://localhost:1234/v1",
+    stableDiffusionBaseUrl: "http://127.0.0.1:7860",
     environments: {
       prod: {
         apiBaseUrl: "https://api.mindstudio.ai",
@@ -93,6 +95,15 @@ export function getLMStudioBaseUrl(): string {
 
 export function setLMStudioBaseUrl(url: string): void {
   config.set("lmstudioBaseUrl", url);
+}
+
+// Stable Diffusion / AUTOMATIC1111 (shared across environments)
+export function getStableDiffusionBaseUrl(): string {
+  return config.get("stableDiffusionBaseUrl");
+}
+
+export function setStableDiffusionBaseUrl(url: string): void {
+  config.set("stableDiffusionBaseUrl", url);
 }
 
 export function getConfigPath(): string {
