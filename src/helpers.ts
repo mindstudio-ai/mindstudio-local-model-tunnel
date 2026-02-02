@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { type LocalModel } from "./providers";
+import { type LocalModel } from "./providers/index.js";
 
 export const displayModels = (models: LocalModel[]): void => {
   const textModels = models.filter((m) => m.capability === "text");
@@ -23,3 +23,16 @@ export const displayModels = (models: LocalModel[]): void => {
 
   console.log("");
 };
+
+export const LogoString = `
+       @@@@@@@       @@@@@@@
+      @@@@@@@@@@   @@@@@@@@@@
+     @@@@@@@@@@@  @@@@@@@@@@@
+    @@@@@@@@@@@@ @@@@@@@@@@@@  @
+   @@@@@@@@@@@@ @@@@@@@@@@@@  @@@
+  @@@@@@@@@@@@ @@@@@@@@@@@@  @@@@@
+ @@@@@@@@@@@@ @@@@@@@@@@@@ @@@@@@@@
+@@@@@@@@@@@@ @@@@@@@@@@@@ @@@@@@@@@@
+@@@@@@@@@@@  @@@@@@@@@@@  @@@@@@@@@@
+@@@@@@@@@@   @@@@@@@@@@   @@@@@@@@@@
+ @@@@@@@       @@@@@@@      @@@@@@@ `;

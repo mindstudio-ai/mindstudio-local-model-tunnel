@@ -1,0 +1,242 @@
+import {
+  pollForRequest,
+  submitProgress,
+  submitGenerationProgress,
+  submitResult,
+  disconnectHeartbeat,
+  type LocalModelRequest,
+} from "../api.js";
+import {
+  getProvider,
+  isTextProvider,
+  isImageProvider,
+  discoverAllModels,
+  type Provider,
+  type LocalModel,
+} from "../providers/index.js";
+import { requestEvents } from "./events.js";
+
+/**
+ * TunnelRunner handles the polling and request processing loop.
+ * It emits events that the TUI can subscribe to for status updates.
+ */
+export class TunnelRunner {
+  private isRunning = false;
+  private modelProviderMap: Map<string, Provider> = new Map();
+  private models: string[] = [];
+
+  async start(models: string[]): Promise<void> {
+    if (this.isRunning) return;
+
+    this.models = models;
+    this.isRunning = true;
+
+    // Build model -> provider mapping
+    const allModels = await discoverAllModels();
+    this.buildModelProviderMap(allModels);
+
+    // Start polling loop
+    this.pollLoop();
+  }
+
+  stop(): void {
+    this.isRunning = false;
+    disconnectHeartbeat().catch(() => {});
+  }
+
+  private buildModelProviderMap(models: LocalModel[]): void {
+    this.modelProviderMap.clear();
+    for (const model of models) {
+      const provider = getProvider(model.provider);
+      if (provider) {
+        this.modelProviderMap.set(model.name, provider);
+      }
+    }
+  }
+
+  private async pollLoop(): Promise<void> {
+    while (this.isRunning) {
+      try {
+        const request = await pollForRequest(this.models);
+        if (request) {
+          // Process request in background
+          this.processRequest(request);
+        }
+      } catch (error) {
+        // Wait before retrying on error
+        await this.sleep(5000);
+      }
+    }
+  }
+
+  private async processRequest(request: LocalModelRequest): Promise<void> {
+    const startTime = Date.now();
+
+    // Emit start event
+    requestEvents.emitStart({
+      id: request.id,
+      modelId: request.modelId,
+      requestType: request.requestType,
+      timestamp: startTime,
+    });
+
+    const provider = this.modelProviderMap.get(request.modelId);
+
+    if (!provider) {
+      const error = `Model ${request.modelId} not found`;
+      await submitResult(request.id, false, undefined, error);
+      requestEvents.emitComplete({
+        id: request.id,
+        success: false,
+        duration: Date.now() - startTime,
+        error,
+      });
+      return;
+    }
+
+    try {
+      switch (request.requestType) {
+        case "llm_chat":
+          await this.handleTextRequest(request, provider, startTime);
+          break;
+        case "image_generation":
+          await this.handleImageRequest(request, provider, startTime);
+          break;
+        default:
+          throw new Error(`Unsupported request type: ${request.requestType}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      await submitResult(request.id, false, undefined, message);
+      requestEvents.emitComplete({
+        id: request.id,
+        success: false,
+        duration: Date.now() - startTime,
+        error: message,
+      });
+    }
+  }
+
+  private async handleTextRequest(
+    request: LocalModelRequest,
+    provider: Provider,
+    startTime: number
+  ): Promise<void> {
+    if (!isTextProvider(provider)) {
+      throw new Error(`Provider does not support text generation`);
+    }
+
+    const messages = (request.payload.messages || []).map((m) => ({
+      role: m.role as "user" | "assistant" | "system",
+      content: m.content,
+    }));
+
+    const stream = provider.chat(request.modelId, messages, {
+      temperature: request.payload.temperature,
+      maxTokens: request.payload.maxTokens,
+    });
+
+    let fullContent = "";
+    let lastProgressUpdate = 0;
+    const progressInterval = 100;
+
+    for await (const chunk of stream) {
+      fullContent += chunk.content;
+
+      const now = Date.now();
+      if (now - lastProgressUpdate > progressInterval) {
+        await submitProgress(request.id, fullContent);
+        requestEvents.emitProgress({
+          id: request.id,
+          content: fullContent,
+        });
+        lastProgressUpdate = now;
+      }
+    }
+
+    await submitProgress(request.id, fullContent);
+    await submitResult(request.id, true, {
+      content: fullContent,
+      usage: { promptTokens: 0, completionTokens: 0 },
+    });
+
+    requestEvents.emitComplete({
+      id: request.id,
+      success: true,
+      duration: Date.now() - startTime,
+      result: { chars: fullContent.length },
+    });
+  }
+
+  private async handleImageRequest(
+    request: LocalModelRequest,
+    provider: Provider,
+    startTime: number
+  ): Promise<void> {
+    if (!isImageProvider(provider)) {
+      throw new Error(`Provider does not support image generation`);
+    }
+
+    const prompt = request.payload.prompt || "";
+    const config = request.payload.config || {};
+
+    let result;
+    if (provider.generateImageWithProgress) {
+      result = await provider.generateImageWithProgress(
+        request.modelId,
+        prompt,
+        {
+          negativePrompt: config.negativePrompt as string | undefined,
+          width: config.width as number | undefined,
+          height: config.height as number | undefined,
+          steps: config.steps as number | undefined,
+          cfgScale: config.cfgScale as number | undefined,
+          seed: config.seed as number | undefined,
+          sampler: config.sampler as string | undefined,
+        },
+        async (progress) => {
+          await submitGenerationProgress(
+            request.id,
+            progress.step,
+            progress.totalSteps,
+            progress.preview
+          );
+          requestEvents.emitProgress({
+            id: request.id,
+            step: progress.step,
+            totalSteps: progress.totalSteps,
+          });
+        }
+      );
+    } else {
+      result = await provider.generateImage(request.modelId, prompt, {
+        negativePrompt: config.negativePrompt as string | undefined,
+        width: config.width as number | undefined,
+        height: config.height as number | undefined,
+        steps: config.steps as number | undefined,
+        cfgScale: config.cfgScale as number | undefined,
+        seed: config.seed as number | undefined,
+        sampler: config.sampler as string | undefined,
+      });
+    }
+
+    await submitResult(request.id, true, {
+      imageBase64: result.imageBase64,
+      mimeType: result.mimeType,
+      seed: result.seed,
+    });
+
+    const imageSize = Math.round((result.imageBase64.length * 3) / 4);
+
+    requestEvents.emitComplete({
+      id: request.id,
+      success: true,
+      duration: Date.now() - startTime,
+      result: { imageSize },
+    });
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+}

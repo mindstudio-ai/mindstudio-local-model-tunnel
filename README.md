@@ -46,16 +46,36 @@ mindstudio-local register
 mindstudio-local start
 ```
 
-## How to setup providers
+## Provider Setup
 
 ### Ollama
 
-- Download [Ollama](https://ollama.com/download)
-- Open the terminal
-- Download one or more [models](https://ollama.com/search) with `ollama pull {modelId}`
-  - Example: To download the `llama3.2` model:
-    `ollama pull llama3.2`
-- Run `ollama serve`
+1. Download [Ollama](https://ollama.com/download)
+2. Pull a model: `ollama pull llama3.2` (see [all models](https://ollama.com/search))
+3. Start the server: `ollama serve`
+
+### LM Studio
+
+1. Download [LM Studio](https://lmstudio.ai/download)
+2. Download a model through the app
+3. Enable the [Local Server](https://lmstudio.ai/docs/developer/core/server#running-the-server)
+
+### Stable Diffusion (Forge)
+
+**First-time setup:**
+```bash
+git clone https://github.com/lllyasviel/stable-diffusion-webui-forge.git
+cd stable-diffusion-webui-forge
+./webui.sh --api
+```
+
+**Subsequent runs:**
+```bash
+cd stable-diffusion-webui-forge
+./webui.sh --api
+```
+
+
 
 ## Commands
 
@@ -64,7 +84,7 @@ mindstudio-local start
 | `auth`       | Authenticate with MindStudio via browser  |
 | `register`   | Register all local models with MindStudio |
 | `start`      | Start the local model tunnel              |
-| `models`     | List available local Ollama models        |
+| `models`     | List available local models               |
 | `status`     | Check connection status                   |
 | `config`     | Show current configuration                |
 | `set-config` | Set configuration                         |
@@ -75,7 +95,8 @@ mindstudio-local start
 ```bash
 # Use custom provider URLs
 mindstudio-local set-config --ollama-url http://localhost:11434
-mindstudio-local set-config --lmstudio-url http://localhost:1234
+mindstudio-local set-config --lmstudio-url http://localhost:1234/v1
+mindstudio-local set-config --sd-url http://127.0.0.1:7860
 ```
 
 ## How It Works

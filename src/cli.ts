@@ -142,7 +142,16 @@ program
 program
   .command("status")
   .description("Check connection status")
-  .action(async () => {
+  .option("--simple", "Use simple text output (no TUI)")
+  .action(async (options) => {
+    if (!options.simple) {
+      console.clear();
+      const { showStatusScreen } = await import("./tui/screens/index.js");
+      await showStatusScreen();
+      return;
+    }
+
+    // Simple mode (original behavior)
     const info = getEnvironmentInfo();
     console.log(chalk.blue(`\nStatus ${envBadge()}\n`));
     console.log(chalk.white(`API: ${info.apiBaseUrl}\n`));
@@ -211,6 +220,7 @@ program
   .option("--ollama-url <url>", "Override Ollama base URL")
   .option("--lmstudio-url <url>", "Override LM Studio base URL")
   .option("--sd-url <url>", "Override Stable Diffusion base URL")
+  .option("--simple", "Use simple non-interactive mode (no TUI)")
   .action(async (options) => {
     if (options.ollamaUrl) {
       setOllamaBaseUrl(options.ollamaUrl);
@@ -222,6 +232,14 @@ program
       setStableDiffusionBaseUrl(options.sdUrl);
     }
 
+    // Use TUI by default, fall back to simple mode with --simple flag
+    if (!options.simple) {
+      const { startTUI } = await import("./tui/index.js");
+      await startTUI();
+      return;
+    }
+
+    // Simple mode (original behavior)
     const info = getEnvironmentInfo();
     console.log(
       chalk.white(`Environment: ${info.current} (${info.apiBaseUrl})`)
@@ -301,7 +319,16 @@ program
 program
   .command("config")
   .description("Show configuration")
-  .action(() => {
+  .option("--simple", "Use simple text output (no TUI)")
+  .action(async (options) => {
+    if (!options.simple) {
+      console.clear();
+      const { showConfigScreen } = await import("./tui/screens/index.js");
+      await showConfigScreen();
+      return;
+    }
+
+    // Simple mode (original behavior)
     const info = getEnvironmentInfo();
     console.log(chalk.blue(`\nConfiguration ${envBadge()}\n`));
     console.log(`  Config file:     ${chalk.white(getConfigPath())}`);
