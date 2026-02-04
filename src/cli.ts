@@ -127,6 +127,28 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForEnter(): Promise<void> {
+  const { spawn } = await import("child_process");
+
+  console.log(chalk.gray("\nPress Enter to continue..."));
+
+  return new Promise((resolve) => {
+    // Use shell's read command - this is reliable even after Ink messes with stdin
+    const child = spawn("bash", ["-c", "read -n 1 -s"], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+
+    child.on("close", () => {
+      resolve();
+    });
+
+    child.on("error", () => {
+      // If bash isn't available, just continue
+      resolve();
+    });
+  });
+}
+
 // Logout command
 program
   .command("logout")
@@ -136,6 +158,16 @@ program
     console.log(
       chalk.green(`Logged out from ${getEnvironment()} environment.\n`)
     );
+  });
+
+// Setup command
+program
+  .command("setup")
+  .alias("quickstart")
+  .description("Interactive setup wizard for installing providers")
+  .action(async () => {
+    const { startQuickstart } = await import("./quickstart/index.js");
+    await startQuickstart();
   });
 
 // Status command
@@ -487,4 +519,191 @@ program
     }
   });
 
-program.parse();
+// Default action when no command is provided - show home screen
+async function runDefaultAction() {
+  const args = process.argv.slice(2);
+  // Check if a command was provided (excluding global options like --env)
+  const hasCommand = args.some(
+    (arg) => !arg.startsWith("-") && arg !== "prod" && arg !== "local"
+  );
+
+  if (!hasCommand) {
+    const { showHomeScreen } = await import("./tui/screens/index.js");
+
+    // Loop to handle navigation
+    while (true) {
+      const nextCommand = await showHomeScreen();
+
+      if (!nextCommand) {
+        // User exited without selecting a command
+        process.exit(0);
+      }
+
+      // Handle the selected command
+      switch (nextCommand) {
+        case "start": {
+          const { startTUI } = await import("./tui/index.js");
+          await startTUI();
+          break;
+        }
+        case "setup": {
+          const { startQuickstart } = await import("./quickstart/index.js");
+          await startQuickstart();
+          continue; // Return to home screen after setup
+        }
+        case "auth": {
+          // Run auth flow (same logic as auth command)
+          const { url: authUrl, token } = await requestDeviceAuth();
+          console.log(chalk.white("\nOpening browser for authentication...\n"));
+          console.log(chalk.white("  If browser doesn't open, visit:"));
+          console.log(chalk.cyan(`  ${authUrl}\n`));
+          await open(authUrl);
+
+          const pollSpinner = ora(
+            "Waiting for browser authorization..."
+          ).start();
+          const pollInterval = 2000;
+          const maxAttempts = 30;
+
+          let authSuccess = false;
+          for (let i = 0; i < maxAttempts; i++) {
+            await sleep(pollInterval);
+            const result = await pollDeviceAuth(token);
+
+            if (result.status === "completed" && result.apiKey) {
+              setApiKey(result.apiKey);
+              pollSpinner.succeed(chalk.green("Authenticated successfully!"));
+              authSuccess = true;
+              break;
+            }
+
+            if (result.status === "expired") {
+              pollSpinner.fail(
+                chalk.red("Authorization expired. Please try again.")
+              );
+              break;
+            }
+
+            const remaining = Math.floor(
+              ((maxAttempts - i) * pollInterval) / 1000
+            );
+            pollSpinner.text = `Waiting for browser authorization... (${remaining}s remaining)`;
+          }
+
+          await waitForEnter();
+          continue; // Return to home screen after auth
+        }
+        case "register": {
+          const registerSpinner = ora("Discovering local models...").start();
+          try {
+            const apiKey = getApiKey();
+            if (!apiKey) {
+              registerSpinner.fail(
+                chalk.red("Not authenticated. Please authenticate first.")
+              );
+              await waitForEnter();
+              continue;
+            }
+
+            const localModels = await discoverAllModelsWithParameters();
+            if (localModels.length === 0) {
+              registerSpinner.fail(chalk.yellow("No local models found."));
+              await waitForEnter();
+              continue;
+            }
+
+            const registeredModels = await getRegisteredModels();
+            const registeredNames = new Set(registeredModels);
+            const unregisteredModels = localModels.filter(
+              (m) => !registeredNames.has(m.name)
+            );
+
+            if (unregisteredModels.length === 0) {
+              registerSpinner.succeed(
+                chalk.green("All models already registered.")
+              );
+              await waitForEnter();
+              continue;
+            }
+
+            registerSpinner.text = `Registering ${unregisteredModels.length} models...`;
+            console.log("\n");
+
+            for (const model of unregisteredModels) {
+              const modelTypeMap = {
+                text: "llm_chat",
+                image: "image_generation",
+                video: "video_generation",
+              } as const;
+
+              const modelType =
+                modelTypeMap[model.capability as keyof typeof modelTypeMap];
+
+              await registerLocalModel({
+                modelName: model.name,
+                provider: model.provider,
+                modelType,
+                parameters: model.parameters,
+              });
+
+              console.log(chalk.green(`✓ ${model.name} [${model.provider}]`));
+            }
+
+            registerSpinner.succeed(
+              chalk.green(`Registered ${unregisteredModels.length} models.`)
+            );
+            await waitForEnter();
+          } catch (error) {
+            registerSpinner.fail(
+              chalk.red(
+                `Failed: ${
+                  error instanceof Error ? error.message : String(error)
+                }`
+              )
+            );
+          }
+          await waitForEnter();
+          continue; // Return to home screen
+        }
+        case "models": {
+          const { showModelsScreen } = await import("./tui/screens/index.js");
+          await showModelsScreen();
+          continue; // Return to home screen after models
+        }
+        case "config": {
+          const { showConfigScreen } = await import("./tui/screens/index.js");
+          await showConfigScreen();
+          await waitForEnter();
+          continue; // Return to home screen after config
+        }
+        case "logout": {
+          clearApiKey();
+          console.log(
+            chalk.green("\nLogged out successfully. All credentials cleared.\n")
+          );
+          await waitForEnter();
+          continue; // Return to home screen after logout
+        }
+        default:
+          process.exit(0);
+      }
+
+      // If we reach here (from start), exit the loop
+      break;
+    }
+
+    process.exit(0);
+  }
+}
+
+// Run default action check, then parse commands
+runDefaultAction().then(() => {
+  // Only parse if we haven't handled via default action
+  if (
+    process.argv
+      .slice(2)
+      .some((arg) => !arg.startsWith("-") && arg !== "prod" && arg !== "local")
+  ) {
+    program.parse();
+  }
+});

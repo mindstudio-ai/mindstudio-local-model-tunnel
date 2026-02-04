@@ -15,15 +15,6 @@ Providers supported so far:
 ## Prerequisites
 
 - Node.js 18+
-- At least one provider running:
-
-| Type  | Provider                                                                     | How to Start        |
-| ----- | ---------------------------------------------------------------------------- | ------------------- |
-| Text  | [Ollama](https://ollama.ai)                                                  | `ollama serve`      |
-| Text  | [LM Studio](https://lmstudio.ai/)                                            | Enable local server |
-| Image | [SD WebUI Forge](https://github.com/lllyasviel/stable-diffusion-webui-forge) | `./webui.sh --api`  |
-
-See more information below on how to set up each provider.
 
 ## Installation
 
@@ -34,24 +25,64 @@ npm install -g @mindstudio-ai/local-model-tunnel
 ## Quick Start
 
 ```bash
+# Launch the interactive menu
+mindstudio-local
+```
+
+This opens an interactive home screen where you can:
+
+- **Setup** - Install and configure local AI providers (Ollama, LM Studio, Stable Diffusion)
+- **Authenticate** - Log in to MindStudio
+- **Register Models** - Register your local models with MindStudio
+- **Start Tunnel** - Launch the local model tunnel
+- **View Models** - See available local models
+- **Configuration** - View current settings
+
+### Manual Commands
+
+If you prefer command-line usage:
+
+```bash
+# Run the setup wizard
+mindstudio-local setup
+
 # Authenticate with MindStudio
 mindstudio-local auth
 
-# Register your local models on MindStudio
-# IMPORTANT: Your provider local server has to be running in order to properly detect your local models
-# (see Prerequisites above)
+# Register your local models
 mindstudio-local register
 
 # Start the tunnel
 mindstudio-local start
 ```
 
-## Provider Setup
+## Setup Wizard
+
+The setup wizard (`mindstudio-local setup`) helps you install and configure providers:
+
+**Ollama:**
+
+- Auto-install Ollama (Linux/macOS)
+- Start/stop Ollama server
+- Download models from [ollama.com/library](https://ollama.com/library)
+
+**LM Studio:**
+
+- Opens download page in browser
+- Guides you through enabling the local server
+
+**Stable Diffusion Forge:**
+
+- Clones the repository to your chosen location
+- Provides setup instructions
+- Tip: Download models from [civitai.com](https://civitai.com) (filter by "SDXL 1.0")
+
+## Provider Setup (Manual)
 
 ### Ollama
 
 1. Download [Ollama](https://ollama.com/download)
-2. Pull a model: `ollama pull llama3.2` (see [all models](https://ollama.com/search))
+2. Pull a model: `ollama pull llama3.2` (see [all models](https://ollama.com/library))
 3. Start the server: `ollama serve`
 
 ### LM Studio
@@ -63,6 +94,7 @@ mindstudio-local start
 ### Stable Diffusion (Forge)
 
 **First-time setup:**
+
 ```bash
 git clone https://github.com/lllyasviel/stable-diffusion-webui-forge.git
 cd stable-diffusion-webui-forge
@@ -70,17 +102,18 @@ cd stable-diffusion-webui-forge
 ```
 
 **Subsequent runs:**
+
 ```bash
 cd stable-diffusion-webui-forge
 ./webui.sh --api
 ```
 
-
-
 ## Commands
 
 | Command      | Description                               |
 | ------------ | ----------------------------------------- |
+| _(none)_     | Open interactive home screen              |
+| `setup`      | Interactive setup wizard for providers    |
 | `auth`       | Authenticate with MindStudio via browser  |
 | `register`   | Register all local models with MindStudio |
 | `start`      | Start the local model tunnel              |

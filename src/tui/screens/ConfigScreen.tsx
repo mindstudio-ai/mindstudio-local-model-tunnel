@@ -27,7 +27,6 @@ export function ConfigScreen() {
   return (
     <Box flexDirection="column" padding={1}>
       {/* Header */}
-      <Text color="cyan">{LogoString}</Text>
       <Box marginTop={1} marginBottom={1}>
         <Text bold>MindStudio Local Tunnel </Text>
         <Text color={envColor} bold>

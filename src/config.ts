@@ -12,6 +12,7 @@ interface ConfigSchema {
   ollamaBaseUrl: string;
   lmstudioBaseUrl: string;
   stableDiffusionBaseUrl: string;
+  stableDiffusionInstallPath?: string;
   environments: {
     prod: EnvironmentConfig;
     local: EnvironmentConfig;
@@ -104,6 +105,15 @@ export function getStableDiffusionBaseUrl(): string {
 
 export function setStableDiffusionBaseUrl(url: string): void {
   config.set("stableDiffusionBaseUrl", url);
+}
+
+// Stable Diffusion install path
+export function getStableDiffusionInstallPath(): string | undefined {
+  return config.get("stableDiffusionInstallPath");
+}
+
+export function setStableDiffusionInstallPath(path: string): void {
+  config.set("stableDiffusionInstallPath", path);
 }
 
 export function getConfigPath(): string {
