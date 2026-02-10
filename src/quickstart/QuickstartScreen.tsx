@@ -15,6 +15,8 @@ import {
   stopOllama,
   startStableDiffusion,
   stopStableDiffusion,
+  downloadSdModel,
+  hasDefaultSdModel,
   type InstallProgress,
 } from "./installers.js";
 import { LogoString } from "../helpers.js";
@@ -66,11 +68,30 @@ export function QuickstartScreen() {
   // Model download state for Ollama
   const [modelName, setModelName] = useState("");
 
+  // Track if default SD model already exists
+  const [sdModelExists, setSdModelExists] = useState(false);
+
+  // Refresh provider detection and model status
+  const refreshProviders = async () => {
+    const detected = await detectAllProviders();
+    setProviders(detected);
+    const modelExists = await hasDefaultSdModel();
+    setSdModelExists(modelExists);
+  };
+
+  // Navigate to a screen with a clean slate
+  const navigateTo = (target: Screen) => {
+    console.clear();
+    setInstallProgress(null);
+    setLogs([]);
+    setScreen(target);
+  };
+
   // Detect providers on mount
   useEffect(() => {
     async function detect() {
-      const detected = await detectAllProviders();
-      setProviders(detected);
+      console.clear();
+      await refreshProviders();
       setScreen("menu");
     }
     detect();
@@ -91,7 +112,7 @@ export function QuickstartScreen() {
           ? "Install Ollama (automatic)"
           : "Download Ollama (opens browser)",
         action: async () => {
-          setScreen("installing");
+          navigateTo("installing");
           await installOllama((progress) => {
             setInstallProgress(progress);
             if (progress.message) {
@@ -107,7 +128,7 @@ export function QuickstartScreen() {
             }
           });
           setCompletedAction("install-ollama");
-          setScreen("done");
+          navigateTo("done");
         },
       });
     } else if (!ollama.running) {
@@ -115,12 +136,12 @@ export function QuickstartScreen() {
         id: "start-ollama",
         label: "Start Ollama server",
         action: async () => {
-          setScreen("installing");
+          navigateTo("installing");
           await startOllama((progress) => {
             setInstallProgress(progress);
           });
           setCompletedAction("start-ollama");
-          setScreen("done");
+          navigateTo("done");
         },
       });
     } else {
@@ -130,7 +151,7 @@ export function QuickstartScreen() {
         label: "Download Ollama Models",
         action: async () => {
           setModelName("");
-          setScreen("model-download");
+          navigateTo("model-download");
         },
       });
       menuItems.push({
@@ -151,10 +172,8 @@ export function QuickstartScreen() {
           await waitForEnter();
 
           // Re-detect providers and refresh menu
-          console.clear();
-          const detected = await detectAllProviders();
-          setProviders(detected);
-          setScreen("menu");
+          await refreshProviders();
+          navigateTo("menu");
         },
       });
     }
@@ -165,12 +184,12 @@ export function QuickstartScreen() {
       id: "install-lmstudio",
       label: "Download LM Studio (opens browser)",
       action: async () => {
-        setScreen("installing");
+        navigateTo("installing");
         await installLMStudio((progress) => {
           setInstallProgress(progress);
         });
         setCompletedAction("install-lmstudio");
-        setScreen("done");
+        navigateTo("done");
       },
     });
   }
@@ -185,7 +204,7 @@ export function QuickstartScreen() {
         disabled: !sd.installable,
         action: async () => {
           // Show path input screen first
-          setScreen("path-input");
+          navigateTo("path-input");
         },
       });
     } else if (!sd.running) {
@@ -217,9 +236,8 @@ export function QuickstartScreen() {
           await new Promise((r) => setTimeout(r, 1500));
 
           // Re-detect providers and show menu again
-          const detected = await detectAllProviders();
-          setProviders(detected);
-          setScreen("menu");
+          await refreshProviders();
+          navigateTo("menu");
         },
       });
     } else {
@@ -242,10 +260,50 @@ export function QuickstartScreen() {
           await waitForEnter();
 
           // Re-detect providers and refresh menu
+          await refreshProviders();
+          navigateTo("menu");
+        },
+      });
+    }
+
+    // SD is installed and model not yet downloaded - offer to download
+    if (sd.installed && !sdModelExists) {
+      menuItems.push({
+        id: "download-sd-model",
+        label: "Download default SDXL model (~6.5 GB)",
+        action: async () => {
           console.clear();
-          const detected = await detectAllProviders();
-          setProviders(detected);
-          setScreen("menu");
+          console.log("Downloading SDXL base model...\n");
+          console.log(
+            "This will download sd_xl_base_1.0.safetensors (~6.5 GB) from Hugging Face.\n"
+          );
+
+          const success = await downloadSdModel((progress) => {
+            if (progress.message) {
+              console.log(progress.message);
+            }
+            if (progress.error) {
+              console.error(`Error: ${progress.error}`);
+            }
+          });
+
+          if (success) {
+            console.log("\nModel downloaded successfully!");
+          } else {
+            console.log(
+              "\nDownload failed. You can also download SDXL models from https://civitai.com/models"
+            );
+            console.log('Filter by "SDXL 1.0" and place .safetensors files in:');
+            console.log(
+              `  ${sdInstallPath}/models/Stable-diffusion/`
+            );
+          }
+
+          console.log("\nPress any key to return to setup menu...");
+          await waitForEnter();
+
+          await refreshProviders();
+          navigateTo("menu");
         },
       });
     }
@@ -253,7 +311,7 @@ export function QuickstartScreen() {
 
   // Function to start SD installation with the chosen path
   const startSdInstallation = async () => {
-    setScreen("installing");
+    navigateTo("installing");
     await installStableDiffusion((progress) => {
       setInstallProgress(progress);
       if (progress.message) {
@@ -261,13 +319,13 @@ export function QuickstartScreen() {
       }
     }, sdInstallPath);
     setCompletedAction("install-sd");
-    setScreen("done");
+    navigateTo("done");
   };
 
   // Function to download an Ollama model
   const startModelDownload = async () => {
     if (!modelName.trim()) return;
-    setScreen("installing");
+    navigateTo("installing");
     await pullOllamaModel(modelName.trim(), (progress) => {
       setInstallProgress(progress);
       if (progress.message) {
@@ -275,7 +333,7 @@ export function QuickstartScreen() {
       }
     });
     setCompletedAction("download-model");
-    setScreen("done");
+    navigateTo("done");
   };
 
   // Always add exit option
@@ -305,12 +363,12 @@ export function QuickstartScreen() {
     }
     // Allow escape to go back from path input
     if (screen === "path-input" && key.escape) {
-      setScreen("menu");
+      navigateTo("menu");
       return;
     }
     // Allow escape to go back from model download
     if (screen === "model-download" && key.escape) {
-      setScreen("menu");
+      navigateTo("menu");
       return;
     }
     // Allow Enter to exit from done screen (return to main menu)
@@ -542,10 +600,9 @@ export function QuickstartScreen() {
             title: "Stable Diffusion Forge cloned!",
             description: `Repository cloned to: ${sdInstallPath}`,
             nextSteps: [
-              `Download a model from https://civitai.com/models (filter by "SDXL 1.0")`,
-              "Place it in: ${sdInstallPath}/models/Stable-diffusion/",
-              "Wait for initial setup to complete.",
-              "Return to main menu to start the tunnel.",
+              'Use "Download default SDXL model" from the setup menu to get a model automatically.',
+              'Or download from https://civitai.com/models (filter by "SDXL 1.0").',
+              "Then start the server from the setup menu.",
             ],
             note: null,
           };

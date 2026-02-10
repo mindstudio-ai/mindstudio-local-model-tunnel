@@ -248,6 +248,133 @@ export async function installStableDiffusion(
 }
 
 /**
+ * Check if the default SDXL model already exists.
+ */
+export async function hasDefaultSdModel(): Promise<boolean> {
+  const installPath = getStableDiffusionInstallPath();
+  if (!installPath) return false;
+  const modelFile = path.join(
+    installPath,
+    "models",
+    "Stable-diffusion",
+    "sd_xl_base_1.0.safetensors"
+  );
+  try {
+    await execAsync(`test -f "${modelFile}"`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Download a default SDXL model for Stable Diffusion.
+ * Uses wget with progress output (falls back to curl).
+ */
+export async function downloadSdModel(
+  onProgress: ProgressCallback
+): Promise<boolean> {
+  const installPath = getStableDiffusionInstallPath();
+
+  if (!installPath) {
+    onProgress({
+      stage: "error",
+      message: "Stable Diffusion install path not found",
+      error: "Please install Stable Diffusion first",
+    });
+    return false;
+  }
+
+  const modelsDir = path.join(installPath, "models", "Stable-diffusion");
+  const modelUrl =
+    "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors";
+  const modelFile = path.join(modelsDir, "sd_xl_base_1.0.safetensors");
+
+  try {
+    // Ensure models directory exists
+    await execAsync(`mkdir -p "${modelsDir}"`);
+
+    // Check if model already exists
+    try {
+      await execAsync(`test -f "${modelFile}"`);
+      onProgress({
+        stage: "complete",
+        message: "SDXL base model already exists!",
+        complete: true,
+      });
+      return true;
+    } catch {
+      // File doesn't exist, proceed with download
+    }
+
+    onProgress({
+      stage: "download",
+      message: "Downloading SDXL base model (~6.5 GB)...",
+    });
+
+    // Try wget first (better progress), fall back to curl
+    const hasWget = await new Promise<boolean>((resolve) => {
+      exec("which wget", (error) => resolve(!error));
+    });
+
+    return new Promise((resolve) => {
+      let proc: ReturnType<typeof spawn>;
+
+      if (hasWget) {
+        proc = spawn(
+          "wget",
+          ["-c", "--show-progress", "-O", modelFile, modelUrl],
+          { stdio: "inherit" }
+        );
+      } else {
+        proc = spawn(
+          "curl",
+          ["-L", "-C", "-", "--progress-bar", "-o", modelFile, modelUrl],
+          { stdio: "inherit" }
+        );
+      }
+
+      proc.on("close", (code) => {
+        if (code === 0) {
+          onProgress({
+            stage: "complete",
+            message: "SDXL base model downloaded!",
+            complete: true,
+          });
+          resolve(true);
+        } else {
+          onProgress({
+            stage: "error",
+            message: "Download failed",
+            error: `Exit code ${code}. The model may require accepting the license at huggingface.co first. You can also download manually from Civitai.`,
+          });
+          // Clean up partial file
+          exec(`rm -f "${modelFile}"`);
+          resolve(false);
+        }
+      });
+
+      proc.on("error", (err) => {
+        onProgress({
+          stage: "error",
+          message: "Download failed",
+          error: err.message,
+        });
+        resolve(false);
+      });
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    onProgress({
+      stage: "error",
+      message: "Failed to download model",
+      error: message,
+    });
+    return false;
+  }
+}
+
+/**
  * Start Stable Diffusion server
  * Note: SD runs in the foreground and takes over the terminal.
  * We start it and poll in the background until it's ready.

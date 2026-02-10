@@ -540,6 +540,7 @@ async function runDefaultAction() {
       }
 
       // Handle the selected command
+      console.clear();
       switch (nextCommand) {
         case "start": {
           const { startTUI } = await import("./tui/index.js");
@@ -549,6 +550,7 @@ async function runDefaultAction() {
         case "setup": {
           const { startQuickstart } = await import("./quickstart/index.js");
           await startQuickstart();
+          console.clear();
           continue; // Return to home screen after setup
         }
         case "auth": {
@@ -591,6 +593,7 @@ async function runDefaultAction() {
           }
 
           await waitForEnter();
+          console.clear();
           continue; // Return to home screen after auth
         }
         case "register": {
@@ -602,6 +605,7 @@ async function runDefaultAction() {
                 chalk.red("Not authenticated. Please authenticate first.")
               );
               await waitForEnter();
+              console.clear();
               continue;
             }
 
@@ -609,6 +613,7 @@ async function runDefaultAction() {
             if (localModels.length === 0) {
               registerSpinner.fail(chalk.yellow("No local models found."));
               await waitForEnter();
+              console.clear();
               continue;
             }
 
@@ -623,6 +628,7 @@ async function runDefaultAction() {
                 chalk.green("All models already registered.")
               );
               await waitForEnter();
+              console.clear();
               continue;
             }
 
@@ -663,17 +669,20 @@ async function runDefaultAction() {
             );
           }
           await waitForEnter();
+          console.clear();
           continue; // Return to home screen
         }
         case "models": {
           const { showModelsScreen } = await import("./tui/screens/index.js");
           await showModelsScreen();
+          console.clear();
           continue; // Return to home screen after models
         }
         case "config": {
           const { showConfigScreen } = await import("./tui/screens/index.js");
           await showConfigScreen();
           await waitForEnter();
+          console.clear();
           continue; // Return to home screen after config
         }
         case "logout": {
@@ -682,6 +691,7 @@ async function runDefaultAction() {
             chalk.green("\nLogged out successfully. All credentials cleared.\n")
           );
           await waitForEnter();
+          console.clear();
           continue; // Return to home screen after logout
         }
         default:
