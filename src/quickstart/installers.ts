@@ -1,5 +1,6 @@
 import { exec, spawn } from "child_process";
 import { promisify } from "util";
+import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import open from "open";
@@ -7,6 +8,9 @@ import {
   setStableDiffusionInstallPath,
   getStableDiffusionInstallPath,
 } from "../config.js";
+import chalk from "chalk";
+
+export { getStableDiffusionInstallPath };
 
 const execAsync = promisify(exec);
 
@@ -18,6 +22,106 @@ export type InstallProgress = {
 };
 
 export type ProgressCallback = (progress: InstallProgress) => void;
+
+/** Minimum Python version required by Forge Neo */
+const REQUIRED_PYTHON_MAJOR = 3;
+const REQUIRED_PYTHON_MINOR = 13;
+
+type PythonInfo = {
+  major: number;
+  minor: number;
+  patch: number;
+  version: string;
+  executable: string;
+};
+
+/**
+ * Try to get Python version info from a specific command.
+ */
+async function tryPythonCommand(cmd: string): Promise<PythonInfo | null> {
+  try {
+    const { stdout: versionOut } = await execAsync(`${cmd} --version`);
+    const match = versionOut.trim().match(/Python\s+(\d+)\.(\d+)\.(\d+)/);
+    if (!match) return null;
+
+    const major = parseInt(match[1]);
+    const minor = parseInt(match[2]);
+    const patch = parseInt(match[3]);
+    const version = `${major}.${minor}.${patch}`;
+
+    // Get the actual executable path
+    let executable = cmd;
+    try {
+      const { stdout: exeOut } = await execAsync(
+        `${cmd} -c "import sys; print(sys.executable)"`
+      );
+      executable = exeOut.trim();
+    } catch {
+      // Fall back to command name
+    }
+
+    return { major, minor, patch, version, executable };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the best available Python version.
+ * Checks multiple candidates and returns the newest one that meets
+ * the minimum requirement, or the newest overall if none qualify.
+ */
+export async function getPythonVersion(): Promise<PythonInfo | null> {
+  // Check multiple candidates - versioned commands first (more specific),
+  // then generic ones. This handles cases where a venv or older version
+  // shadows the newer install on PATH.
+  const candidates = [
+    "python3.13",
+    "python3.14",
+    "python3.15",
+    "python3",
+    "python",
+  ];
+
+  const results: PythonInfo[] = [];
+
+  for (const cmd of candidates) {
+    const info = await tryPythonCommand(cmd);
+    if (info) {
+      // If this one meets the requirement, return immediately
+      if (isPythonVersionOk(info)) {
+        return info;
+      }
+      results.push(info);
+    }
+  }
+
+  // No qualifying version found - return the best we have (for error messages)
+  if (results.length > 0) {
+    results.sort((a, b) => {
+      if (a.major !== b.major) return b.major - a.major;
+      if (a.minor !== b.minor) return b.minor - a.minor;
+      return b.patch - a.patch;
+    });
+    return results[0];
+  }
+
+  return null;
+}
+
+/**
+ * Check if the installed Python version meets Forge Neo requirements (>= 3.13).
+ */
+export function isPythonVersionOk(info: {
+  major: number;
+  minor: number;
+}): boolean {
+  return (
+    info.major > REQUIRED_PYTHON_MAJOR ||
+    (info.major === REQUIRED_PYTHON_MAJOR &&
+      info.minor >= REQUIRED_PYTHON_MINOR)
+  );
+}
 
 /**
  * Install Ollama (macOS/Linux only)
@@ -171,14 +275,13 @@ export async function installStableDiffusion(
   onProgress: ProgressCallback,
   installDir?: string
 ): Promise<boolean> {
-  const targetDir =
-    installDir || path.join(os.homedir(), "stable-diffusion-webui-forge");
+  const targetDir = installDir || path.join(os.homedir(), "sd-webui-forge-neo");
 
   try {
     onProgress({
       stage: "clone",
       message:
-        "Cloning Stable Diffusion Forge repository (this may take a while)...",
+        "Cloning Stable Diffusion Forge Neo repository (this may take a while)...",
     });
 
     // Use spawn with inherited stdio to show git clone progress
@@ -188,7 +291,9 @@ export async function installStableDiffusion(
         [
           "clone",
           "--progress",
-          "https://github.com/lllyasviel/stable-diffusion-webui-forge.git",
+          "--branch",
+          "neo",
+          "https://github.com/Haoming02/sd-webui-forge-classic.git",
           targetDir,
         ],
         {
@@ -220,7 +325,7 @@ export async function installStableDiffusion(
 
     onProgress({
       stage: "info",
-      message: `To start: cd "${targetDir}" && ./webui.sh --api`,
+      message: `To start: cd "${targetDir}" && python launch.py --api`,
     });
 
     return true;
@@ -259,12 +364,7 @@ export async function hasDefaultSdModel(): Promise<boolean> {
     "Stable-diffusion",
     "sd_xl_base_1.0.safetensors"
   );
-  try {
-    await execAsync(`test -f "${modelFile}"`);
-    return true;
-  } catch {
-    return false;
-  }
+  return fs.existsSync(modelFile);
 }
 
 /**
@@ -292,19 +392,16 @@ export async function downloadSdModel(
 
   try {
     // Ensure models directory exists
-    await execAsync(`mkdir -p "${modelsDir}"`);
+    fs.mkdirSync(modelsDir, { recursive: true });
 
     // Check if model already exists
-    try {
-      await execAsync(`test -f "${modelFile}"`);
+    if (fs.existsSync(modelFile)) {
       onProgress({
         stage: "complete",
         message: "SDXL base model already exists!",
         complete: true,
       });
       return true;
-    } catch {
-      // File doesn't exist, proceed with download
     }
 
     onProgress({
@@ -312,9 +409,11 @@ export async function downloadSdModel(
       message: "Downloading SDXL base model (~6.5 GB)...",
     });
 
-    // Try wget first (better progress), fall back to curl
+    // Check available download tools: wget (better progress on Linux/macOS), curl (everywhere)
+    const isWindows = process.platform === "win32";
+    const whichCmd = isWindows ? "where" : "which";
     const hasWget = await new Promise<boolean>((resolve) => {
-      exec("which wget", (error) => resolve(!error));
+      exec(`${whichCmd} wget`, (error) => resolve(!error));
     });
 
     return new Promise((resolve) => {
@@ -327,6 +426,7 @@ export async function downloadSdModel(
           { stdio: "inherit" }
         );
       } else {
+        // curl is available on macOS, Linux, and Windows 10+
         proc = spawn(
           "curl",
           ["-L", "-C", "-", "--progress-bar", "-o", modelFile, modelUrl],
@@ -349,7 +449,11 @@ export async function downloadSdModel(
             error: `Exit code ${code}. The model may require accepting the license at huggingface.co first. You can also download manually from Civitai.`,
           });
           // Clean up partial file
-          exec(`rm -f "${modelFile}"`);
+          try {
+            fs.unlinkSync(modelFile);
+          } catch {
+            /* ignore */
+          }
           resolve(false);
         }
       });
@@ -394,28 +498,155 @@ export async function startStableDiffusion(
   }
 
   try {
+    // Check Python version before starting
+    const pyInfo = await getPythonVersion();
+    if (!pyInfo) {
+      onProgress({
+        stage: "error",
+        message: "Python not found",
+        error:
+          "Python is not installed. Forge Neo requires Python 3.13+.\nInstall from https://www.python.org/downloads/",
+      });
+      return false;
+    }
+
+    if (!isPythonVersionOk(pyInfo)) {
+      onProgress({
+        stage: "error",
+        message: `Python ${pyInfo.version} is too old`,
+        error: `Forge Neo requires Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+. You have ${pyInfo.version}.\nInstall Python 3.13 from https://www.python.org/downloads/\nIf using pyenv: pyenv install 3.13.12 && pyenv global 3.13.12\nAfter updating Python, delete the old venv: rm -rf ${installPath}/venv`,
+      });
+      return false;
+    }
+
     onProgress({
       stage: "start",
-      message:
-        "Starting Stable Diffusion server (this will take over the terminal)...",
+      message: `Starting Stable Diffusion server (Python ${pyInfo.version})...`,
     });
 
     // Small delay to let the message display
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    // Determine the script based on platform
+    // Determine the launch method based on platform
+    // Neo fork removed .sh scripts; on Linux/macOS we create/activate venv and run launch.py
     const isWindows = process.platform === "win32";
-    const script = isWindows ? "webui-user.bat" : "./webui.sh";
-    const args = ["--api"];
+
+    // Detect the driver's max CUDA version so we can pick the right PyTorch build.
+    // Forge Neo defaults to cu130 which requires very new drivers.
+    let cudaEnv: Record<string, string> = {};
+    try {
+      const { stdout: smiOut } = await execAsync(
+        "nvidia-smi --query-gpu=driver_version --format=csv,noheader"
+      );
+      // nvidia-smi also shows CUDA version in its header; parse from full output
+      const { stdout: smiFullOut } = await execAsync("nvidia-smi");
+      const cudaMatch = smiFullOut.match(/CUDA Version:\s*(\d+)\.(\d+)/);
+      if (cudaMatch) {
+        const driverCudaMajor = parseInt(cudaMatch[1]);
+        const driverCudaMinor = parseInt(cudaMatch[2]);
+
+        // Map driver CUDA capability to the best compatible PyTorch CUDA build
+        // Available PyTorch CUDA builds: cu118, cu121, cu124, cu126, cu128, cu130
+        let cuTag: string;
+        if (driverCudaMajor >= 13) {
+          cuTag = "cu130";
+        } else if (driverCudaMajor === 12 && driverCudaMinor >= 8) {
+          cuTag = "cu128";
+        } else if (driverCudaMajor === 12 && driverCudaMinor >= 6) {
+          cuTag = "cu126";
+        } else if (driverCudaMajor === 12 && driverCudaMinor >= 4) {
+          cuTag = "cu124";
+        } else if (driverCudaMajor === 12) {
+          cuTag = "cu121";
+        } else {
+          cuTag = "cu118";
+        }
+
+        // Only override if driver doesn't support the default cu130
+        if (cuTag !== "cu130") {
+          onProgress({
+            stage: "start",
+            message: `Driver supports CUDA ${driverCudaMajor}.${driverCudaMinor}, using PyTorch with ${cuTag}`,
+          });
+          const torchIndexUrl = `https://download.pytorch.org/whl/${cuTag}`;
+          cudaEnv = {
+            TORCH_INDEX_URL: torchIndexUrl,
+            TORCH_COMMAND: `pip install torch torchvision --extra-index-url ${torchIndexUrl}`,
+          };
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    } catch {
+      // nvidia-smi not available or failed - let SD use its defaults
+    }
+
+    // Merge CUDA env overrides with current environment
+    const env = { ...process.env, ...cudaEnv };
+
+    // If we have CUDA env overrides and an existing venv (Linux/macOS),
+    // check if the venv has wrong PyTorch CUDA bindings and needs recreation
+    if (!isWindows && cudaEnv.TORCH_INDEX_URL) {
+      const venvPythonCheck = path.join(installPath, "venv", "bin", "python");
+      if (fs.existsSync(venvPythonCheck)) {
+        try {
+          const { stdout: torchCheck } = await execAsync(
+            `"${venvPythonCheck}" -c "import torch; print(torch.version.cuda or 'none')"`
+          );
+          const installedCuda = torchCheck.trim();
+          const targetCu = cudaEnv.TORCH_INDEX_URL.split("/").pop() || "";
+          // e.g. installedCuda="13.0" and targetCu="cu121" -> mismatch
+          const installedCuTag =
+            "cu" + installedCuda.replace(".", "").replace(/0$/, "");
+          if (installedCuTag !== targetCu) {
+            onProgress({
+              stage: "start",
+              message: `Existing venv has PyTorch for CUDA ${installedCuda}, recreating with ${targetCu}...`,
+            });
+            await new Promise((r) => setTimeout(r, 1000));
+            // Remove the old venv so the launch script recreates it
+            fs.rmSync(path.join(installPath, "venv"), {
+              recursive: true,
+              force: true,
+            });
+          }
+        } catch {
+          // torch not installed in venv yet - no need to recreate
+        }
+      }
+    }
 
     // Run in foreground with inherited stdio - SD needs a proper terminal
     // This will block until the server is killed
     return new Promise((resolve) => {
-      const proc = spawn(script, args, {
-        cwd: installPath,
-        stdio: "inherit",
-        shell: true,
-      });
+      let proc: ReturnType<typeof spawn>;
+
+      if (isWindows) {
+        // Windows: use webui-user.bat which handles venv and launches
+        proc = spawn("cmd", ["/c", "webui-user.bat"], {
+          cwd: installPath,
+          stdio: "inherit",
+          env,
+        });
+      } else {
+        // Linux/macOS: create venv if needed using the correct python, activate, and run launch.py
+        const venvDir = path.join(installPath, "venv");
+        const venvPython = path.join(venvDir, "bin", "python");
+
+        const launchScript = [
+          `if [ ! -f "${venvPython}" ]; then`,
+          `  echo "Creating virtual environment with Python ${pyInfo.version}..."`,
+          `  "${pyInfo.executable}" -m venv "${venvDir}"`,
+          `fi`,
+          `source "${venvDir}/bin/activate"`,
+          `python launch.py --api`,
+        ].join("\n");
+
+        proc = spawn("bash", ["-c", launchScript], {
+          cwd: installPath,
+          stdio: "inherit",
+          env,
+        });
+      }
 
       // Start polling for server readiness in the background
       const pollForReady = async () => {
@@ -434,6 +665,11 @@ export async function startStableDiffusion(
             if (response.ok) {
               console.log("\n\n✓ Stable Diffusion server is ready!\n");
               console.log(
+                chalk.yellow(
+                  "Please leave this terminal running and open another terminal to run mindstudio-local.\n"
+                )
+              );
+              console.log(
                 "Press Ctrl+C to stop the server and return to the menu.\n"
               );
               return;
@@ -447,13 +683,28 @@ export async function startStableDiffusion(
       pollForReady();
 
       proc.on("close", (code) => {
-        onProgress({
-          stage: "complete",
-          message:
-            code === 0 ? "Stable Diffusion server stopped." : "Server exited.",
-          complete: true,
-        });
-        resolve(true);
+        if (code === 0) {
+          onProgress({
+            stage: "complete",
+            message: "Stable Diffusion server stopped.",
+            complete: true,
+          });
+          resolve(true);
+        } else {
+          onProgress({
+            stage: "error",
+            message: "Stable Diffusion failed to start",
+            error: [
+              `Process exited with code ${code}. Check the output above for details.`,
+              "",
+              "Common fixes:",
+              `  - Delete the venv and retry: rm -rf ${installPath}/venv`,
+              "  - Ensure Python 3.13+ is installed",
+              "  - Ensure NVIDIA drivers and CUDA are up to date",
+            ].join("\n"),
+          });
+          resolve(false);
+        }
       });
 
       proc.on("error", (err) => {
@@ -477,13 +728,17 @@ export async function startStableDiffusion(
 }
 
 /**
- * Run a command with sudo, allowing user to enter password
+ * Run a command that may need elevated privileges (cross-platform)
  */
-async function runSudoCommand(command: string): Promise<boolean> {
+async function runKillCommand(command: string): Promise<boolean> {
+  const isWindows = process.platform === "win32";
   return new Promise((resolve) => {
-    const proc = spawn("sudo", ["bash", "-c", command], {
-      stdio: "inherit",
-    });
+    let proc: ReturnType<typeof spawn>;
+    if (isWindows) {
+      proc = spawn("cmd", ["/c", command], { stdio: "inherit" });
+    } else {
+      proc = spawn("sudo", ["bash", "-c", command], { stdio: "inherit" });
+    }
     proc.on("close", (code) => {
       resolve(code === 0 || code === 1); // 1 = no process found, which is OK
     });
@@ -505,14 +760,28 @@ export async function stopStableDiffusion(
       message: "Stopping Stable Diffusion server...",
     });
 
-    console.log(
-      "\nYou may be prompted for your password to stop the server.\n"
-    );
+    const isWindows = process.platform === "win32";
 
-    // Kill python processes running webui with sudo
-    await runSudoCommand("pkill -f 'python.*launch.py' || true");
-    await runSudoCommand("pkill -f 'python.*webui.py' || true");
-    await runSudoCommand("pkill -f 'stable-diffusion-webui' || true");
+    if (!isWindows) {
+      onProgress({
+        stage: "info",
+        message: "You may be prompted for your password...",
+      });
+    }
+
+    // Kill python processes running webui
+    if (isWindows) {
+      await runKillCommand(
+        'taskkill /F /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *launch*" 2>nul || exit 0'
+      );
+      await runKillCommand(
+        'taskkill /F /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *webui*" 2>nul || exit 0'
+      );
+    } else {
+      await runKillCommand("pkill -f 'python.*launch.py' || true");
+      await runKillCommand("pkill -f 'python.*webui.py' || true");
+      await runKillCommand("pkill -f 'stable-diffusion-webui' || true");
+    }
 
     // Wait for processes to terminate
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -606,22 +875,33 @@ export async function stopOllama(
   try {
     onProgress({ stage: "start", message: "Stopping Ollama server..." });
 
-    console.log(
-      "\nYou may be prompted for your password to stop the server.\n"
-    );
+    const isWindows = process.platform === "win32";
 
-    // Try different methods with sudo
-    // 1. Try systemctl first (if running as a service)
-    await runSudoCommand("systemctl stop ollama 2>/dev/null || true");
+    if (!isWindows) {
+      onProgress({
+        stage: "info",
+        message: "You may be prompted for your password...",
+      });
+    }
 
-    // 2. pkill with -f flag to match full command line
-    await runSudoCommand("pkill -f 'ollama serve' || true");
+    if (isWindows) {
+      await runKillCommand("taskkill /F /IM ollama.exe 2>nul || exit 0");
+      await runKillCommand(
+        'taskkill /F /FI "IMAGENAME eq ollama_runners*" 2>nul || exit 0'
+      );
+    } else {
+      // 1. Try systemctl first (if running as a service)
+      await runKillCommand("systemctl stop ollama 2>/dev/null || true");
 
-    // 3. Try killall
-    await runSudoCommand("killall ollama 2>/dev/null || true");
+      // 2. pkill with -f flag to match full command line
+      await runKillCommand("pkill -f 'ollama serve' || true");
 
-    // 4. Try pkill without -f
-    await runSudoCommand("pkill ollama || true");
+      // 3. Try killall
+      await runKillCommand("killall ollama 2>/dev/null || true");
+
+      // 4. Try pkill without -f
+      await runKillCommand("pkill ollama || true");
+    }
 
     // Wait a moment for process to terminate
     await new Promise((resolve) => setTimeout(resolve, 1500));

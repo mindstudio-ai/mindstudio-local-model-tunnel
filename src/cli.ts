@@ -133,19 +133,13 @@ async function waitForEnter(): Promise<void> {
   console.log(chalk.gray("\nPress Enter to continue..."));
 
   return new Promise((resolve) => {
-    // Use shell's read command - this is reliable even after Ink messes with stdin
-    const child = spawn("bash", ["-c", "read -n 1 -s"], {
-      stdio: ["inherit", "inherit", "inherit"],
-    });
+    const isWindows = process.platform === "win32";
+    const child = isWindows
+      ? spawn("cmd", ["/c", "pause >nul"], { stdio: "inherit" })
+      : spawn("bash", ["-c", "read -n 1 -s"], { stdio: "inherit" });
 
-    child.on("close", () => {
-      resolve();
-    });
-
-    child.on("error", () => {
-      // If bash isn't available, just continue
-      resolve();
-    });
+    child.on("close", () => resolve());
+    child.on("error", () => resolve());
   });
 }
 
@@ -177,7 +171,7 @@ program
   .option("--simple", "Use simple text output (no TUI)")
   .action(async (options) => {
     if (!options.simple) {
-      console.clear();
+      process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
       const { showStatusScreen } = await import("./tui/screens/index.js");
       await showStatusScreen();
       return;
@@ -354,7 +348,7 @@ program
   .option("--simple", "Use simple text output (no TUI)")
   .action(async (options) => {
     if (!options.simple) {
-      console.clear();
+      process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
       const { showConfigScreen } = await import("./tui/screens/index.js");
       await showConfigScreen();
       return;
@@ -540,7 +534,7 @@ async function runDefaultAction() {
       }
 
       // Handle the selected command
-      console.clear();
+      process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
       switch (nextCommand) {
         case "start": {
           const { startTUI } = await import("./tui/index.js");
@@ -550,7 +544,7 @@ async function runDefaultAction() {
         case "setup": {
           const { startQuickstart } = await import("./quickstart/index.js");
           await startQuickstart();
-          console.clear();
+          process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
           continue; // Return to home screen after setup
         }
         case "auth": {
@@ -593,7 +587,7 @@ async function runDefaultAction() {
           }
 
           await waitForEnter();
-          console.clear();
+          process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
           continue; // Return to home screen after auth
         }
         case "register": {
@@ -605,7 +599,7 @@ async function runDefaultAction() {
                 chalk.red("Not authenticated. Please authenticate first.")
               );
               await waitForEnter();
-              console.clear();
+              process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
               continue;
             }
 
@@ -613,7 +607,7 @@ async function runDefaultAction() {
             if (localModels.length === 0) {
               registerSpinner.fail(chalk.yellow("No local models found."));
               await waitForEnter();
-              console.clear();
+              process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
               continue;
             }
 
@@ -628,7 +622,7 @@ async function runDefaultAction() {
                 chalk.green("All models already registered.")
               );
               await waitForEnter();
-              console.clear();
+              process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
               continue;
             }
 
@@ -669,20 +663,20 @@ async function runDefaultAction() {
             );
           }
           await waitForEnter();
-          console.clear();
+          process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
           continue; // Return to home screen
         }
         case "models": {
           const { showModelsScreen } = await import("./tui/screens/index.js");
           await showModelsScreen();
-          console.clear();
+          process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
           continue; // Return to home screen after models
         }
         case "config": {
           const { showConfigScreen } = await import("./tui/screens/index.js");
           await showConfigScreen();
           await waitForEnter();
-          console.clear();
+          process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
           continue; // Return to home screen after config
         }
         case "logout": {
@@ -691,7 +685,7 @@ async function runDefaultAction() {
             chalk.green("\nLogged out successfully. All credentials cleared.\n")
           );
           await waitForEnter();
-          console.clear();
+          process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
           continue; // Return to home screen after logout
         }
         default:

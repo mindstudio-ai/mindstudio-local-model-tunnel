@@ -14,6 +14,7 @@ export interface ProviderInfo {
   installed: boolean;
   running: boolean;
   installable: boolean; // Can we auto-install it?
+  warning?: string; // Optional warning to display
 }
 
 /**
@@ -128,18 +129,21 @@ async function detectStableDiffusion(): Promise<ProviderInfo> {
   // First check the saved install path from config
   const savedPath = getStableDiffusionInstallPath();
   
-  // Check common locations for SD Forge
+  // Check common locations for SD Forge (Neo and legacy)
   const possiblePaths = [
     ...(savedPath ? [savedPath] : []), // Check saved path first
+    path.join(os.homedir(), "sd-webui-forge-neo"),
+    path.join(os.homedir(), "sd-webui-forge-classic"),
     path.join(os.homedir(), "stable-diffusion-webui-forge"),
     path.join(os.homedir(), "sd-forge"),
-    path.join(os.homedir(), "Projects", "stable-diffusion-webui-forge"),
-    path.join(os.homedir(), "Code", "stable-diffusion-webui-forge"),
+    path.join(os.homedir(), "Projects", "sd-webui-forge-neo"),
+    path.join(os.homedir(), "Code", "sd-webui-forge-neo"),
   ];
 
   let installed = false;
   for (const p of possiblePaths) {
-    if (fs.existsSync(path.join(p, "webui.sh")) || fs.existsSync(path.join(p, "webui.bat"))) {
+    // Neo has launch.py; legacy has webui.sh/webui.bat
+    if (fs.existsSync(path.join(p, "launch.py")) || fs.existsSync(path.join(p, "webui.sh")) || fs.existsSync(path.join(p, "webui.bat"))) {
       installed = true;
       break;
     }
@@ -161,13 +165,28 @@ async function detectStableDiffusion(): Promise<ProviderInfo> {
   const hasGit = await commandExists("git");
   const hasPython = await commandExists("python3") || await commandExists("python");
 
+  // Check Python version for Forge Neo (requires 3.13+)
+  let warning: string | undefined;
+  if (hasPython && !running) {
+    try {
+      const { getPythonVersion, isPythonVersionOk } = await import("./installers.js");
+      const pyInfo = await getPythonVersion();
+      if (pyInfo && !isPythonVersionOk(pyInfo)) {
+        warning = `Python ${pyInfo.version} detected, Forge Neo requires 3.13+`;
+      }
+    } catch {
+      // Ignore import errors
+    }
+  }
+
   return {
     id: "stable-diffusion",
-    name: "Stable Diffusion Forge",
+    name: "Stable Diffusion Forge Neo",
     description: "Image generation",
     installed,
     running,
     installable: hasGit && hasPython && process.platform !== "win32",
+    warning,
   };
 }
 

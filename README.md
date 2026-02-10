@@ -10,7 +10,7 @@ Providers supported so far:
   - [LM Studio](https://lmstudio.ai/)
 
 - **Image Generation**
-  - [Stable Diffusion](https://github.com/lllyasviel/stable-diffusion-webui-forge)
+  - [Stable Diffusion Forge Neo](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo)
 
 ## Prerequisites
 
@@ -91,21 +91,21 @@ The setup wizard (`mindstudio-local setup`) helps you install and configure prov
 2. Download a model through the app
 3. Enable the [Local Server](https://lmstudio.ai/docs/developer/core/server#running-the-server)
 
-### Stable Diffusion (Forge)
+### Stable Diffusion (Forge Neo)
 
 **First-time setup:**
 
 ```bash
-git clone https://github.com/lllyasviel/stable-diffusion-webui-forge.git
-cd stable-diffusion-webui-forge
-./webui.sh --api
+git clone --branch neo https://github.com/Haoming02/sd-webui-forge-classic.git sd-webui-forge-neo
+cd sd-webui-forge-neo
+python launch.py --api
 ```
 
 **Subsequent runs:**
 
 ```bash
-cd stable-diffusion-webui-forge
-./webui.sh --api
+cd sd-webui-forge-neo
+python launch.py --api
 ```
 
 ## Commands

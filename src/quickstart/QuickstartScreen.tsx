@@ -4,7 +4,6 @@ import TextInput from "ink-text-input";
 import Spinner from "ink-spinner";
 import * as path from "path";
 import * as os from "os";
-import { spawn } from "child_process";
 import { detectAllProviders, type ProviderInfo } from "./detect.js";
 import {
   installOllama,
@@ -12,27 +11,12 @@ import {
   installStableDiffusion,
   pullOllamaModel,
   startOllama,
-  stopOllama,
-  startStableDiffusion,
-  stopStableDiffusion,
-  downloadSdModel,
   hasDefaultSdModel,
+  getPythonVersion,
+  isPythonVersionOk,
   type InstallProgress,
 } from "./installers.js";
 import { LogoString } from "../helpers.js";
-
-/**
- * Wait for user to press Enter (works reliably after console output)
- */
-function waitForEnter(): Promise<void> {
-  return new Promise((resolve) => {
-    const child = spawn("bash", ["-c", "read -n 1 -s"], {
-      stdio: ["inherit", "inherit", "inherit"],
-    });
-    child.on("close", () => resolve());
-    child.on("error", () => resolve());
-  });
-}
 
 type Screen =
   | "detecting"
@@ -49,7 +33,11 @@ interface MenuItem {
   disabled?: boolean;
 }
 
-export function QuickstartScreen() {
+export interface QuickstartProps {
+  onExternalAction?: (action: string) => void;
+}
+
+export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>("detecting");
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -62,7 +50,7 @@ export function QuickstartScreen() {
   const [completedAction, setCompletedAction] = useState<string | null>(null);
 
   // Path input state for Stable Diffusion
-  const defaultSdPath = path.join(os.homedir(), "stable-diffusion-webui-forge");
+  const defaultSdPath = path.join(os.homedir(), "sd-webui-forge-neo");
   const [sdInstallPath, setSdInstallPath] = useState(defaultSdPath);
 
   // Model download state for Ollama
@@ -81,7 +69,8 @@ export function QuickstartScreen() {
 
   // Navigate to a screen with a clean slate
   const navigateTo = (target: Screen) => {
-    console.clear();
+    // Clear screen + scrollback buffer + reset cursor position
+    process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
     setInstallProgress(null);
     setLogs([]);
     setScreen(target);
@@ -90,7 +79,6 @@ export function QuickstartScreen() {
   // Detect providers on mount
   useEffect(() => {
     async function detect() {
-      console.clear();
       await refreshProviders();
       setScreen("menu");
     }
@@ -158,22 +146,10 @@ export function QuickstartScreen() {
         id: "stop-ollama",
         label: "Stop Ollama server",
         action: async () => {
-          // Clear screen for sudo prompt visibility
-          console.clear();
-          console.log("Stopping Ollama server...\n");
-
-          await stopOllama((progress) => {
-            if (progress.message) {
-              console.log(progress.message);
-            }
-          });
-
-          console.log("\nPress any key to return to setup menu...");
-          await waitForEnter();
-
-          // Re-detect providers and refresh menu
-          await refreshProviders();
-          navigateTo("menu");
+          if (onExternalAction) {
+            onExternalAction("stop-ollama");
+          }
+          exit();
         },
       });
     }
@@ -195,11 +171,25 @@ export function QuickstartScreen() {
   }
 
   if (sd) {
+    // Show Python version warning/helper if needed
+    if (sd.warning) {
+      menuItems.push({
+        id: "fix-python",
+        label: "Install Python 3.13 (required for Forge Neo)",
+        action: async () => {
+          if (onExternalAction) {
+            onExternalAction("fix-python");
+          }
+          exit();
+        },
+      });
+    }
+
     if (!sd.installed) {
       menuItems.push({
         id: "install-sd",
         label: sd.installable
-          ? "Install Stable Diffusion Forge"
+          ? "Install Stable Diffusion Forge Neo"
           : "Stable Diffusion (requires git & python)",
         disabled: !sd.installable,
         action: async () => {
@@ -209,35 +199,39 @@ export function QuickstartScreen() {
       });
     } else if (!sd.running) {
       // SD is installed but not running - offer to start it
-      // Note: SD takes over the terminal, so we exit the TUI first
       menuItems.push({
         id: "start-sd",
         label: "Start Stable Diffusion server",
         action: async () => {
-          // Clear screen and exit TUI before starting SD
-          console.clear();
-          console.log("Starting Stable Diffusion server...\n");
-          console.log("The server will take over this terminal.");
-          console.log(
-            "Press Ctrl+C to stop the server and return to the menu.\n"
-          );
+          // Pre-flight: check Python version via Ink UI before taking over terminal
+          const pyInfo = await getPythonVersion();
+          if (!pyInfo) {
+            setInstallProgress({
+              stage: "error",
+              message: "Python not found",
+              error:
+                "Python is not installed. Forge Neo requires Python 3.13+.\nInstall from https://www.python.org/downloads/",
+            });
+            setCompletedAction("start-sd");
+            navigateTo("done");
+            return;
+          }
+          if (!isPythonVersionOk(pyInfo)) {
+            setInstallProgress({
+              stage: "error",
+              message: `Python ${pyInfo.version} is too old`,
+              error: `Forge Neo requires Python 3.13+. You have ${pyInfo.version}.\nUse "Install Python 3.13" from the setup menu for instructions.`,
+            });
+            setCompletedAction("start-sd");
+            navigateTo("done");
+            return;
+          }
 
-          // Run SD directly - this blocks until SD exits
-          await startStableDiffusion((progress) => {
-            // Only log errors, SD handles its own output
-            if (progress.error) {
-              console.error(`Error: ${progress.error}`);
-            }
-          });
-
-          // After SD exits, return to menu
-          console.log("\nStable Diffusion server stopped.");
-          console.log("Returning to setup menu...\n");
-          await new Promise((r) => setTimeout(r, 1500));
-
-          // Re-detect providers and show menu again
-          await refreshProviders();
-          navigateTo("menu");
+          // Exit Ink completely and signal the outer loop to handle SD launch
+          if (onExternalAction) {
+            onExternalAction("start-sd");
+          }
+          exit();
         },
       });
     } else {
@@ -246,22 +240,10 @@ export function QuickstartScreen() {
         id: "stop-sd",
         label: "Stop Stable Diffusion server",
         action: async () => {
-          // Clear screen for sudo prompt visibility
-          console.clear();
-          console.log("Stopping Stable Diffusion server...\n");
-
-          await stopStableDiffusion((progress) => {
-            if (progress.message) {
-              console.log(progress.message);
-            }
-          });
-
-          console.log("\nPress any key to return to setup menu...");
-          await waitForEnter();
-
-          // Re-detect providers and refresh menu
-          await refreshProviders();
-          navigateTo("menu");
+          if (onExternalAction) {
+            onExternalAction("stop-sd");
+          }
+          exit();
         },
       });
     }
@@ -272,38 +254,10 @@ export function QuickstartScreen() {
         id: "download-sd-model",
         label: "Download default SDXL model (~6.5 GB)",
         action: async () => {
-          console.clear();
-          console.log("Downloading SDXL base model...\n");
-          console.log(
-            "This will download sd_xl_base_1.0.safetensors (~6.5 GB) from Hugging Face.\n"
-          );
-
-          const success = await downloadSdModel((progress) => {
-            if (progress.message) {
-              console.log(progress.message);
-            }
-            if (progress.error) {
-              console.error(`Error: ${progress.error}`);
-            }
-          });
-
-          if (success) {
-            console.log("\nModel downloaded successfully!");
-          } else {
-            console.log(
-              "\nDownload failed. You can also download SDXL models from https://civitai.com/models"
-            );
-            console.log('Filter by "SDXL 1.0" and place .safetensors files in:');
-            console.log(
-              `  ${sdInstallPath}/models/Stable-diffusion/`
-            );
+          if (onExternalAction) {
+            onExternalAction("download-sd-model");
           }
-
-          console.log("\nPress any key to return to setup menu...");
-          await waitForEnter();
-
-          await refreshProviders();
-          navigateTo("menu");
+          exit();
         },
       });
     }
@@ -409,7 +363,7 @@ export function QuickstartScreen() {
         <Text color="cyan">{LogoString}</Text>
         <Box marginTop={1}>
           <Text bold color="white">
-            Install Stable Diffusion Forge
+            Install Stable Diffusion Forge Neo
           </Text>
         </Box>
 
@@ -504,7 +458,7 @@ export function QuickstartScreen() {
         <Text color="cyan">{LogoString}</Text>
         <Box marginTop={1}>
           <Text bold color="white">
-            Installing...
+            Loading...
           </Text>
         </Box>
         <Box marginTop={1} flexDirection="column">
@@ -597,7 +551,7 @@ export function QuickstartScreen() {
           };
         case "install-sd":
           return {
-            title: "Stable Diffusion Forge cloned!",
+            title: "Stable Diffusion Forge Neo cloned!",
             description: `Repository cloned to: ${sdInstallPath}`,
             nextSteps: [
               'Use "Download default SDXL model" from the setup menu to get a model automatically.',
@@ -607,6 +561,18 @@ export function QuickstartScreen() {
             note: null,
           };
         case "start-sd":
+          // If there was a pre-flight error (Python version), show it
+          if (installProgress?.error) {
+            return {
+              title: installProgress.message,
+              description: installProgress.error,
+              nextSteps: [
+                'Use "Install Python 3.13" from the setup menu for instructions.',
+                `If you recently updated Python, delete the old venv: rm -rf ${sdInstallPath}/venv`,
+              ],
+              note: null,
+            };
+          }
           return {
             title: "Stable Diffusion server stopped.",
             description: "The server has been shut down.",
@@ -698,26 +664,33 @@ export function QuickstartScreen() {
         <Text bold>Provider Status</Text>
         <Box marginTop={1} flexDirection="column">
           {providers.map((provider) => (
-            <Box key={provider.id}>
-              <Text
-                color={
-                  provider.installed
-                    ? provider.running
-                      ? "green"
-                      : "yellow"
-                    : "red"
-                }
-              >
-                {provider.installed ? (provider.running ? "●" : "○") : "✗"}
-              </Text>
-              <Text> {provider.name} - </Text>
-              <Text color="gray">
-                {provider.running
-                  ? "Running"
-                  : provider.installed
-                  ? "Installed (not running)"
-                  : "Not installed"}
-              </Text>
+            <Box key={provider.id} flexDirection="column">
+              <Box>
+                <Text
+                  color={
+                    provider.installed
+                      ? provider.running
+                        ? "green"
+                        : "yellow"
+                      : "red"
+                  }
+                >
+                  {provider.installed ? (provider.running ? "●" : "○") : "✗"}
+                </Text>
+                <Text> {provider.name} - </Text>
+                <Text color="gray">
+                  {provider.running
+                    ? "Running"
+                    : provider.installed
+                    ? "Installed (not running)"
+                    : "Not installed"}
+                </Text>
+              </Box>
+              {provider.warning && (
+                <Box>
+                  <Text color="yellow">  ⚠ {provider.warning}</Text>
+                </Box>
+              )}
             </Box>
           ))}
         </Box>
