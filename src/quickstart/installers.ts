@@ -504,8 +504,12 @@ export async function startStableDiffusion(
       onProgress({
         stage: "error",
         message: "Python not found",
-        error:
-          "Python is not installed. Forge Neo requires Python 3.13+.\nInstall from https://www.python.org/downloads/",
+        error: [
+          chalk.white(
+            "Python is not installed. Forge Neo requires Python 3.13+."
+          ),
+          chalk.cyan("Install from https://www.python.org/downloads/"),
+        ].join("\n"),
       });
       return false;
     }
@@ -514,7 +518,19 @@ export async function startStableDiffusion(
       onProgress({
         stage: "error",
         message: `Python ${pyInfo.version} is too old`,
-        error: `Forge Neo requires Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+. You have ${pyInfo.version}.\nInstall Python 3.13 from https://www.python.org/downloads/\nIf using pyenv: pyenv install 3.13.12 && pyenv global 3.13.12\nAfter updating Python, delete the old venv: rm -rf ${installPath}/venv`,
+        error: [
+          chalk.white(
+            `Forge Neo requires Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+. You have ${pyInfo.version}.`
+          ),
+          "",
+          chalk.yellow("How to fix:"),
+          chalk.white("  Install Python 3.13: ") +
+            chalk.cyan("https://www.python.org/downloads/"),
+          chalk.white("  If using pyenv: ") +
+            chalk.cyan("pyenv install 3.13.12 && pyenv global 3.13.12"),
+          chalk.white("  Then delete the old venv: ") +
+            chalk.cyan(`rm -rf ${installPath}/venv`),
+        ].join("\n"),
       });
       return false;
     }
@@ -697,10 +713,11 @@ export async function startStableDiffusion(
             error: [
               `Process exited with code ${code}. Check the output above for details.`,
               "",
-              "Common fixes:",
-              `  - Delete the venv and retry: rm -rf ${installPath}/venv`,
-              "  - Ensure Python 3.13+ is installed",
-              "  - Ensure NVIDIA drivers and CUDA are up to date",
+              chalk.yellow("Common fixes:"),
+              chalk.cyan(`  - Delete the venv and retry: `) +
+                chalk.cyan(`rm -rf ${installPath}/venv`),
+              chalk.cyan("  - Ensure Python 3.13+ is installed"),
+              chalk.cyan("  - Ensure NVIDIA drivers and CUDA are up to date"),
             ].join("\n"),
           });
           resolve(false);
