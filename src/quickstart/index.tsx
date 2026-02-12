@@ -4,6 +4,8 @@ import { QuickstartScreen } from "./QuickstartScreen.js";
 import {
   startStableDiffusion,
   stopStableDiffusion,
+  installOllama,
+  pullOllamaModel,
   stopOllama,
   downloadSdModel,
   getPythonVersion,
@@ -76,6 +78,31 @@ async function handleStopSd(): Promise<void> {
     if (progress.message) console.log(progress.message);
     if (progress.error) console.error(`Error: ${progress.error}`);
   });
+
+  console.log("\nPress any key to return to setup menu...");
+  await waitForEnter();
+}
+
+async function handleInstallOllama(): Promise<void> {
+  clear();
+  console.log("Installing Ollama...\n");
+  console.log("You may be prompted for your password.\n");
+
+  const success = await installOllama((progress) => {
+    if (progress.message && !progress.error) console.log(progress.message);
+    if (progress.error) console.error(`Error: ${progress.error}`);
+  });
+
+  if (success) {
+    console.log("\nOllama installed! Pulling llama3.2 as default model...\n");
+    await pullOllamaModel("llama3.2", (progress) => {
+      if (progress.message) console.log(progress.message);
+      if (progress.error) console.error(`Error: ${progress.error}`);
+    });
+    console.log("\nOllama is ready to use.");
+  } else {
+    console.log("\nInstallation failed. Check errors above.");
+  }
 
   console.log("\nPress any key to return to setup menu...");
   await waitForEnter();
@@ -262,6 +289,9 @@ export async function startQuickstart(): Promise<void> {
         continue;
       case "stop-sd":
         await handleStopSd();
+        continue;
+      case "install-ollama":
+        await handleInstallOllama();
         continue;
       case "stop-ollama":
         await handleStopOllama();

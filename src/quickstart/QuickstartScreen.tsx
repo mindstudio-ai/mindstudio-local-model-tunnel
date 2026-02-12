@@ -118,23 +118,23 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
           ? "Install Ollama (automatic)"
           : "Download Ollama (opens browser)",
         action: async () => {
-          navigateTo("installing");
-          await installOllama((progress) => {
-            setInstallProgress(progress);
-            if (progress.message) {
-              setLogs((prev) => [...prev.slice(-10), progress.message]);
+          if (ollama.installable) {
+            // Use external action so Ink exits and sudo prompt is visible
+            if (onExternalAction) {
+              onExternalAction("install-ollama");
             }
-          });
-          // After install, pull a default model
-          setInstallProgress({ stage: "pull", message: "Pulling llama3.2..." });
-          await pullOllamaModel("llama3.2", (progress) => {
-            setInstallProgress(progress);
-            if (progress.message) {
-              setLogs((prev) => [...prev.slice(-10), progress.message]);
-            }
-          });
-          setCompletedAction("install-ollama");
-          navigateTo("done");
+            exit();
+          } else {
+            navigateTo("installing");
+            await installOllama((progress) => {
+              setInstallProgress(progress);
+              if (progress.message) {
+                setLogs((prev) => [...prev.slice(-10), progress.message]);
+              }
+            });
+            setCompletedAction("install-ollama");
+            navigateTo("done");
+          }
         },
       });
     } else if (!ollama.running) {
