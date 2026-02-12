@@ -3,7 +3,7 @@ import { promisify } from "util";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { getStableDiffusionInstallPath } from "../config.js";
+import { getStableDiffusionInstallPath, getComfyUIInstallPath } from "../config.js";
 
 const execAsync = promisify(exec);
 
@@ -191,16 +191,64 @@ async function detectStableDiffusion(): Promise<ProviderInfo> {
 }
 
 /**
+ * Detect ComfyUI installation and status
+ */
+async function detectComfyUI(): Promise<ProviderInfo> {
+  const savedPath = getComfyUIInstallPath();
+
+  const possiblePaths = [
+    ...(savedPath ? [savedPath] : []),
+    path.join(os.homedir(), "ComfyUI"),
+    path.join(os.homedir(), "comfyui"),
+    path.join(os.homedir(), "Projects", "ComfyUI"),
+    path.join(os.homedir(), "Code", "ComfyUI"),
+  ];
+
+  let installed = false;
+  for (const p of possiblePaths) {
+    if (fs.existsSync(path.join(p, "main.py")) && fs.existsSync(path.join(p, "requirements.txt"))) {
+      installed = true;
+      break;
+    }
+  }
+
+  // Check if server is running
+  let running = false;
+  try {
+    const response = await fetch("http://127.0.0.1:8188/system_stats", {
+      signal: AbortSignal.timeout(1000),
+    });
+    running = response.ok;
+    if (running) installed = true;
+  } catch {
+    running = false;
+  }
+
+  const hasGit = await commandExists("git");
+  const hasPython = (await commandExists("python3")) || (await commandExists("python"));
+
+  return {
+    id: "comfyui",
+    name: "ComfyUI",
+    description: "Video generation (LTX-Video, Wan2.1)",
+    installed,
+    running,
+    installable: hasGit && hasPython && process.platform !== "win32",
+  };
+}
+
+/**
  * Detect all providers
  */
 export async function detectAllProviders(): Promise<ProviderInfo[]> {
-  const [ollama, lmstudio, sd] = await Promise.all([
+  const [ollama, lmstudio, sd, comfyui] = await Promise.all([
     detectOllama(),
     detectLMStudio(),
     detectStableDiffusion(),
+    detectComfyUI(),
   ]);
 
-  return [ollama, lmstudio, sd];
+  return [ollama, lmstudio, sd, comfyui];
 }
 
 /**

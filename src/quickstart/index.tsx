@@ -8,6 +8,10 @@ import {
   downloadSdModel,
   getPythonVersion,
   getStableDiffusionInstallPath,
+  startComfyUI,
+  stopComfyUI,
+  downloadComfyUIModel,
+  getComfyUIInstallPath,
 } from "./installers.js";
 import { spawn } from "child_process";
 
@@ -155,6 +159,73 @@ async function handleDownloadSdModel(): Promise<void> {
   await waitForEnter();
 }
 
+async function handleStartComfyUI(): Promise<void> {
+  clear();
+  console.log("Starting ComfyUI server...\n");
+  console.log("The server will take over this terminal.");
+  console.log("Press Ctrl+C to stop the server and return to the menu.\n");
+
+  let failed = false;
+  await startComfyUI((progress) => {
+    if (progress.message && !progress.error) {
+      console.log(progress.message);
+    }
+    if (progress.error) {
+      failed = true;
+      console.error(`\n${progress.message}`);
+      console.error(progress.error);
+    }
+  });
+
+  if (failed) {
+    const comfyPath = getComfyUIInstallPath() || "ComfyUI";
+    if (true) {
+      console.log("\nTip: If you have dependency issues, try deleting the venv:");
+      console.log(`  rm -rf ${comfyPath}/venv`);
+    }
+    console.log("\nPress any key to return to setup menu...");
+    await waitForEnter();
+  } else {
+    console.log("\nComfyUI server stopped.");
+    console.log("Returning to setup menu...\n");
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
+async function handleStopComfyUI(): Promise<void> {
+  clear();
+  console.log("Stopping ComfyUI server...\n");
+
+  await stopComfyUI((progress) => {
+    if (progress.message) console.log(progress.message);
+    if (progress.error) console.error(`Error: ${progress.error}`);
+  });
+
+  console.log("\nPress any key to return to setup menu...");
+  await waitForEnter();
+}
+
+async function handleDownloadComfyUIModel(modelId: string): Promise<void> {
+  clear();
+  console.log(`Downloading ${modelId} model for ComfyUI...\n`);
+  console.log("This may download multiple files from HuggingFace.\n");
+
+  const success = await downloadComfyUIModel(modelId, (progress) => {
+    if (progress.message) console.log(progress.message);
+    if (progress.error) console.error(`Error: ${progress.error}`);
+  });
+
+  if (success) {
+    console.log("\nModel downloaded successfully!");
+    console.log("Start the ComfyUI server and the tunnel to use it.");
+  } else {
+    console.log("\nDownload failed. Check the errors above.");
+  }
+
+  console.log("\nPress any key to return to setup menu...");
+  await waitForEnter();
+}
+
 export async function startQuickstart(): Promise<void> {
   // Loop: render Ink TUI, handle external actions, re-render
   while (true) {
@@ -175,8 +246,17 @@ export async function startQuickstart(): Promise<void> {
       break;
     }
 
+    const action: string = externalAction;
+
     // Handle terminal-takeover actions outside of Ink
-    switch (externalAction) {
+    // Check parameterized actions first
+    if (action.startsWith("download-comfyui-model:")) {
+      const modelId = action.split(":")[1];
+      await handleDownloadComfyUIModel(modelId);
+      continue;
+    }
+
+    switch (action) {
       case "start-sd":
         await handleStartSd();
         continue;
@@ -191,6 +271,12 @@ export async function startQuickstart(): Promise<void> {
         continue;
       case "fix-python":
         await handleFixPython();
+        continue;
+      case "start-comfyui":
+        await handleStartComfyUI();
+        continue;
+      case "stop-comfyui":
+        await handleStopComfyUI();
         continue;
     }
 

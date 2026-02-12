@@ -13,6 +13,8 @@ interface ConfigSchema {
   lmstudioBaseUrl: string;
   stableDiffusionBaseUrl: string;
   stableDiffusionInstallPath?: string;
+  comfyuiBaseUrl: string;
+  comfyuiInstallPath?: string;
   environments: {
     prod: EnvironmentConfig;
     local: EnvironmentConfig;
@@ -26,6 +28,7 @@ const config = new Conf<ConfigSchema>({
     ollamaBaseUrl: "http://localhost:11434",
     lmstudioBaseUrl: "http://localhost:1234/v1",
     stableDiffusionBaseUrl: "http://127.0.0.1:7860",
+    comfyuiBaseUrl: "http://127.0.0.1:8188",
     environments: {
       prod: {
         apiBaseUrl: "https://api.mindstudio.ai",
@@ -114,6 +117,24 @@ export function getStableDiffusionInstallPath(): string | undefined {
 
 export function setStableDiffusionInstallPath(path: string): void {
   config.set("stableDiffusionInstallPath", path);
+}
+
+// ComfyUI (shared across environments)
+export function getComfyUIBaseUrl(): string {
+  return config.get("comfyuiBaseUrl");
+}
+
+export function setComfyUIBaseUrl(url: string): void {
+  config.set("comfyuiBaseUrl", url);
+}
+
+// ComfyUI install path
+export function getComfyUIInstallPath(): string | undefined {
+  return config.get("comfyuiInstallPath");
+}
+
+export function setComfyUIInstallPath(path: string): void {
+  config.set("comfyuiInstallPath", path);
 }
 
 export function getConfigPath(): string {

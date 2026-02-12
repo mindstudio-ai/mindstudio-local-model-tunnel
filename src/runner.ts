@@ -5,10 +5,12 @@ import {
   getProvider,
   isTextProvider,
   isImageProvider,
+  isVideoProvider,
   type LocalModel,
   type Provider,
   type TextProvider,
   type ImageProvider,
+  type VideoProvider,
 } from "./providers/index.js";
 import {
   pollForRequest,
@@ -150,13 +152,7 @@ export class LocalModelRunner {
         await this.handleImageRequest(request, provider);
         break;
       case "video_generation":
-        console.log(chalk.yellow("Video generation not yet supported"));
-        await submitResult(
-          request.id,
-          false,
-          undefined,
-          "Video generation not yet supported"
-        );
+        await this.handleVideoRequest(request, provider);
         break;
       default:
         console.log(chalk.red(`Unknown request type: ${request.requestType}`));
@@ -309,6 +305,75 @@ export class LocalModelRunner {
       const sizeKB = Math.round((result.imageBase64.length * 3) / 4 / 1024);
       console.log(
         chalk.green(`\n✓ Generated image in ${duration}s (${sizeKB}KB)\n`)
+      );
+    } catch (error) {
+      this.handleRequestError(request, error);
+    }
+  }
+
+  private async handleVideoRequest(
+    request: LocalModelRequest,
+    provider: Provider
+  ): Promise<void> {
+    const startTime = Date.now();
+
+    if (!isVideoProvider(provider)) {
+      const message = `Provider ${provider.displayName} does not support video generation`;
+      console.log(chalk.red(`\nFailed: ${message}\n`));
+      await submitResult(request.id, false, undefined, message);
+      return;
+    }
+
+    try {
+      const prompt = request.payload.prompt || "";
+      const config = request.payload.config || {};
+
+      console.log(chalk.gray(`  Prompt: "${prompt.slice(0, 50)}..."`));
+
+      const result = await provider.generateVideo(
+        request.modelId,
+        prompt,
+        {
+          negativePrompt: config.negativePrompt as string | undefined,
+          width: config.width as number | undefined,
+          height: config.height as number | undefined,
+          numFrames: config.numFrames as number | undefined,
+          fps: config.fps as number | undefined,
+          steps: config.steps as number | undefined,
+          cfgScale: config.cfgScale as number | undefined,
+          seed: config.seed as number | undefined,
+        },
+        async (progress) => {
+          await submitGenerationProgress(
+            request.id,
+            progress.step,
+            progress.totalSteps
+          );
+          process.stdout.write(
+            chalk.white(
+              `\r  Step ${progress.step}/${progress.totalSteps}...`
+            )
+          );
+        }
+      );
+
+      // Submit result with video data
+      await submitResult(request.id, true, {
+        videoBase64: result.videoBase64,
+        mimeType: result.mimeType,
+        duration: result.duration,
+        fps: result.fps,
+        seed: result.seed,
+      });
+
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+      const sizeMB = Math.round(
+        (result.videoBase64.length * 3) / 4 / 1024 / 1024
+      );
+      console.log(
+        chalk.green(
+          `\n✓ Generated video in ${duration}s (${sizeMB}MB, ${result.duration?.toFixed(1) || "?"}s @ ${result.fps || "?"}fps)\n`
+        )
       );
     } catch (error) {
       this.handleRequestError(request, error);

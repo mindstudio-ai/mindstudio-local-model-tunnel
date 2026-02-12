@@ -9,9 +9,13 @@ import {
   installOllama,
   installLMStudio,
   installStableDiffusion,
+  installComfyUI,
+  installComfyUICustomNodes,
   pullOllamaModel,
   startOllama,
   hasDefaultSdModel,
+  hasComfyUIModel,
+  getComfyUIModelStatus,
   getPythonVersion,
   isPythonVersionOk,
   type InstallProgress,
@@ -23,14 +27,18 @@ type Screen =
   | "menu"
   | "path-input"
   | "model-download"
+  | "model-guide"
   | "installing"
   | "done";
+
+type MenuCategory = "text" | "image" | "video" | "general";
 
 interface MenuItem {
   id: string;
   label: string;
   action: () => Promise<void>;
   disabled?: boolean;
+  category: MenuCategory;
 }
 
 export interface QuickstartProps {
@@ -59,12 +67,20 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   // Track if default SD model already exists
   const [sdModelExists, setSdModelExists] = useState(false);
 
+  // ComfyUI state
+  const defaultComfyPath = path.join(os.homedir(), "ComfyUI");
+  const [comfyInstallPath, setComfyInstallPath] = useState(defaultComfyPath);
+  const [comfyModelStatus, setComfyModelStatus] = useState<
+    Array<{ id: string; label: string; installed: boolean; totalSize: string }>
+  >([]);
+
   // Refresh provider detection and model status
   const refreshProviders = async () => {
     const detected = await detectAllProviders();
     setProviders(detected);
     const modelExists = await hasDefaultSdModel();
     setSdModelExists(modelExists);
+    setComfyModelStatus(getComfyUIModelStatus());
   };
 
   // Navigate to a screen with a clean slate
@@ -92,10 +108,12 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   const lmstudio = providers.find((p) => p.id === "lmstudio");
   const sd = providers.find((p) => p.id === "stable-diffusion");
 
+  // --- Text providers (Ollama, LM Studio) ---
   if (ollama) {
     if (!ollama.installed) {
       menuItems.push({
         id: "install-ollama",
+        category: "text",
         label: ollama.installable
           ? "Install Ollama (automatic)"
           : "Download Ollama (opens browser)",
@@ -122,6 +140,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
     } else if (!ollama.running) {
       menuItems.push({
         id: "start-ollama",
+        category: "text",
         label: "Start Ollama server",
         action: async () => {
           navigateTo("installing");
@@ -136,6 +155,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       // Ollama is installed and running - offer to download models and stop
       menuItems.push({
         id: "download-model",
+        category: "text",
         label: "Download Ollama Models",
         action: async () => {
           setModelName("");
@@ -144,6 +164,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       });
       menuItems.push({
         id: "stop-ollama",
+        category: "text",
         label: "Stop Ollama server",
         action: async () => {
           if (onExternalAction) {
@@ -158,6 +179,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   if (lmstudio && !lmstudio.installed) {
     menuItems.push({
       id: "install-lmstudio",
+      category: "text",
       label: "Download LM Studio (opens browser)",
       action: async () => {
         navigateTo("installing");
@@ -170,11 +192,12 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
     });
   }
 
+  // --- Image providers (Stable Diffusion) ---
   if (sd) {
-    // Show Python version warning/helper if needed
     if (sd.warning) {
       menuItems.push({
         id: "fix-python",
+        category: "image",
         label: "Install Python 3.13 (required for Forge Neo)",
         action: async () => {
           if (onExternalAction) {
@@ -188,22 +211,21 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
     if (!sd.installed) {
       menuItems.push({
         id: "install-sd",
+        category: "image",
         label: sd.installable
           ? "Install Stable Diffusion Forge Neo"
           : "Stable Diffusion (requires git & python)",
         disabled: !sd.installable,
         action: async () => {
-          // Show path input screen first
           navigateTo("path-input");
         },
       });
     } else if (!sd.running) {
-      // SD is installed but not running - offer to start it
       menuItems.push({
         id: "start-sd",
+        category: "image",
         label: "Start Stable Diffusion server",
         action: async () => {
-          // Pre-flight: check Python version via Ink UI before taking over terminal
           const pyInfo = await getPythonVersion();
           if (!pyInfo) {
             setInstallProgress({
@@ -227,7 +249,6 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
             return;
           }
 
-          // Exit Ink completely and signal the outer loop to handle SD launch
           if (onExternalAction) {
             onExternalAction("start-sd");
           }
@@ -235,9 +256,9 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
         },
       });
     } else {
-      // SD is installed and running - offer to stop it
       menuItems.push({
         id: "stop-sd",
+        category: "image",
         label: "Stop Stable Diffusion server",
         action: async () => {
           if (onExternalAction) {
@@ -248,10 +269,10 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       });
     }
 
-    // SD is installed and model not yet downloaded - offer to download
     if (sd.installed && !sdModelExists) {
       menuItems.push({
         id: "download-sd-model",
+        category: "image",
         label: "Download default SDXL model (~6.5 GB)",
         action: async () => {
           if (onExternalAction) {
@@ -290,9 +311,104 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
     navigateTo("done");
   };
 
-  // Always add exit option
+  // --- Video providers (ComfyUI) ---
+  const comfyui = providers.find((p) => p.id === "comfyui");
+  if (comfyui) {
+    if (!comfyui.installed) {
+      menuItems.push({
+        id: "install-comfyui",
+        category: "video",
+        label: comfyui.installable
+          ? "Install ComfyUI"
+          : "ComfyUI (requires git & python)",
+        disabled: !comfyui.installable,
+        action: async () => {
+          navigateTo("installing");
+          setInstallProgress({
+            stage: "start",
+            message: "Installing ComfyUI...",
+          });
+
+          const success = await installComfyUI(comfyInstallPath, (progress) => {
+            setInstallProgress(progress);
+            if (progress.message) {
+              setLogs((prev) => [...prev.slice(-10), progress.message]);
+            }
+          });
+
+          if (success) {
+            setInstallProgress({
+              stage: "start",
+              message: "Installing LTX-Video custom nodes...",
+            });
+            await installComfyUICustomNodes((progress) => {
+              setInstallProgress(progress);
+              if (progress.message) {
+                setLogs((prev) => [...prev.slice(-10), progress.message]);
+              }
+            });
+          }
+
+          setCompletedAction("install-comfyui");
+          navigateTo("done");
+        },
+      });
+    } else if (!comfyui.running) {
+      menuItems.push({
+        id: "start-comfyui",
+        category: "video",
+        label: "Start ComfyUI server",
+        action: async () => {
+          if (onExternalAction) {
+            onExternalAction("start-comfyui");
+          }
+          exit();
+        },
+      });
+    } else {
+      for (const model of comfyModelStatus) {
+        if (!model.installed) {
+          menuItems.push({
+            id: `download-comfyui-${model.id}`,
+            category: "video",
+            label: `Download ${model.label} (${model.totalSize})`,
+            action: async () => {
+              if (onExternalAction) {
+                onExternalAction(`download-comfyui-model:${model.id}`);
+              }
+              exit();
+            },
+          });
+        }
+      }
+
+      menuItems.push({
+        id: "stop-comfyui",
+        category: "video",
+        label: "Stop ComfyUI server",
+        action: async () => {
+          if (onExternalAction) {
+            onExternalAction("stop-comfyui");
+          }
+          exit();
+        },
+      });
+    }
+  }
+
+  // --- General ---
+  menuItems.push({
+    id: "model-guide",
+    category: "general",
+    label: "How to Add Your Own Models",
+    action: async () => {
+      navigateTo("model-guide");
+    },
+  });
+
   menuItems.push({
     id: "exit",
+    category: "general",
     label: "Exit",
     action: async () => {
       exit();
@@ -325,15 +441,21 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       navigateTo("menu");
       return;
     }
+    // Allow escape or Enter to go back from model guide
+    if (screen === "model-guide" && (key.escape || key.return)) {
+      navigateTo("menu");
+      return;
+    }
     // Allow Enter to exit from done screen (return to main menu)
     if (screen === "done" && key.return) {
       exit();
       return;
     }
-    // Global quit (but not during input screens or done screen)
+    // Global quit (but not during input screens, done screen, or guide)
     if (
       screen !== "path-input" &&
       screen !== "model-download" &&
+      screen !== "model-guide" &&
       screen !== "done" &&
       (input === "q" || key.escape)
     ) {
@@ -451,6 +573,120 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
     );
   }
 
+  // Model guide screen
+  if (screen === "model-guide") {
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Text color="cyan">{LogoString}</Text>
+        <Box marginTop={1}>
+          <Text bold color="white">
+            How to Add Your Own Models
+          </Text>
+        </Box>
+
+        <Box
+          marginTop={1}
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="cyan"
+          paddingX={1}
+          paddingY={1}
+        >
+          <Text bold>Text Models (Ollama)</Text>
+          <Box marginTop={1} flexDirection="column">
+            <Text color="gray">
+              Browse models at{" "}
+              <Text color="cyan">https://ollama.com/library</Text>
+            </Text>
+            <Text color="gray">Download via the setup menu or run:</Text>
+            <Text color="white"> ollama pull {"<model-name>"}</Text>
+          </Box>
+        </Box>
+
+        <Box
+          marginTop={1}
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="cyan"
+          paddingX={1}
+          paddingY={1}
+        >
+          <Text bold>Image Models (Stable Diffusion)</Text>
+          <Box marginTop={1} flexDirection="column">
+            <Text color="gray">
+              Download <Text color="white">.safetensors</Text> files from{" "}
+              <Text color="cyan">https://civitai.com</Text>
+            </Text>
+            <Text color="gray">
+              Filter by <Text color="white">SDXL 1.0</Text> for best
+              compatibility.
+            </Text>
+          </Box>
+          <Box marginTop={1} flexDirection="column">
+            <Text color="gray">Place them in:</Text>
+            <Text color="white"> {sdInstallPath}/models/Stable-diffusion/</Text>
+          </Box>
+          <Box marginTop={1} flexDirection="column">
+            <Text color="gray">
+              Restart the SD server to pick up new models.
+            </Text>
+          </Box>
+        </Box>
+
+        <Box
+          marginTop={1}
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="cyan"
+          paddingX={1}
+          paddingY={1}
+        >
+          <Text bold>Video Models (ComfyUI)</Text>
+          <Box marginTop={1} flexDirection="column">
+            <Text color="gray">
+              Download models from{" "}
+              <Text color="cyan">https://huggingface.co</Text>{" "}
+              and place in the folders below.
+            </Text>
+            <Text color="gray">
+              Models marked with * can be auto-downloaded from the setup menu.
+            </Text>
+          </Box>
+
+          <Box marginTop={1} flexDirection="column">
+            <Text bold color="white">LTX-Video</Text>
+            <Text color="gray">  * ltx-video-2b-v0.9.5.safetensors  <Text color="white">checkpoints/</Text>  <Text color="gray">(~6 GB)</Text></Text>
+            <Text color="gray">  * t5xxl_fp16.safetensors             <Text color="white">text_encoders/</Text> <Text color="gray">(~10 GB)</Text></Text>
+          </Box>
+
+          <Box marginTop={1} flexDirection="column">
+            <Text bold color="white">Wan 2.1 Text-to-Video</Text>
+            <Text color="gray">  * wan2.1_t2v_1.3B_fp16.safetensors  <Text color="white">diffusion_models/</Text> <Text color="gray">(~2.6 GB)</Text></Text>
+            <Text color="gray">    wan2.1_t2v_14B_fp16.safetensors   <Text color="white">diffusion_models/</Text> <Text color="gray">(~28 GB)</Text></Text>
+            <Text color="gray">  * umt5_xxl_fp8_e4m3fn_scaled        <Text color="white">text_encoders/</Text>    <Text color="gray">(~5 GB, shared)</Text></Text>
+            <Text color="gray">  * wan_2.1_vae.safetensors            <Text color="white">vae/</Text>              <Text color="gray">(~0.3 GB, shared)</Text></Text>
+          </Box>
+
+          <Box marginTop={1} flexDirection="column">
+            <Text color="gray">
+              All folders are relative to: <Text color="white">{comfyInstallPath}/models/</Text>
+            </Text>
+            <Text color="gray">
+              The 14B model uses the same text encoder and VAE as the 1.3B.
+            </Text>
+            <Text color="gray">
+              Restart the ComfyUI server to pick up new models.
+            </Text>
+          </Box>
+        </Box>
+
+        <Box marginTop={1}>
+          <Text color="gray">Press Esc or Enter to go back</Text>
+        </Box>
+      </Box>
+    );
+  }
+
   // Installing screen
   if (screen === "installing") {
     return (
@@ -558,7 +794,26 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
               'Or download from https://civitai.com/models (filter by "SDXL 1.0").',
               "Then start the server from the setup menu.",
             ],
-            note: null,
+            note: `To add your own models, download .safetensors files from https://civitai.com and place them in:\n  ${sdInstallPath}/models/Stable-diffusion/`,
+          };
+        case "install-comfyui":
+          return {
+            title: "ComfyUI installed!",
+            description: `Installed to: ${comfyInstallPath}`,
+            nextSteps: [
+              "Start the ComfyUI server from the setup menu.",
+              "Download a video model (LTX-Video or Wan 2.1) once the server is running.",
+              "Then start the tunnel to connect to MindStudio.",
+            ],
+            note: [
+              "LTX-Video custom nodes have been installed for best compatibility.",
+              "",
+              "To add your own video models, download .safetensors files from https://huggingface.co and place them in:",
+              `  Checkpoints:       ${comfyInstallPath}/models/checkpoints/`,
+              `  Diffusion models:  ${comfyInstallPath}/models/diffusion_models/`,
+              `  Text encoders:     ${comfyInstallPath}/models/text_encoders/`,
+              `  VAE:               ${comfyInstallPath}/models/vae/`,
+            ].join("\n"),
           };
         case "start-sd":
           // If there was a pre-flight error (Python version), show it
@@ -662,39 +917,69 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
         paddingX={1}
       >
         <Text bold>Provider Status</Text>
-        <Box marginTop={1} flexDirection="column">
-          {providers.map((provider) => (
-            <Box key={provider.id} flexDirection="column">
-              <Box>
-                <Text
-                  color={
-                    provider.installed
-                      ? provider.running
-                        ? "green"
-                        : "yellow"
-                      : "red"
-                  }
-                >
-                  {provider.installed ? (provider.running ? "●" : "○") : "✗"}
-                </Text>
-                <Text> {provider.name} - </Text>
-                <Text color="gray">
-                  {provider.running
-                    ? "Running"
-                    : provider.installed
-                    ? "Installed (not running)"
-                    : "Not installed"}
-                </Text>
-              </Box>
-              {provider.warning && (
-                <Box>
-                  <Text color="yellow">  ⚠ {provider.warning}</Text>
+        {[
+          { label: "Text", ids: ["ollama", "lmstudio"] },
+          { label: "Image", ids: ["stable-diffusion"] },
+          { label: "Video", ids: ["comfyui"] },
+        ].map((group) => {
+          const groupProviders = providers.filter((p) =>
+            group.ids.includes(p.id)
+          );
+          if (groupProviders.length === 0) return null;
+          return (
+            <Box key={group.label} marginTop={1} flexDirection="column">
+              <Text color="gray" dimColor>
+                {group.label}
+              </Text>
+              {groupProviders.map((provider) => (
+                <Box key={provider.id} flexDirection="column">
+                  <Box>
+                    <Text
+                      color={
+                        provider.installed
+                          ? provider.running
+                            ? "green"
+                            : "yellow"
+                          : "red"
+                      }
+                    >
+                      {provider.installed
+                        ? provider.running
+                          ? "●"
+                          : "○"
+                        : "✗"}
+                    </Text>
+                    <Text> {provider.name} - </Text>
+                    <Text color="gray">
+                      {provider.running
+                        ? "Running"
+                        : provider.installed
+                        ? "Installed (not running)"
+                        : "Not installed"}
+                    </Text>
+                  </Box>
+                  {provider.warning && (
+                    <Box>
+                      <Text color="yellow"> ⚠ {provider.warning}</Text>
+                    </Box>
+                  )}
                 </Box>
-              )}
+              ))}
             </Box>
-          ))}
-        </Box>
+          );
+        })}
       </Box>
+
+      {/* macOS compatibility note */}
+      {process.platform === "darwin" && (
+        <Box marginTop={1}>
+          <Text color="yellow">
+            ⚠ macOS: Stable Diffusion and ComfyUI may have compatibility issues
+            due to limited CUDA support. GPU acceleration requires Apple Silicon
+            with MPS.
+          </Text>
+        </Box>
+      )}
 
       {/* All good message */}
       {allInstalled && allRunning && (
@@ -703,31 +988,134 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
         </Box>
       )}
 
-      {/* Menu */}
-      {menuItems.length > 1 && (
-        <Box marginTop={1} flexDirection="column">
-          <Text bold>Actions</Text>
-          <Box marginTop={1} flexDirection="column">
-            {menuItems.map((item, index) => (
-              <Box key={item.id}>
-                <Text color={index === selectedIndex ? "cyan" : "white"}>
-                  {index === selectedIndex ? "❯ " : "  "}
+      {/* Categorized Menu */}
+      {menuItems.length > 1 &&
+        (() => {
+          const categoryOrder: MenuCategory[] = [
+            "text",
+            "image",
+            "video",
+            "general",
+          ];
+          const categoryLabels: Record<MenuCategory, string> = {
+            text: "Text Generation",
+            image: "Image Generation",
+            video: "Video Generation",
+            general: "",
+          };
+          const categoryIcons: Record<MenuCategory, string> = {
+            text: "💬",
+            image: "🎨",
+            video: "🎬",
+            general: "",
+          };
+
+          // Only show categories that have items
+          const activeCategories = categoryOrder.filter((cat) =>
+            menuItems.some((item) => item.category === cat)
+          );
+
+          // Track the global index for selection
+          let globalIndex = 0;
+
+          return (
+            <Box marginTop={1} flexDirection="column">
+              {activeCategories.map((cat, catIdx) => {
+                const items = menuItems.filter((item) => item.category === cat);
+                const startIdx = globalIndex;
+                globalIndex += items.length;
+
+                return (
+                  <Box
+                    key={cat}
+                    flexDirection="column"
+                    marginTop={catIdx > 0 ? 1 : 0}
+                  >
+                    {cat !== "general" && (
+                      <Text bold color="gray">
+                        {categoryIcons[cat]} {categoryLabels[cat]}
+                      </Text>
+                    )}
+                    {items.map((item, i) => {
+                      const idx = startIdx + i;
+                      return (
+                        <Box key={item.id}>
+                          <Text
+                            color={idx === selectedIndex ? "cyan" : "white"}
+                          >
+                            {idx === selectedIndex ? " ❯ " : "   "}
+                          </Text>
+                          <Text
+                            color={
+                              item.disabled
+                                ? "gray"
+                                : idx === selectedIndex
+                                ? "cyan"
+                                : "white"
+                            }
+                            dimColor={item.disabled}
+                          >
+                            {item.label}
+                          </Text>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                );
+              })}
+            </Box>
+          );
+        })()}
+
+      {/* Add your own models tips */}
+      {(sd?.installed || comfyui?.installed) && (
+        <Box
+          marginTop={1}
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="gray"
+          paddingX={1}
+        >
+          <Text bold color="gray">
+            Add Your Own Models
+          </Text>
+          {sd?.installed && (
+            <Box marginTop={1} flexDirection="column">
+              <Text color="gray">
+                Image models (.safetensors) from{" "}
+                <Text color="cyan">https://civitai.com</Text>
+              </Text>
+              <Text color="gray">
+                {" "}
+                Place in:{" "}
+                <Text color="white">
+                  {sdInstallPath}/models/Stable-diffusion/
                 </Text>
-                <Text
-                  color={
-                    item.disabled
-                      ? "gray"
-                      : index === selectedIndex
-                      ? "cyan"
-                      : "white"
-                  }
-                  dimColor={item.disabled}
-                >
-                  {item.label}
+              </Text>
+            </Box>
+          )}
+          {comfyui?.installed && (
+            <Box marginTop={1} flexDirection="column">
+              <Text color="gray">
+                Video models (.safetensors) from{" "}
+                <Text color="cyan">https://huggingface.co</Text>
+              </Text>
+              <Text color="gray">
+                {" "}
+                Checkpoints:{" "}
+                <Text color="white">
+                  {comfyInstallPath}/models/checkpoints/
                 </Text>
-              </Box>
-            ))}
-          </Box>
+              </Text>
+              <Text color="gray">
+                {" "}
+                Diffusion models:{" "}
+                <Text color="white">
+                  {comfyInstallPath}/models/diffusion_models/
+                </Text>
+              </Text>
+            </Box>
+          )}
         </Box>
       )}
 

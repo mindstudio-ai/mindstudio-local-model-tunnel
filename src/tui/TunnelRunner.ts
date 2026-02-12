@@ -10,6 +10,7 @@ import {
   getProvider,
   isTextProvider,
   isImageProvider,
+  isVideoProvider,
   discoverAllModels,
   type Provider,
   type LocalModel,
@@ -101,6 +102,9 @@ export class TunnelRunner {
           break;
         case "image_generation":
           await this.handleImageRequest(request, provider, startTime);
+          break;
+        case "video_generation":
+          await this.handleVideoRequest(request, provider, startTime);
           break;
         default:
           throw new Error(`Unsupported request type: ${request.requestType}`);
@@ -233,6 +237,63 @@ export class TunnelRunner {
       success: true,
       duration: Date.now() - startTime,
       result: { imageSize },
+    });
+  }
+
+  private async handleVideoRequest(
+    request: LocalModelRequest,
+    provider: Provider,
+    startTime: number
+  ): Promise<void> {
+    if (!isVideoProvider(provider)) {
+      throw new Error(`Provider does not support video generation`);
+    }
+
+    const prompt = request.payload.prompt || "";
+    const config = request.payload.config || {};
+
+    const result = await provider.generateVideo(
+      request.modelId,
+      prompt,
+      {
+        negativePrompt: config.negativePrompt as string | undefined,
+        width: config.width as number | undefined,
+        height: config.height as number | undefined,
+        numFrames: config.numFrames as number | undefined,
+        fps: config.fps as number | undefined,
+        steps: config.steps as number | undefined,
+        cfgScale: config.cfgScale as number | undefined,
+        seed: config.seed as number | undefined,
+      },
+      async (progress) => {
+        await submitGenerationProgress(
+          request.id,
+          progress.step,
+          progress.totalSteps
+        );
+        requestEvents.emitProgress({
+          id: request.id,
+          step: progress.step,
+          totalSteps: progress.totalSteps,
+        });
+      }
+    );
+
+    await submitResult(request.id, true, {
+      videoBase64: result.videoBase64,
+      mimeType: result.mimeType,
+      duration: result.duration,
+      fps: result.fps,
+      seed: result.seed,
+    });
+
+    const videoSize = Math.round((result.videoBase64.length * 3) / 4);
+
+    requestEvents.emitComplete({
+      id: request.id,
+      success: true,
+      duration: Date.now() - startTime,
+      result: { videoSize },
     });
   }
 

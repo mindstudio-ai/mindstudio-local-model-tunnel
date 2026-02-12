@@ -1,7 +1,11 @@
-// Provider types - text and image generation
+// Provider types - text, image, and video generation
 export type TextProviderType = "ollama" | "lmstudio";
 export type ImageProviderType = "stable-diffusion";
-export type ProviderType = TextProviderType | ImageProviderType;
+export type VideoProviderType = "comfyui";
+export type ProviderType =
+  | TextProviderType
+  | ImageProviderType
+  | VideoProviderType;
 
 // Model capability types
 export type ModelCapability = "text" | "image" | "video";
@@ -125,6 +129,45 @@ export interface ImageGenerationProgress {
 }
 
 // ============================================
+// Video Generation Types
+// ============================================
+
+export interface VideoGenerationOptions {
+  negativePrompt?: string;
+  width?: number;
+  height?: number;
+  numFrames?: number;
+  fps?: number;
+  steps?: number;
+  cfgScale?: number;
+  seed?: number;
+}
+
+export interface VideoGenerationResult {
+  /** Base64-encoded video data */
+  videoBase64: string;
+  /** MIME type (e.g., "video/webp", "video/mp4") */
+  mimeType: string;
+  /** Duration in seconds */
+  duration?: number;
+  /** Frames per second */
+  fps?: number;
+  /** Seed used for generation (for reproducibility) */
+  seed?: number;
+  /** Generation info/metadata */
+  info?: Record<string, unknown>;
+}
+
+export interface VideoGenerationProgress {
+  /** Current step */
+  step: number;
+  /** Total steps */
+  totalSteps: number;
+  /** Current node being executed */
+  currentNode?: string;
+}
+
+// ============================================
 // Provider Interfaces
 // ============================================
 
@@ -196,9 +239,31 @@ export interface ImageProvider extends BaseProvider {
 }
 
 /**
+ * Video generation provider
+ */
+export interface VideoProvider extends BaseProvider {
+  readonly capability: "video";
+
+  /**
+   * Generate a video from a prompt
+   */
+  generateVideo(
+    model: string,
+    prompt: string,
+    options?: VideoGenerationOptions,
+    onProgress?: (progress: VideoGenerationProgress) => void
+  ): Promise<VideoGenerationResult>;
+
+  /**
+   * Get parameter schemas for UI configuration
+   */
+  getParameterSchemas(): Promise<ParameterSchema[]>;
+}
+
+/**
  * Union type for all providers
  */
-export type Provider = TextProvider | ImageProvider;
+export type Provider = TextProvider | ImageProvider | VideoProvider;
 
 /**
  * Type guard for text providers
@@ -212,4 +277,11 @@ export function isTextProvider(provider: Provider): provider is TextProvider {
  */
 export function isImageProvider(provider: Provider): provider is ImageProvider {
   return provider.capability === "image";
+}
+
+/**
+ * Type guard for video providers
+ */
+export function isVideoProvider(provider: Provider): provider is VideoProvider {
+  return provider.capability === "video";
 }

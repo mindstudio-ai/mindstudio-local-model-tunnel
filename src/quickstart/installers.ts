@@ -7,10 +7,13 @@ import open from "open";
 import {
   setStableDiffusionInstallPath,
   getStableDiffusionInstallPath,
+  setComfyUIInstallPath,
+  getComfyUIInstallPath,
 } from "../config.js";
 import chalk from "chalk";
 
 export { getStableDiffusionInstallPath };
+export { getComfyUIInstallPath };
 
 const execAsync = promisify(exec);
 
@@ -951,6 +954,571 @@ export async function stopOllama(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     onProgress({ stage: "error", message: "Failed to stop", error: message });
+    return false;
+  }
+}
+
+// ============================================
+// ComfyUI Installation & Management
+// ============================================
+
+/**
+ * Install ComfyUI via git clone and pip install.
+ */
+export async function installComfyUI(
+  installPath: string,
+  onProgress: ProgressCallback
+): Promise<boolean> {
+  try {
+    onProgress({ stage: "start", message: "Cloning ComfyUI repository..." });
+
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(
+        "git",
+        ["clone", "https://github.com/comfyanonymous/ComfyUI.git", installPath],
+        { stdio: "inherit" }
+      );
+      proc.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`git clone failed with code ${code}`));
+      });
+      proc.on("error", reject);
+    });
+
+    onProgress({ stage: "venv", message: "Creating virtual environment..." });
+
+    const pyInfo = await getPythonVersion();
+    const pythonCmd = pyInfo?.executable || "python3";
+
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(pythonCmd, ["-m", "venv", path.join(installPath, "venv")], {
+        stdio: "inherit",
+      });
+      proc.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`venv creation failed with code ${code}`));
+      });
+      proc.on("error", reject);
+    });
+
+    onProgress({
+      stage: "deps",
+      message: "Installing dependencies (this may take a while)...",
+    });
+
+    // Detect CUDA version for PyTorch index URL
+    let pipExtraArgs: string[] = [];
+    try {
+      const { stdout: smiFullOut } = await execAsync("nvidia-smi");
+      const cudaMatch = smiFullOut.match(/CUDA Version:\s*(\d+)\.(\d+)/);
+      if (cudaMatch) {
+        const driverCudaMajor = parseInt(cudaMatch[1]);
+        const driverCudaMinor = parseInt(cudaMatch[2]);
+
+        let cuTag: string;
+        if (driverCudaMajor >= 13) cuTag = "cu130";
+        else if (driverCudaMajor === 12 && driverCudaMinor >= 8) cuTag = "cu128";
+        else if (driverCudaMajor === 12 && driverCudaMinor >= 6) cuTag = "cu126";
+        else if (driverCudaMajor === 12 && driverCudaMinor >= 4) cuTag = "cu124";
+        else if (driverCudaMajor === 12) cuTag = "cu121";
+        else cuTag = "cu118";
+
+        pipExtraArgs = ["--extra-index-url", `https://download.pytorch.org/whl/${cuTag}`];
+        onProgress({
+          stage: "deps",
+          message: `Driver supports CUDA ${driverCudaMajor}.${driverCudaMinor}, using PyTorch with ${cuTag}`,
+        });
+      }
+    } catch {
+      // No NVIDIA GPU
+    }
+
+    const isWindows = process.platform === "win32";
+    const pipPath = isWindows
+      ? path.join(installPath, "venv", "Scripts", "pip")
+      : path.join(installPath, "venv", "bin", "pip");
+
+    await new Promise<void>((resolve, reject) => {
+      const args = [
+        "install",
+        "-r",
+        path.join(installPath, "requirements.txt"),
+        ...pipExtraArgs,
+      ];
+      const proc = spawn(pipPath, args, { stdio: "inherit", cwd: installPath });
+      proc.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`pip install failed with code ${code}`));
+      });
+      proc.on("error", reject);
+    });
+
+    setComfyUIInstallPath(installPath);
+
+    onProgress({
+      stage: "complete",
+      message: "ComfyUI installed successfully!",
+      complete: true,
+    });
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    onProgress({
+      stage: "error",
+      message: "ComfyUI installation failed",
+      error: message,
+    });
+    return false;
+  }
+}
+
+/**
+ * Clone a custom node repo into ComfyUI's custom_nodes directory
+ * and install its requirements if present.
+ */
+async function installCustomNode(
+  installPath: string,
+  repoUrl: string,
+  dirName: string,
+  onProgress: ProgressCallback
+): Promise<boolean> {
+  const customNodesDir = path.join(installPath, "custom_nodes");
+  if (!fs.existsSync(customNodesDir)) {
+    fs.mkdirSync(customNodesDir, { recursive: true });
+  }
+
+  const nodeDir = path.join(customNodesDir, dirName);
+  if (fs.existsSync(nodeDir)) {
+    onProgress({
+      stage: "complete",
+      message: `${dirName} already installed, skipping.`,
+    });
+    return true;
+  }
+
+  onProgress({
+    stage: "start",
+    message: `Installing ${dirName}...`,
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn("git", ["clone", repoUrl, nodeDir], {
+      stdio: "inherit",
+    });
+    proc.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`git clone ${dirName} failed with code ${code}`));
+    });
+    proc.on("error", reject);
+  });
+
+  const reqFile = path.join(nodeDir, "requirements.txt");
+  if (fs.existsSync(reqFile)) {
+    const isWindows = process.platform === "win32";
+    const pipPath = isWindows
+      ? path.join(installPath, "venv", "Scripts", "pip")
+      : path.join(installPath, "venv", "bin", "pip");
+
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(pipPath, ["install", "-r", reqFile], {
+        stdio: "inherit",
+      });
+      proc.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`pip install ${dirName} deps failed with code ${code}`));
+      });
+      proc.on("error", reject);
+    });
+  }
+
+  return true;
+}
+
+/**
+ * Install required ComfyUI custom nodes:
+ *  - ComfyUI-LTXVideo (LTX-Video support)
+ *  - ComfyUI-VideoHelperSuite (MP4 output)
+ */
+export async function installComfyUICustomNodes(
+  onProgress: ProgressCallback
+): Promise<boolean> {
+  const installPath = getComfyUIInstallPath();
+  if (!installPath) {
+    onProgress({
+      stage: "error",
+      message: "ComfyUI not installed",
+      error: "Install ComfyUI first",
+    });
+    return false;
+  }
+
+  try {
+    await installCustomNode(
+      installPath,
+      "https://github.com/Lightricks/ComfyUI-LTXVideo.git",
+      "ComfyUI-LTXVideo",
+      onProgress
+    );
+
+    await installCustomNode(
+      installPath,
+      "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
+      "ComfyUI-VideoHelperSuite",
+      onProgress
+    );
+
+    onProgress({
+      stage: "complete",
+      message: "Custom nodes installed!",
+      complete: true,
+    });
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    onProgress({
+      stage: "error",
+      message: "Failed to install custom nodes",
+      error: message,
+    });
+    return false;
+  }
+}
+
+/**
+ * Start ComfyUI server (terminal takeover).
+ */
+export async function startComfyUI(
+  onProgress: ProgressCallback
+): Promise<boolean> {
+  const installPath = getComfyUIInstallPath();
+  if (!installPath) {
+    onProgress({
+      stage: "error",
+      message: "ComfyUI not installed",
+      error: "Install ComfyUI first",
+    });
+    return false;
+  }
+
+  try {
+    onProgress({ stage: "start", message: "Starting ComfyUI server..." });
+    await new Promise((r) => setTimeout(r, 500));
+
+    const isWindows = process.platform === "win32";
+
+    return new Promise((resolve) => {
+      let proc: ReturnType<typeof spawn>;
+
+      if (isWindows) {
+        const venvPython = path.join(installPath, "venv", "Scripts", "python.exe");
+        proc = spawn(venvPython, ["main.py", "--listen", "--port", "8188"], {
+          cwd: installPath,
+          stdio: "inherit",
+        });
+      } else {
+        const venvDir = path.join(installPath, "venv");
+        const launchScript = [
+          `source "${venvDir}/bin/activate"`,
+          `python main.py --listen --port 8188`,
+        ].join("\n");
+
+        proc = spawn("bash", ["-c", launchScript], {
+          cwd: installPath,
+          stdio: "inherit",
+        });
+      }
+
+      proc.on("close", (code) => {
+        if (code === 0) {
+          onProgress({
+            stage: "complete",
+            message: "ComfyUI server stopped.",
+            complete: true,
+          });
+          resolve(true);
+        } else {
+          onProgress({
+            stage: "error",
+            message: "ComfyUI failed to start",
+            error: [
+              `Process exited with code ${code}. Check the output above.`,
+              "",
+              chalk.yellow("Common fixes:"),
+              chalk.white("  - Delete the venv and retry: ") +
+                chalk.cyan(`rm -rf ${installPath}/venv`),
+              chalk.white("  - Ensure Python 3.10+ is installed"),
+              chalk.white("  - Ensure NVIDIA drivers and CUDA are up to date"),
+            ].join("\n"),
+          });
+          resolve(false);
+        }
+      });
+
+      proc.on("error", (err) => {
+        onProgress({
+          stage: "error",
+          message: "Failed to start",
+          error: err.message,
+        });
+        resolve(false);
+      });
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    onProgress({ stage: "error", message: "Failed to start", error: message });
+    return false;
+  }
+}
+
+/**
+ * Stop ComfyUI server.
+ */
+export async function stopComfyUI(
+  onProgress: ProgressCallback
+): Promise<boolean> {
+  try {
+    onProgress({ stage: "start", message: "Stopping ComfyUI server..." });
+
+    const isWindows = process.platform === "win32";
+
+    if (!isWindows) {
+      onProgress({
+        stage: "start",
+        message: "You may be prompted for your password...",
+      });
+    }
+
+    if (isWindows) {
+      await runKillCommand(
+        'taskkill /F /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *ComfyUI*" 2>nul || exit 0'
+      );
+    } else {
+      await runKillCommand("pkill -f 'python.*main.py.*--port 8188' || true");
+      await runKillCommand("pkill -f 'python.*main.py.*comfyui' || true");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Verify
+    try {
+      const response = await fetch("http://127.0.0.1:8188/system_stats", {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (response.ok) {
+        onProgress({
+          stage: "complete",
+          message: "ComfyUI may still be running.",
+          complete: true,
+        });
+        return false;
+      }
+    } catch {
+      // Stopped
+    }
+
+    onProgress({
+      stage: "complete",
+      message: "ComfyUI server stopped!",
+      complete: true,
+    });
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    onProgress({ stage: "error", message: "Failed to stop", error: message });
+    return false;
+  }
+}
+
+/** Model download definitions for ComfyUI */
+interface ComfyUIModelDownload {
+  id: string;
+  label: string;
+  files: Array<{
+    url: string;
+    dest: string;
+    filename: string;
+    sizeLabel: string;
+  }>;
+}
+
+const COMFYUI_MODELS: ComfyUIModelDownload[] = [
+  {
+    id: "ltx-video",
+    label: "LTX-Video 2B",
+    files: [
+      {
+        url: "https://huggingface.co/Lightricks/LTX-Video/resolve/main/ltx-video-2b-v0.9.5.safetensors",
+        dest: "models/checkpoints",
+        filename: "ltx-video-2b-v0.9.5.safetensors",
+        sizeLabel: "~6 GB",
+      },
+      {
+        url: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors",
+        dest: "models/text_encoders",
+        filename: "t5xxl_fp16.safetensors",
+        sizeLabel: "~10 GB",
+      },
+    ],
+  },
+  {
+    id: "wan2.1-t2v",
+    label: "Wan 2.1 T2V 1.3B",
+    files: [
+      {
+        url: "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
+        dest: "models/diffusion_models",
+        filename: "wan2.1_t2v_1.3B_fp16.safetensors",
+        sizeLabel: "~2.6 GB",
+      },
+      {
+        url: "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        dest: "models/text_encoders",
+        filename: "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        sizeLabel: "~5 GB",
+      },
+      {
+        url: "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+        dest: "models/vae",
+        filename: "wan_2.1_vae.safetensors",
+        sizeLabel: "~0.3 GB",
+      },
+    ],
+  },
+];
+
+/**
+ * Check if a ComfyUI video model is already downloaded.
+ */
+export function hasComfyUIModel(modelId: string): boolean {
+  const installPath = getComfyUIInstallPath();
+  if (!installPath) return false;
+
+  const modelDef = COMFYUI_MODELS.find((m) => m.id === modelId);
+  if (!modelDef) return false;
+
+  return modelDef.files.every((file) =>
+    fs.existsSync(path.join(installPath, file.dest, file.filename))
+  );
+}
+
+/**
+ * Get ComfyUI model download status.
+ */
+export function getComfyUIModelStatus(): Array<{
+  id: string;
+  label: string;
+  installed: boolean;
+  totalSize: string;
+}> {
+  return COMFYUI_MODELS.map((model) => ({
+    id: model.id,
+    label: model.label,
+    installed: hasComfyUIModel(model.id),
+    totalSize: model.files.map((f) => f.sizeLabel).join(" + "),
+  }));
+}
+
+/**
+ * Download a ComfyUI video model from HuggingFace.
+ */
+export async function downloadComfyUIModel(
+  modelId: string,
+  onProgress: ProgressCallback
+): Promise<boolean> {
+  const installPath = getComfyUIInstallPath();
+  if (!installPath) {
+    onProgress({
+      stage: "error",
+      message: "ComfyUI not installed",
+      error: "Install ComfyUI first",
+    });
+    return false;
+  }
+
+  const modelDef = COMFYUI_MODELS.find((m) => m.id === modelId);
+  if (!modelDef) {
+    onProgress({
+      stage: "error",
+      message: "Unknown model",
+      error: `Model ID "${modelId}" is not recognized`,
+    });
+    return false;
+  }
+
+  try {
+    for (let i = 0; i < modelDef.files.length; i++) {
+      const file = modelDef.files[i];
+      const destDir = path.join(installPath, file.dest);
+      const destFile = path.join(destDir, file.filename);
+
+      if (fs.existsSync(destFile)) {
+        onProgress({
+          stage: "download",
+          message: `[${i + 1}/${modelDef.files.length}] ${file.filename} already exists, skipping.`,
+        });
+        continue;
+      }
+
+      fs.mkdirSync(destDir, { recursive: true });
+
+      onProgress({
+        stage: "download",
+        message: `[${i + 1}/${modelDef.files.length}] Downloading ${file.filename} (${file.sizeLabel})...`,
+      });
+
+      const isWindows = process.platform === "win32";
+      let downloadCmd: string;
+      let downloadArgs: string[];
+
+      if (isWindows) {
+        downloadCmd = "curl";
+        downloadArgs = ["-L", "-o", destFile, "--progress-bar", file.url];
+      } else {
+        let hasWget = false;
+        try {
+          await execAsync("which wget");
+          hasWget = true;
+        } catch {
+          // No wget
+        }
+
+        if (hasWget) {
+          downloadCmd = "wget";
+          downloadArgs = ["-O", destFile, "--show-progress", file.url];
+        } else {
+          downloadCmd = "curl";
+          downloadArgs = ["-L", "-o", destFile, "--progress-bar", file.url];
+        }
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn(downloadCmd, downloadArgs, { stdio: "inherit" });
+        proc.on("close", (code) => {
+          if (code === 0) resolve();
+          else {
+            if (fs.existsSync(destFile)) {
+              try { fs.unlinkSync(destFile); } catch { /* ignore */ }
+            }
+            reject(new Error(`Download failed with code ${code}`));
+          }
+        });
+        proc.on("error", reject);
+      });
+    }
+
+    onProgress({
+      stage: "complete",
+      message: `${modelDef.label} model downloaded successfully!`,
+      complete: true,
+    });
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    onProgress({
+      stage: "error",
+      message: "Download failed",
+      error: message,
+    });
     return false;
   }
 }

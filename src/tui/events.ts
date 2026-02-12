@@ -21,6 +21,7 @@ export interface RequestCompleteEvent {
   result?: {
     chars?: number;
     imageSize?: number;
+    videoSize?: number;
   };
   error?: string;
 }

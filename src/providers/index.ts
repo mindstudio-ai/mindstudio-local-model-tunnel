@@ -1,26 +1,30 @@
 import { OllamaProvider } from "./ollama.js";
 import { LMStudioProvider } from "./lmstudio.js";
 import { StableDiffusionProvider } from "./stable-diffusion.js";
+import { ComfyUIProvider } from "./comfyui.js";
 import type {
   Provider,
   TextProvider,
   ImageProvider,
+  VideoProvider,
   LocalModel,
   ProviderType,
   ModelCapability,
 } from "./types.js";
-import { isTextProvider, isImageProvider } from "./types.js";
+import { isTextProvider, isImageProvider, isVideoProvider } from "./types.js";
 
 export * from "./types.js";
 export { OllamaProvider } from "./ollama.js";
 export { LMStudioProvider } from "./lmstudio.js";
 export { StableDiffusionProvider } from "./stable-diffusion.js";
+export { ComfyUIProvider } from "./comfyui.js";
 
 // Registry of all available providers
 const allProviders: Provider[] = [
   new OllamaProvider(),
   new LMStudioProvider(),
   new StableDiffusionProvider(),
+  new ComfyUIProvider(),
 ];
 
 /**
@@ -112,6 +116,23 @@ export function getImageProvider(
 }
 
 /**
+ * Get all video providers
+ */
+export function getVideoProviders(): VideoProvider[] {
+  return allProviders.filter(isVideoProvider);
+}
+
+/**
+ * Get a video provider by name
+ */
+export function getVideoProvider(
+  name: ProviderType
+): VideoProvider | undefined {
+  const provider = allProviders.find((p) => p.name === name);
+  return provider && isVideoProvider(provider) ? provider : undefined;
+}
+
+/**
  * Discover models filtered by capability
  */
 export async function discoverModelsByCapability(
@@ -140,8 +161,8 @@ export async function discoverAllModelsWithParameters(): Promise<LocalModel[]> {
     runningProviders.map(async (provider) => {
       const models = await provider.discoverModels();
 
-      // For image providers, fetch parameter schemas
-      if (isImageProvider(provider)) {
+      // For image/video providers, fetch parameter schemas
+      if (isImageProvider(provider) || isVideoProvider(provider)) {
         const parameters = await provider.getParameterSchemas();
         return models.map((model) => ({
           ...model,

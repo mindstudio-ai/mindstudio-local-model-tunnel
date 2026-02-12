@@ -127,9 +127,25 @@ export interface ImageResult {
 }
 
 /**
+ * Result for video generation
+ */
+export interface VideoResult {
+  /** Base64-encoded video data */
+  videoBase64: string;
+  /** MIME type (e.g., "video/webp", "video/mp4") */
+  mimeType: string;
+  /** Duration in seconds */
+  duration?: number;
+  /** Frames per second */
+  fps?: number;
+  /** Seed used for generation */
+  seed?: number;
+}
+
+/**
  * Combined result type
  */
-export type RequestResult = TextResult | ImageResult;
+export type RequestResult = TextResult | ImageResult | VideoResult;
 
 export async function submitResult(
   requestId: string,
