@@ -12,7 +12,8 @@
     "dev": "tsc && node dist/cli.js",
     "start": "node dist/cli.js",
     "prepublishOnly": "npm run build",
-    "local-update": "npm run build && npm link"
+    "local-update": "npm run build && npm link",
+    "clean:destructive": "bash scripts/clean-destructive.sh"
   },
   "keywords": [
     "mindstudio",

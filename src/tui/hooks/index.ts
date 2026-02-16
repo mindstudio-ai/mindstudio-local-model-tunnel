@@ -5,3 +5,4 @@ export { useRequests } from './useRequests.js';
 export { useRegisteredModels } from './useRegisteredModels.js';
 export { useAuth } from './useAuth.js';
 export { useRegister } from './useRegister.js';
+export { useSetupProviders } from './useSetupProviders.js';

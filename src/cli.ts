@@ -441,13 +441,25 @@ async function runDefaultAction() {
   );
 
   if (!hasCommand) {
+    const { startTUI } = await import('./tui/index.js');
+    const { executeSetupAction } = await import('./quickstart/actions.js');
+    type Page = import('./tui/types.js').Page;
+    let initialPage: Page | undefined;
     while (true) {
-      const { startTUI } = await import('./tui/index.js');
-      const result = await startTUI();
-      if (result === 'setup') {
-        const { startQuickstart } = await import('./quickstart/index.js');
-        await startQuickstart();
+      const result = await startTUI({ initialPage });
+      initialPage = undefined;
+      if (result.startsWith('setup:')) {
+        const action = result.slice('setup:'.length);
+        await executeSetupAction(action);
         clearTerminal();
+        initialPage = 'setup';
+        continue;
+      }
+      if (result.startsWith('onboarding:')) {
+        const action = result.slice('onboarding:'.length);
+        await executeSetupAction(action);
+        clearTerminal();
+        initialPage = 'onboarding';
         continue;
       }
       break;

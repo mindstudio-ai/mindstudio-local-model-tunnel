@@ -7,7 +7,7 @@ export type ConnectionStatus =
   | 'disconnected'
   | 'error';
 
-export type Page = 'dashboard' | 'models' | 'config' | 'auth' | 'register';
+export type Page = 'dashboard' | 'models' | 'config' | 'auth' | 'register' | 'setup' | 'onboarding';
 
 export interface ProviderStatus {
   provider: Provider;

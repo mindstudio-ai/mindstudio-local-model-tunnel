@@ -15,16 +15,20 @@ import {
   ConfigPage,
   AuthPage,
   RegisterPage,
+  SetupPage,
+  OnboardingPage,
 } from './pages/index.js';
 import { TunnelRunner } from '../runner.js';
+import { getApiKey } from '../config.js';
 import type { Page } from './types.js';
 
 interface AppProps {
   runner: TunnelRunner;
-  onExit?: (reason: 'quit' | 'setup') => void;
+  initialPage?: Page;
+  onExit?: (reason: string) => void;
 }
 
-export function App({ runner, onExit }: AppProps) {
+export function App({ runner, initialPage, onExit }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const {
@@ -38,7 +42,8 @@ export function App({ runner, onExit }: AppProps) {
   const { requests, activeCount } = useRequests();
   const { registeredNames, refresh: refreshRegistered } =
     useRegisteredModels(connectionStatus);
-  const [page, setPage] = useState<Page>('dashboard');
+  const shouldOnboard = !initialPage && getApiKey() === undefined;
+  const [page, setPage] = useState<Page>(initialPage ?? (shouldOnboard ? 'onboarding' : 'dashboard'));
 
   // Start runner when connected with models
   useEffect(() => {
@@ -77,11 +82,23 @@ export function App({ runner, onExit }: AppProps) {
     exit();
   }, [runner, onExit, exit]);
 
-  const handleSetup = useCallback(() => {
+  const handleExternalSetupAction = useCallback((action: string) => {
     runner.stop();
-    onExit?.('setup');
+    onExit?.('setup:' + action);
     exit();
   }, [runner, onExit, exit]);
+
+  const handleOnboardingExternalAction = useCallback((action: string) => {
+    runner.stop();
+    onExit?.('onboarding:' + action);
+    exit();
+  }, [runner, onExit, exit]);
+
+  const handleOnboardingComplete = useCallback(() => {
+    retryConnection();
+    refreshAll();
+    setPage('dashboard');
+  }, [retryConnection, refreshAll]);
 
   const handleNavigate = useCallback(
     (id: string) => {
@@ -101,7 +118,7 @@ export function App({ runner, onExit }: AppProps) {
           setPage('register');
           break;
         case 'setup':
-          handleSetup();
+          setPage('setup');
           break;
         case 'refresh':
         case 'refresh-models':
@@ -112,7 +129,7 @@ export function App({ runner, onExit }: AppProps) {
           break;
       }
     },
-    [handleSetup, refreshAll, refreshModels, refreshRegistered, handleQuit],
+    [refreshAll, refreshModels, refreshRegistered, handleQuit],
   );
 
   const commonMenuItems: MenuItem[] = [
@@ -152,7 +169,12 @@ export function App({ runner, onExit }: AppProps) {
 
   return (
     <Box flexDirection="column" height={termHeight}>
-      {page === 'dashboard' ? (
+      {page === 'onboarding' ? (
+        <OnboardingPage
+          onComplete={handleOnboardingComplete}
+          onExternalAction={handleOnboardingExternalAction}
+        />
+      ) : page === 'dashboard' ? (
         <DashboardPage
           providers={providers}
           requests={requests}
@@ -162,6 +184,14 @@ export function App({ runner, onExit }: AppProps) {
           connectionError={connectionError}
           modelCount={models.length}
           onNavigate={handleNavigate}
+        />
+      ) : page === 'setup' ? (
+        <SetupPage
+          connectionStatus={connectionStatus}
+          environment={environment}
+          activeRequests={activeCount}
+          onExternalAction={handleExternalSetupAction}
+          onBack={() => setPage('dashboard')}
         />
       ) : (
         <>

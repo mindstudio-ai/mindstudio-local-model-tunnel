@@ -17,6 +17,8 @@ const PAGE_LABELS: Record<Page, string> = {
   config: 'Config',
   auth: 'Auth',
   register: 'Register',
+  setup: 'Setup Providers',
+  onboarding: 'Welcome',
 };
 
 export function Header({

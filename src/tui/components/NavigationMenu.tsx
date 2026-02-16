@@ -7,6 +7,7 @@ export interface MenuItem {
   description: string;
   disabled?: boolean;
   disabledReason?: string;
+  isSeparator?: boolean;
 }
 
 interface NavigationMenuProps {
@@ -16,13 +17,14 @@ interface NavigationMenuProps {
 
 export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
   const backIndex = items.findIndex((i) => i.id === 'back');
-  const [selectedIndex, setSelectedIndex] = useState(backIndex >= 0 ? backIndex : 0);
+  const firstSelectable = items.findIndex((i) => !i.disabled && !i.isSeparator);
+  const [selectedIndex, setSelectedIndex] = useState(backIndex >= 0 ? backIndex : (firstSelectable >= 0 ? firstSelectable : 0));
 
   const findNextEnabled = (from: number, direction: 1 | -1): number => {
     let idx = from;
     for (let i = 0; i < items.length; i++) {
       idx = (idx + direction + items.length) % items.length;
-      if (!items[idx]!.disabled) return idx;
+      if (!items[idx]!.disabled && !items[idx]!.isSeparator) return idx;
     }
     return from;
   };
@@ -50,7 +52,9 @@ export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
   });
 
   // Fixed height: header + marginBottom + items + marginTop + hint + 2 border lines
-  const menuHeight = items.length + 7;
+  // Add extra lines for separator marginTop spacing (separators after index 0 add 1 line each)
+  const separatorExtraLines = items.filter((item, idx) => item.isSeparator && idx > 0).length;
+  const menuHeight = items.length + 7 + separatorExtraLines;
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} height={menuHeight} overflow="hidden">
@@ -59,6 +63,16 @@ export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
       </Box>
       <Box flexDirection="column">
         {items.map((item, index) => {
+          if (item.isSeparator) {
+            return (
+              <Box key={item.id} marginTop={index > 0 ? 1 : 0}>
+                <Text bold color="gray" wrap="truncate-end">
+                  {item.label}
+                </Text>
+              </Box>
+            );
+          }
+
           const isSelected = index === selectedIndex;
           const prefix = isSelected ? '❯' : ' ';
 
