@@ -1,7 +1,7 @@
-import { OllamaProvider } from "./ollama.js";
-import { LMStudioProvider } from "./lmstudio.js";
-import { StableDiffusionProvider } from "./stable-diffusion.js";
-import { ComfyUIProvider } from "./comfyui.js";
+import { OllamaProvider } from './ollama.js';
+import { LMStudioProvider } from './lmstudio.js';
+import { StableDiffusionProvider } from './stable-diffusion.js';
+import { ComfyUIProvider } from './comfyui.js';
 import type {
   Provider,
   TextProvider,
@@ -10,14 +10,14 @@ import type {
   LocalModel,
   ProviderType,
   ModelCapability,
-} from "./types.js";
-import { isTextProvider, isImageProvider, isVideoProvider } from "./types.js";
+} from './types.js';
+import { isTextProvider, isImageProvider, isVideoProvider } from './types.js';
 
-export * from "./types.js";
-export { OllamaProvider } from "./ollama.js";
-export { LMStudioProvider } from "./lmstudio.js";
-export { StableDiffusionProvider } from "./stable-diffusion.js";
-export { ComfyUIProvider } from "./comfyui.js";
+export * from './types.js';
+export { OllamaProvider } from './ollama.js';
+export { LMStudioProvider } from './lmstudio.js';
+export { StableDiffusionProvider } from './stable-diffusion.js';
+export { ComfyUIProvider } from './comfyui.js';
 
 // Registry of all available providers
 const allProviders: Provider[] = [
@@ -42,7 +42,7 @@ export async function discoverRunningProviders(): Promise<Provider[]> {
     allProviders.map(async (provider) => ({
       provider,
       running: await provider.isRunning(),
-    }))
+    })),
   );
 
   return results.filter((r) => r.running).map((r) => r.provider);
@@ -55,7 +55,7 @@ export async function discoverAllModels(): Promise<LocalModel[]> {
   const runningProviders = await discoverRunningProviders();
 
   const modelArrays = await Promise.all(
-    runningProviders.map((p) => p.discoverModels())
+    runningProviders.map((p) => p.discoverModels()),
   );
 
   return modelArrays.flat();
@@ -79,7 +79,7 @@ export async function getProviderStatuses(): Promise<
     allProviders.map(async (provider) => ({
       provider,
       running: await provider.isRunning(),
-    }))
+    })),
   );
 }
 
@@ -109,7 +109,7 @@ export function getTextProvider(name: ProviderType): TextProvider | undefined {
  * Get an image provider by name
  */
 export function getImageProvider(
-  name: ProviderType
+  name: ProviderType,
 ): ImageProvider | undefined {
   const provider = allProviders.find((p) => p.name === name);
   return provider && isImageProvider(provider) ? provider : undefined;
@@ -126,7 +126,7 @@ export function getVideoProviders(): VideoProvider[] {
  * Get a video provider by name
  */
 export function getVideoProvider(
-  name: ProviderType
+  name: ProviderType,
 ): VideoProvider | undefined {
   const provider = allProviders.find((p) => p.name === name);
   return provider && isVideoProvider(provider) ? provider : undefined;
@@ -136,15 +136,15 @@ export function getVideoProvider(
  * Discover models filtered by capability
  */
 export async function discoverModelsByCapability(
-  capability: ModelCapability
+  capability: ModelCapability,
 ): Promise<LocalModel[]> {
   const runningProviders = await discoverRunningProviders();
   const filteredProviders = runningProviders.filter(
-    (p) => p.capability === capability
+    (p) => p.capability === capability,
   );
 
   const modelArrays = await Promise.all(
-    filteredProviders.map((p) => p.discoverModels())
+    filteredProviders.map((p) => p.discoverModels()),
   );
 
   return modelArrays.flat();
@@ -171,7 +171,7 @@ export async function discoverAllModelsWithParameters(): Promise<LocalModel[]> {
       }
 
       return models;
-    })
+    }),
   );
 
   return modelsWithParams.flat();

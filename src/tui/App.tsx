@@ -1,19 +1,19 @@
-import React, { useEffect, useCallback, useState } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import React, { useEffect, useCallback, useState } from 'react';
+import { Box, Text, useApp, useInput } from 'ink';
 import {
   Header,
   ProvidersPanel,
   ModelsPanel,
   RequestLog,
   StatusBar,
-} from "./components/index.js";
+} from './components/index.js';
 import {
   useConnection,
   useProviders,
   useModels,
   useRequests,
-} from "./hooks/index.js";
-import { TunnelRunner } from "./TunnelRunner.js";
+} from './hooks/index.js';
+import { TunnelRunner } from './TunnelRunner.js';
 
 interface AppProps {
   runner: TunnelRunner;
@@ -29,11 +29,11 @@ export function App({ runner }: AppProps) {
   const { providers, refresh: refreshProviders } = useProviders();
   const { models, refresh: refreshModels } = useModels();
   const { requests, activeCount } = useRequests();
-  const [lastKey, setLastKey] = useState<string>("");
+  const [lastKey, setLastKey] = useState<string>('');
 
   // Start the runner when connected
   useEffect(() => {
-    if (connectionStatus === "connected" && models.length > 0) {
+    if (connectionStatus === 'connected' && models.length > 0) {
       runner.start(models.map((m) => m.name));
     }
 
@@ -50,21 +50,21 @@ export function App({ runner }: AppProps) {
   // Keyboard shortcuts
   useInput((input, key) => {
     // Debug: show what key was pressed
-    setLastKey(input || (key.escape ? "ESC" : "?"));
+    setLastKey(input || (key.escape ? 'ESC' : '?'));
 
     // Quit on 'q' or Escape
-    if (input.toLowerCase() === "q" || key.escape) {
+    if (input.toLowerCase() === 'q' || key.escape) {
       runner.stop();
       exit();
     }
     // Refresh on 'r'
-    if (input.toLowerCase() === "r") {
+    if (input.toLowerCase() === 'r') {
       refreshAll();
     }
   });
 
   // Show error state
-  if (connectionStatus === "error") {
+  if (connectionStatus === 'error') {
     return (
       <Box flexDirection="column" padding={1}>
         <Text color="red" bold>
@@ -86,7 +86,7 @@ export function App({ runner }: AppProps) {
   const hasRunningProvider = providers.some((p) => p.running);
 
   if (
-    connectionStatus === "connected" &&
+    connectionStatus === 'connected' &&
     providers.length > 0 &&
     !hasRunningProvider
   ) {

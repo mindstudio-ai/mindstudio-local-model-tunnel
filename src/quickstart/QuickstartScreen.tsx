@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
-import { Box, Text, useApp, useInput } from "ink";
-import TextInput from "ink-text-input";
-import Spinner from "ink-spinner";
-import * as path from "path";
-import * as os from "os";
-import { detectAllProviders, type ProviderInfo } from "./detect.js";
+import React, { useState, useEffect } from 'react';
+import { Box, Text, useApp, useInput } from 'ink';
+import TextInput from 'ink-text-input';
+import Spinner from 'ink-spinner';
+import * as path from 'path';
+import * as os from 'os';
+import { detectAllProviders, type ProviderInfo } from './detect.js';
 import {
   installOllama,
   installLMStudio,
@@ -19,19 +19,19 @@ import {
   getPythonVersion,
   isPythonVersionOk,
   type InstallProgress,
-} from "./installers.js";
-import { LogoString } from "../helpers.js";
+} from './installers.js';
+import { LogoString } from '../helpers.js';
 
 type Screen =
-  | "detecting"
-  | "menu"
-  | "path-input"
-  | "model-download"
-  | "model-guide"
-  | "installing"
-  | "done";
+  | 'detecting'
+  | 'menu'
+  | 'path-input'
+  | 'model-download'
+  | 'model-guide'
+  | 'installing'
+  | 'done';
 
-type MenuCategory = "text" | "image" | "video" | "general";
+type MenuCategory = 'text' | 'image' | 'video' | 'general';
 
 interface MenuItem {
   id: string;
@@ -47,7 +47,7 @@ export interface QuickstartProps {
 
 export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   const { exit } = useApp();
-  const [screen, setScreen] = useState<Screen>("detecting");
+  const [screen, setScreen] = useState<Screen>('detecting');
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [installProgress, setInstallProgress] =
@@ -58,17 +58,17 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   const [completedAction, setCompletedAction] = useState<string | null>(null);
 
   // Path input state for Stable Diffusion
-  const defaultSdPath = path.join(os.homedir(), "sd-webui-forge-neo");
+  const defaultSdPath = path.join(os.homedir(), 'sd-webui-forge-neo');
   const [sdInstallPath, setSdInstallPath] = useState(defaultSdPath);
 
   // Model download state for Ollama
-  const [modelName, setModelName] = useState("");
+  const [modelName, setModelName] = useState('');
 
   // Track if default SD model already exists
   const [sdModelExists, setSdModelExists] = useState(false);
 
   // ComfyUI state
-  const defaultComfyPath = path.join(os.homedir(), "ComfyUI");
+  const defaultComfyPath = path.join(os.homedir(), 'ComfyUI');
   const [comfyInstallPath, setComfyInstallPath] = useState(defaultComfyPath);
   const [comfyModelStatus, setComfyModelStatus] = useState<
     Array<{ id: string; label: string; installed: boolean; totalSize: string }>
@@ -86,7 +86,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   // Navigate to a screen with a clean slate
   const navigateTo = (target: Screen) => {
     // Clear screen + scrollback buffer + reset cursor position
-    process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
+    process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
     setInstallProgress(null);
     setLogs([]);
     setScreen(target);
@@ -96,7 +96,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   useEffect(() => {
     async function detect() {
       await refreshProviders();
-      setScreen("menu");
+      setScreen('menu');
     }
     detect();
   }, []);
@@ -104,71 +104,71 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   // Build menu items based on detected providers
   const menuItems: MenuItem[] = [];
 
-  const ollama = providers.find((p) => p.id === "ollama");
-  const lmstudio = providers.find((p) => p.id === "lmstudio");
-  const sd = providers.find((p) => p.id === "stable-diffusion");
+  const ollama = providers.find((p) => p.id === 'ollama');
+  const lmstudio = providers.find((p) => p.id === 'lmstudio');
+  const sd = providers.find((p) => p.id === 'stable-diffusion');
 
   // --- Text providers (Ollama, LM Studio) ---
   if (ollama) {
     if (!ollama.installed) {
       menuItems.push({
-        id: "install-ollama",
-        category: "text",
+        id: 'install-ollama',
+        category: 'text',
         label: ollama.installable
-          ? "Install Ollama (automatic)"
-          : "Download Ollama (opens browser)",
+          ? 'Install Ollama (automatic)'
+          : 'Download Ollama (opens browser)',
         action: async () => {
           if (ollama.installable) {
             // Use external action so Ink exits and sudo prompt is visible
             if (onExternalAction) {
-              onExternalAction("install-ollama");
+              onExternalAction('install-ollama');
             }
             exit();
           } else {
-            navigateTo("installing");
+            navigateTo('installing');
             await installOllama((progress) => {
               setInstallProgress(progress);
               if (progress.message) {
                 setLogs((prev) => [...prev.slice(-10), progress.message]);
               }
             });
-            setCompletedAction("install-ollama");
-            navigateTo("done");
+            setCompletedAction('install-ollama');
+            navigateTo('done');
           }
         },
       });
     } else if (!ollama.running) {
       menuItems.push({
-        id: "start-ollama",
-        category: "text",
-        label: "Start Ollama server",
+        id: 'start-ollama',
+        category: 'text',
+        label: 'Start Ollama server',
         action: async () => {
-          navigateTo("installing");
+          navigateTo('installing');
           await startOllama((progress) => {
             setInstallProgress(progress);
           });
-          setCompletedAction("start-ollama");
-          navigateTo("done");
+          setCompletedAction('start-ollama');
+          navigateTo('done');
         },
       });
     } else {
       // Ollama is installed and running - offer to download models and stop
       menuItems.push({
-        id: "download-model",
-        category: "text",
-        label: "Download Ollama Models",
+        id: 'download-model',
+        category: 'text',
+        label: 'Download Ollama Models',
         action: async () => {
-          setModelName("");
-          navigateTo("model-download");
+          setModelName('');
+          navigateTo('model-download');
         },
       });
       menuItems.push({
-        id: "stop-ollama",
-        category: "text",
-        label: "Stop Ollama server",
+        id: 'stop-ollama',
+        category: 'text',
+        label: 'Stop Ollama server',
         action: async () => {
           if (onExternalAction) {
-            onExternalAction("stop-ollama");
+            onExternalAction('stop-ollama');
           }
           exit();
         },
@@ -178,16 +178,16 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
 
   if (lmstudio && !lmstudio.installed) {
     menuItems.push({
-      id: "install-lmstudio",
-      category: "text",
-      label: "Download LM Studio (opens browser)",
+      id: 'install-lmstudio',
+      category: 'text',
+      label: 'Download LM Studio (opens browser)',
       action: async () => {
-        navigateTo("installing");
+        navigateTo('installing');
         await installLMStudio((progress) => {
           setInstallProgress(progress);
         });
-        setCompletedAction("install-lmstudio");
-        navigateTo("done");
+        setCompletedAction('install-lmstudio');
+        navigateTo('done');
       },
     });
   }
@@ -196,12 +196,12 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   if (sd) {
     if (sd.warning) {
       menuItems.push({
-        id: "fix-python",
-        category: "image",
-        label: "Install Python 3.13 (required for Forge Neo)",
+        id: 'fix-python',
+        category: 'image',
+        label: 'Install Python 3.13 (required for Forge Neo)',
         action: async () => {
           if (onExternalAction) {
-            onExternalAction("fix-python");
+            onExternalAction('fix-python');
           }
           exit();
         },
@@ -210,59 +210,59 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
 
     if (!sd.installed) {
       menuItems.push({
-        id: "install-sd",
-        category: "image",
+        id: 'install-sd',
+        category: 'image',
         label: sd.installable
-          ? "Install Stable Diffusion Forge Neo"
-          : "Stable Diffusion (requires git & python)",
+          ? 'Install Stable Diffusion Forge Neo'
+          : 'Stable Diffusion (requires git & python)',
         disabled: !sd.installable,
         action: async () => {
-          navigateTo("path-input");
+          navigateTo('path-input');
         },
       });
     } else if (!sd.running) {
       menuItems.push({
-        id: "start-sd",
-        category: "image",
-        label: "Start Stable Diffusion server",
+        id: 'start-sd',
+        category: 'image',
+        label: 'Start Stable Diffusion server',
         action: async () => {
           const pyInfo = await getPythonVersion();
           if (!pyInfo) {
             setInstallProgress({
-              stage: "error",
-              message: "Python not found",
+              stage: 'error',
+              message: 'Python not found',
               error:
-                "Python is not installed. Forge Neo requires Python 3.13+.\nInstall from https://www.python.org/downloads/",
+                'Python is not installed. Forge Neo requires Python 3.13+.\nInstall from https://www.python.org/downloads/',
             });
-            setCompletedAction("start-sd");
-            navigateTo("done");
+            setCompletedAction('start-sd');
+            navigateTo('done');
             return;
           }
           if (!isPythonVersionOk(pyInfo)) {
             setInstallProgress({
-              stage: "error",
+              stage: 'error',
               message: `Python ${pyInfo.version} is too old`,
               error: `Forge Neo requires Python 3.13+. You have ${pyInfo.version}.\nUse "Install Python 3.13" from the setup menu for instructions.`,
             });
-            setCompletedAction("start-sd");
-            navigateTo("done");
+            setCompletedAction('start-sd');
+            navigateTo('done');
             return;
           }
 
           if (onExternalAction) {
-            onExternalAction("start-sd");
+            onExternalAction('start-sd');
           }
           exit();
         },
       });
     } else {
       menuItems.push({
-        id: "stop-sd",
-        category: "image",
-        label: "Stop Stable Diffusion server",
+        id: 'stop-sd',
+        category: 'image',
+        label: 'Stop Stable Diffusion server',
         action: async () => {
           if (onExternalAction) {
-            onExternalAction("stop-sd");
+            onExternalAction('stop-sd');
           }
           exit();
         },
@@ -271,12 +271,12 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
 
     if (sd.installed && !sdModelExists) {
       menuItems.push({
-        id: "download-sd-model",
-        category: "image",
-        label: "Download default SDXL model (~6.5 GB)",
+        id: 'download-sd-model',
+        category: 'image',
+        label: 'Download default SDXL model (~6.5 GB)',
         action: async () => {
           if (onExternalAction) {
-            onExternalAction("download-sd-model");
+            onExternalAction('download-sd-model');
           }
           exit();
         },
@@ -286,47 +286,47 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
 
   // Function to start SD installation with the chosen path
   const startSdInstallation = async () => {
-    navigateTo("installing");
+    navigateTo('installing');
     await installStableDiffusion((progress) => {
       setInstallProgress(progress);
       if (progress.message) {
         setLogs((prev) => [...prev.slice(-10), progress.message]);
       }
     }, sdInstallPath);
-    setCompletedAction("install-sd");
-    navigateTo("done");
+    setCompletedAction('install-sd');
+    navigateTo('done');
   };
 
   // Function to download an Ollama model
   const startModelDownload = async () => {
     if (!modelName.trim()) return;
-    navigateTo("installing");
+    navigateTo('installing');
     await pullOllamaModel(modelName.trim(), (progress) => {
       setInstallProgress(progress);
       if (progress.message) {
         setLogs((prev) => [...prev.slice(-10), progress.message]);
       }
     });
-    setCompletedAction("download-model");
-    navigateTo("done");
+    setCompletedAction('download-model');
+    navigateTo('done');
   };
 
   // --- Video providers (ComfyUI) ---
-  const comfyui = providers.find((p) => p.id === "comfyui");
+  const comfyui = providers.find((p) => p.id === 'comfyui');
   if (comfyui) {
     if (!comfyui.installed) {
       menuItems.push({
-        id: "install-comfyui",
-        category: "video",
+        id: 'install-comfyui',
+        category: 'video',
         label: comfyui.installable
-          ? "Install ComfyUI"
-          : "ComfyUI (requires git & python)",
+          ? 'Install ComfyUI'
+          : 'ComfyUI (requires git & python)',
         disabled: !comfyui.installable,
         action: async () => {
-          navigateTo("installing");
+          navigateTo('installing');
           setInstallProgress({
-            stage: "start",
-            message: "Installing ComfyUI...",
+            stage: 'start',
+            message: 'Installing ComfyUI...',
           });
 
           const success = await installComfyUI(comfyInstallPath, (progress) => {
@@ -338,8 +338,8 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
 
           if (success) {
             setInstallProgress({
-              stage: "start",
-              message: "Installing LTX-Video custom nodes...",
+              stage: 'start',
+              message: 'Installing LTX-Video custom nodes...',
             });
             await installComfyUICustomNodes((progress) => {
               setInstallProgress(progress);
@@ -349,18 +349,18 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
             });
           }
 
-          setCompletedAction("install-comfyui");
-          navigateTo("done");
+          setCompletedAction('install-comfyui');
+          navigateTo('done');
         },
       });
     } else if (!comfyui.running) {
       menuItems.push({
-        id: "start-comfyui",
-        category: "video",
-        label: "Start ComfyUI server",
+        id: 'start-comfyui',
+        category: 'video',
+        label: 'Start ComfyUI server',
         action: async () => {
           if (onExternalAction) {
-            onExternalAction("start-comfyui");
+            onExternalAction('start-comfyui');
           }
           exit();
         },
@@ -370,7 +370,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
         if (!model.installed) {
           menuItems.push({
             id: `download-comfyui-${model.id}`,
-            category: "video",
+            category: 'video',
             label: `Download ${model.label} (${model.totalSize})`,
             action: async () => {
               if (onExternalAction) {
@@ -383,12 +383,12 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       }
 
       menuItems.push({
-        id: "stop-comfyui",
-        category: "video",
-        label: "Stop ComfyUI server",
+        id: 'stop-comfyui',
+        category: 'video',
+        label: 'Stop ComfyUI server',
         action: async () => {
           if (onExternalAction) {
-            onExternalAction("stop-comfyui");
+            onExternalAction('stop-comfyui');
           }
           exit();
         },
@@ -398,18 +398,18 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
 
   // --- General ---
   menuItems.push({
-    id: "model-guide",
-    category: "general",
-    label: "How to Add Your Own Models",
+    id: 'model-guide',
+    category: 'general',
+    label: 'How to Add Your Own Models',
     action: async () => {
-      navigateTo("model-guide");
+      navigateTo('model-guide');
     },
   });
 
   menuItems.push({
-    id: "exit",
-    category: "general",
-    label: "Exit",
+    id: 'exit',
+    category: 'general',
+    label: 'Exit',
     action: async () => {
       exit();
     },
@@ -417,7 +417,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
 
   // Keyboard navigation
   useInput((input, key) => {
-    if (screen === "menu") {
+    if (screen === 'menu') {
       if (key.upArrow) {
         setSelectedIndex((prev) => Math.max(0, prev - 1));
       }
@@ -432,39 +432,39 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       }
     }
     // Allow escape to go back from path input
-    if (screen === "path-input" && key.escape) {
-      navigateTo("menu");
+    if (screen === 'path-input' && key.escape) {
+      navigateTo('menu');
       return;
     }
     // Allow escape to go back from model download
-    if (screen === "model-download" && key.escape) {
-      navigateTo("menu");
+    if (screen === 'model-download' && key.escape) {
+      navigateTo('menu');
       return;
     }
     // Allow escape or Enter to go back from model guide
-    if (screen === "model-guide" && (key.escape || key.return)) {
-      navigateTo("menu");
+    if (screen === 'model-guide' && (key.escape || key.return)) {
+      navigateTo('menu');
       return;
     }
     // Allow Enter to exit from done screen (return to main menu)
-    if (screen === "done" && key.return) {
+    if (screen === 'done' && key.return) {
       exit();
       return;
     }
     // Global quit (but not during input screens, done screen, or guide)
     if (
-      screen !== "path-input" &&
-      screen !== "model-download" &&
-      screen !== "model-guide" &&
-      screen !== "done" &&
-      (input === "q" || key.escape)
+      screen !== 'path-input' &&
+      screen !== 'model-download' &&
+      screen !== 'model-guide' &&
+      screen !== 'done' &&
+      (input === 'q' || key.escape)
     ) {
       exit();
     }
   });
 
   // Detecting screen
-  if (screen === "detecting") {
+  if (screen === 'detecting') {
     return (
       <Box flexDirection="column" padding={1}>
         <Text color="cyan">{LogoString}</Text>
@@ -479,7 +479,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   }
 
   // Path input screen for Stable Diffusion
-  if (screen === "path-input") {
+  if (screen === 'path-input') {
     return (
       <Box flexDirection="column" padding={1}>
         <Text color="cyan">{LogoString}</Text>
@@ -519,7 +519,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   }
 
   // Model download screen for Ollama
-  if (screen === "model-download") {
+  if (screen === 'model-download') {
     return (
       <Box flexDirection="column" padding={1}>
         <Text color="cyan">{LogoString}</Text>
@@ -574,7 +574,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   }
 
   // Model guide screen
-  if (screen === "model-guide") {
+  if (screen === 'model-guide') {
     return (
       <Box flexDirection="column" padding={1}>
         <Text color="cyan">{LogoString}</Text>
@@ -595,11 +595,11 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
           <Text bold>Text Models (Ollama)</Text>
           <Box marginTop={1} flexDirection="column">
             <Text color="gray">
-              Browse models at{" "}
+              Browse models at{' '}
               <Text color="cyan">https://ollama.com/library</Text>
             </Text>
             <Text color="gray">Download via the setup menu or run:</Text>
-            <Text color="white"> ollama pull {"<model-name>"}</Text>
+            <Text color="white"> ollama pull {'<model-name>'}</Text>
           </Box>
         </Box>
 
@@ -614,7 +614,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
           <Text bold>Image Models (Stable Diffusion)</Text>
           <Box marginTop={1} flexDirection="column">
             <Text color="gray">
-              Download <Text color="white">.safetensors</Text> files from{" "}
+              Download <Text color="white">.safetensors</Text> files from{' '}
               <Text color="cyan">https://civitai.com</Text>
             </Text>
             <Text color="gray">
@@ -644,9 +644,9 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
           <Text bold>Video Models (ComfyUI)</Text>
           <Box marginTop={1} flexDirection="column">
             <Text color="gray">
-              Download models from{" "}
-              <Text color="cyan">https://huggingface.co</Text>{" "}
-              and place in the folders below.
+              Download models from{' '}
+              <Text color="cyan">https://huggingface.co</Text> and place in the
+              folders below.
             </Text>
             <Text color="gray">
               Models marked with * can be auto-downloaded from the setup menu.
@@ -654,22 +654,57 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
           </Box>
 
           <Box marginTop={1} flexDirection="column">
-            <Text bold color="white">LTX-Video</Text>
-            <Text color="gray">  * ltx-video-2b-v0.9.5.safetensors  <Text color="white">checkpoints/</Text>  <Text color="gray">(~6 GB)</Text></Text>
-            <Text color="gray">  * t5xxl_fp16.safetensors             <Text color="white">text_encoders/</Text> <Text color="gray">(~10 GB)</Text></Text>
+            <Text bold color="white">
+              LTX-Video
+            </Text>
+            <Text color="gray">
+              {' '}
+              * ltx-video-2b-v0.9.5.safetensors{' '}
+              <Text color="white">checkpoints/</Text>{' '}
+              <Text color="gray">(~6 GB)</Text>
+            </Text>
+            <Text color="gray">
+              {' '}
+              * t5xxl_fp16.safetensors <Text color="white">
+                text_encoders/
+              </Text>{' '}
+              <Text color="gray">(~10 GB)</Text>
+            </Text>
           </Box>
 
           <Box marginTop={1} flexDirection="column">
-            <Text bold color="white">Wan 2.1 Text-to-Video</Text>
-            <Text color="gray">  * wan2.1_t2v_1.3B_fp16.safetensors  <Text color="white">diffusion_models/</Text> <Text color="gray">(~2.6 GB)</Text></Text>
-            <Text color="gray">    wan2.1_t2v_14B_fp16.safetensors   <Text color="white">diffusion_models/</Text> <Text color="gray">(~28 GB)</Text></Text>
-            <Text color="gray">  * umt5_xxl_fp8_e4m3fn_scaled        <Text color="white">text_encoders/</Text>    <Text color="gray">(~5 GB, shared)</Text></Text>
-            <Text color="gray">  * wan_2.1_vae.safetensors            <Text color="white">vae/</Text>              <Text color="gray">(~0.3 GB, shared)</Text></Text>
+            <Text bold color="white">
+              Wan 2.1 Text-to-Video
+            </Text>
+            <Text color="gray">
+              {' '}
+              * wan2.1_t2v_1.3B_fp16.safetensors{' '}
+              <Text color="white">diffusion_models/</Text>{' '}
+              <Text color="gray">(~2.6 GB)</Text>
+            </Text>
+            <Text color="gray">
+              {' '}
+              wan2.1_t2v_14B_fp16.safetensors{' '}
+              <Text color="white">diffusion_models/</Text>{' '}
+              <Text color="gray">(~28 GB)</Text>
+            </Text>
+            <Text color="gray">
+              {' '}
+              * umt5_xxl_fp8_e4m3fn_scaled{' '}
+              <Text color="white">text_encoders/</Text>{' '}
+              <Text color="gray">(~5 GB, shared)</Text>
+            </Text>
+            <Text color="gray">
+              {' '}
+              * wan_2.1_vae.safetensors <Text color="white">vae/</Text>{' '}
+              <Text color="gray">(~0.3 GB, shared)</Text>
+            </Text>
           </Box>
 
           <Box marginTop={1} flexDirection="column">
             <Text color="gray">
-              All folders are relative to: <Text color="white">{comfyInstallPath}/models/</Text>
+              All folders are relative to:{' '}
+              <Text color="white">{comfyInstallPath}/models/</Text>
             </Text>
             <Text color="gray">
               The 14B model uses the same text encoder and VAE as the 1.3B.
@@ -688,7 +723,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   }
 
   // Installing screen
-  if (screen === "installing") {
+  if (screen === 'installing') {
     return (
       <Box flexDirection="column" padding={1}>
         <Text color="cyan">{LogoString}</Text>
@@ -702,7 +737,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
             <Box>
               {!installProgress.complete && !installProgress.error && (
                 <Text color="cyan">
-                  <Spinner type="dots" />{" "}
+                  <Spinner type="dots" />{' '}
                 </Text>
               )}
               {installProgress.complete && <Text color="green">✓ </Text>}
@@ -734,88 +769,88 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   }
 
   // Done screen - context-aware based on completed action
-  if (screen === "done") {
+  if (screen === 'done') {
     const getDoneMessage = () => {
       switch (completedAction) {
-        case "start-ollama":
+        case 'start-ollama':
           return {
-            title: "Ollama is now running!",
+            title: 'Ollama is now running!',
             description:
-              "Ollama server is running in the background on port 11434.",
+              'Ollama server is running in the background on port 11434.',
             nextSteps: [
-              "Return to main menu to authenticate or start the tunnel.",
+              'Return to main menu to authenticate or start the tunnel.',
             ],
-            note: "Ollama will keep running until you restart your computer or stop it manually.",
+            note: 'Ollama will keep running until you restart your computer or stop it manually.',
           };
-        case "stop-ollama":
+        case 'stop-ollama':
           return {
-            title: "Ollama server stopped!",
-            description: "The Ollama server has been shut down.",
+            title: 'Ollama server stopped!',
+            description: 'The Ollama server has been shut down.',
             nextSteps: [],
             note: null,
           };
-        case "download-model":
+        case 'download-model':
           return {
-            title: "Model downloaded!",
+            title: 'Model downloaded!',
             description: `The model "${modelName}" has been pulled successfully.`,
             nextSteps: [
-              "Return to main menu to register models and start the tunnel.",
+              'Return to main menu to register models and start the tunnel.',
             ],
             note: null,
           };
-        case "install-ollama":
+        case 'install-ollama':
           return {
-            title: "Ollama installed successfully!",
+            title: 'Ollama installed successfully!',
             description:
-              "Ollama has been installed and the llama3.2 model has been pulled.",
+              'Ollama has been installed and the llama3.2 model has been pulled.',
             nextSteps: [
-              "Return to main menu to authenticate and start the tunnel.",
+              'Return to main menu to authenticate and start the tunnel.',
             ],
             note: null,
           };
-        case "install-lmstudio":
+        case 'install-lmstudio':
           return {
-            title: "LM Studio download started!",
-            description: "The download page has been opened in your browser.",
+            title: 'LM Studio download started!',
+            description: 'The download page has been opened in your browser.',
             nextSteps: [
-              "Complete the installation from the downloaded file.",
-              "Launch LM Studio and download a model.",
-              "Start the local server in LM Studio.",
-              "Return to main menu to start the tunnel.",
+              'Complete the installation from the downloaded file.',
+              'Launch LM Studio and download a model.',
+              'Start the local server in LM Studio.',
+              'Return to main menu to start the tunnel.',
             ],
             note: null,
           };
-        case "install-sd":
+        case 'install-sd':
           return {
-            title: "Stable Diffusion Forge Neo cloned!",
+            title: 'Stable Diffusion Forge Neo cloned!',
             description: `Repository cloned to: ${sdInstallPath}`,
             nextSteps: [
               'Use "Download default SDXL model" from the setup menu to get a model automatically.',
               'Or download from https://civitai.com/models (filter by "SDXL 1.0").',
-              "Then start the server from the setup menu.",
+              'Then start the server from the setup menu.',
             ],
             note: `To add your own models, download .safetensors files from https://civitai.com and place them in:\n  ${sdInstallPath}/models/Stable-diffusion/`,
           };
-        case "install-comfyui":
+        case 'install-comfyui':
           return {
-            title: "ComfyUI installed!",
+            title: 'ComfyUI installed!',
             description: `Installed to: ${comfyInstallPath}`,
             nextSteps: [
-              "Start the ComfyUI server from the setup menu.",
-              "Download a video model (LTX-Video or Wan 2.1) once the server is running.",
-              "Then start the tunnel to connect to MindStudio.",
+              'Start the ComfyUI server from the setup menu.',
+              'Download a video model (LTX-Video or Wan 2.1) once the server is running.',
+              'Then start the tunnel to connect to MindStudio.',
             ],
             note: [
-              "LTX-Video custom nodes have been installed for best compatibility.",
-              "",
-              "To add your own video models, download .safetensors files from https://huggingface.co and place them in:",
+              'LTX-Video custom nodes have been installed for best compatibility.',
+              '',
+              'To add your own video models, download .safetensors files from https://huggingface.co and place them in:',
               `  Checkpoints:       ${comfyInstallPath}/models/checkpoints/`,
               `  Diffusion models:  ${comfyInstallPath}/models/diffusion_models/`,
               `  Text encoders:     ${comfyInstallPath}/models/text_encoders/`,
               `  VAE:               ${comfyInstallPath}/models/vae/`,
-            ].join("\n"),
+            ].join('\n'),
           };
-        case "start-sd":
+        case 'start-sd':
           // If there was a pre-flight error (Python version), show it
           if (installProgress?.error) {
             return {
@@ -829,26 +864,26 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
             };
           }
           return {
-            title: "Stable Diffusion server stopped.",
-            description: "The server has been shut down.",
+            title: 'Stable Diffusion server stopped.',
+            description: 'The server has been shut down.',
             nextSteps: [
-              "Return to main menu to start it again or start the tunnel.",
+              'Return to main menu to start it again or start the tunnel.',
             ],
             note: null,
           };
-        case "stop-sd":
+        case 'stop-sd':
           return {
-            title: "Stable Diffusion server stopped!",
-            description: "The server has been shut down.",
-            nextSteps: ["Return to main menu to start it again if needed."],
+            title: 'Stable Diffusion server stopped!',
+            description: 'The server has been shut down.',
+            nextSteps: ['Return to main menu to start it again if needed.'],
             note: null,
           };
         default:
           return {
-            title: "Setup complete!",
+            title: 'Setup complete!',
             description: null,
             nextSteps: [
-              "Return to main menu to authenticate and start the tunnel.",
+              'Return to main menu to authenticate and start the tunnel.',
             ],
             note: null,
           };
@@ -875,7 +910,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
             </Text>
             {msg.nextSteps.map((step, i) => (
               <Text key={i} color="gray">
-                {" "}
+                {' '}
                 {i + 1}. {step}
               </Text>
             ))}
@@ -918,12 +953,12 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       >
         <Text bold>Provider Status</Text>
         {[
-          { label: "Text", ids: ["ollama", "lmstudio"] },
-          { label: "Image", ids: ["stable-diffusion"] },
-          { label: "Video", ids: ["comfyui"] },
+          { label: 'Text', ids: ['ollama', 'lmstudio'] },
+          { label: 'Image', ids: ['stable-diffusion'] },
+          { label: 'Video', ids: ['comfyui'] },
         ].map((group) => {
           const groupProviders = providers.filter((p) =>
-            group.ids.includes(p.id)
+            group.ids.includes(p.id),
           );
           if (groupProviders.length === 0) return null;
           return (
@@ -938,24 +973,24 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
                       color={
                         provider.installed
                           ? provider.running
-                            ? "green"
-                            : "yellow"
-                          : "red"
+                            ? 'green'
+                            : 'yellow'
+                          : 'red'
                       }
                     >
                       {provider.installed
                         ? provider.running
-                          ? "●"
-                          : "○"
-                        : "✗"}
+                          ? '●'
+                          : '○'
+                        : '✗'}
                     </Text>
                     <Text> {provider.name} - </Text>
                     <Text color="gray">
                       {provider.running
-                        ? "Running"
+                        ? 'Running'
                         : provider.installed
-                        ? "Installed (not running)"
-                        : "Not installed"}
+                          ? 'Installed (not running)'
+                          : 'Not installed'}
                     </Text>
                   </Box>
                   {provider.warning && (
@@ -971,7 +1006,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       </Box>
 
       {/* macOS compatibility note */}
-      {process.platform === "darwin" && (
+      {process.platform === 'darwin' && (
         <Box marginTop={1}>
           <Text color="yellow">
             ⚠ macOS: Stable Diffusion and ComfyUI may have compatibility issues
@@ -992,27 +1027,27 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       {menuItems.length > 1 &&
         (() => {
           const categoryOrder: MenuCategory[] = [
-            "text",
-            "image",
-            "video",
-            "general",
+            'text',
+            'image',
+            'video',
+            'general',
           ];
           const categoryLabels: Record<MenuCategory, string> = {
-            text: "Text Generation",
-            image: "Image Generation",
-            video: "Video Generation",
-            general: "",
+            text: 'Text Generation',
+            image: 'Image Generation',
+            video: 'Video Generation',
+            general: '',
           };
           const categoryIcons: Record<MenuCategory, string> = {
-            text: "💬",
-            image: "🎨",
-            video: "🎬",
-            general: "",
+            text: '💬',
+            image: '🎨',
+            video: '🎬',
+            general: '',
           };
 
           // Only show categories that have items
           const activeCategories = categoryOrder.filter((cat) =>
-            menuItems.some((item) => item.category === cat)
+            menuItems.some((item) => item.category === cat),
           );
 
           // Track the global index for selection
@@ -1031,7 +1066,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
                     flexDirection="column"
                     marginTop={catIdx > 0 ? 1 : 0}
                   >
-                    {cat !== "general" && (
+                    {cat !== 'general' && (
                       <Text bold color="gray">
                         {categoryIcons[cat]} {categoryLabels[cat]}
                       </Text>
@@ -1041,17 +1076,17 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
                       return (
                         <Box key={item.id}>
                           <Text
-                            color={idx === selectedIndex ? "cyan" : "white"}
+                            color={idx === selectedIndex ? 'cyan' : 'white'}
                           >
-                            {idx === selectedIndex ? " ❯ " : "   "}
+                            {idx === selectedIndex ? ' ❯ ' : '   '}
                           </Text>
                           <Text
                             color={
                               item.disabled
-                                ? "gray"
+                                ? 'gray'
                                 : idx === selectedIndex
-                                ? "cyan"
-                                : "white"
+                                  ? 'cyan'
+                                  : 'white'
                             }
                             dimColor={item.disabled}
                           >
@@ -1082,12 +1117,12 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
           {sd?.installed && (
             <Box marginTop={1} flexDirection="column">
               <Text color="gray">
-                Image models (.safetensors) from{" "}
+                Image models (.safetensors) from{' '}
                 <Text color="cyan">https://civitai.com</Text>
               </Text>
               <Text color="gray">
-                {" "}
-                Place in:{" "}
+                {' '}
+                Place in:{' '}
                 <Text color="white">
                   {sdInstallPath}/models/Stable-diffusion/
                 </Text>
@@ -1097,19 +1132,19 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
           {comfyui?.installed && (
             <Box marginTop={1} flexDirection="column">
               <Text color="gray">
-                Video models (.safetensors) from{" "}
+                Video models (.safetensors) from{' '}
                 <Text color="cyan">https://huggingface.co</Text>
               </Text>
               <Text color="gray">
-                {" "}
-                Checkpoints:{" "}
+                {' '}
+                Checkpoints:{' '}
                 <Text color="white">
                   {comfyInstallPath}/models/checkpoints/
                 </Text>
               </Text>
               <Text color="gray">
-                {" "}
-                Diffusion models:{" "}
+                {' '}
+                Diffusion models:{' '}
                 <Text color="white">
                   {comfyInstallPath}/models/diffusion_models/
                 </Text>

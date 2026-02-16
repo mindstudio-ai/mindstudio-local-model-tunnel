@@ -1,5 +1,5 @@
-import chalk from "chalk";
-import ora, { Ora } from "ora";
+import chalk from 'chalk';
+import ora, { Ora } from 'ora';
 import {
   discoverAllModels,
   getProvider,
@@ -11,7 +11,7 @@ import {
   type TextProvider,
   type ImageProvider,
   type VideoProvider,
-} from "./providers/index.js";
+} from './providers/index.js';
 import {
   pollForRequest,
   submitProgress,
@@ -19,8 +19,8 @@ import {
   submitResult,
   LocalModelRequest,
   disconnectHeartbeat,
-} from "./api.js";
-import { displayModels } from "./helpers.js";
+} from './api.js';
+import { displayModels } from './helpers.js';
 
 const LogoString = `
        @@@@@@@       @@@@@@@
@@ -44,17 +44,17 @@ export class LocalModelRunner {
   async start(): Promise<void> {
     console.clear();
     console.log(chalk.white(LogoString));
-    console.log(chalk.blue("\nMindStudio Local Model Tunnel\n"));
+    console.log(chalk.blue('\nMindStudio Local Model Tunnel\n'));
 
     // Discover available models from all providers
     const models = await discoverAllModels();
 
     if (models.length === 0) {
-      console.log(chalk.yellow("No local models found."));
-      console.log(chalk.white("   Make sure a provider is running:"));
-      console.log(chalk.white("   • Ollama: ollama serve"));
-      console.log(chalk.white("   • LM Studio: Start the local server"));
-      console.log(chalk.white("   • Stable Diffusion: Start AUTOMATIC1111\n"));
+      console.log(chalk.yellow('No local models found.'));
+      console.log(chalk.white('   Make sure a provider is running:'));
+      console.log(chalk.white('   • Ollama: ollama serve'));
+      console.log(chalk.white('   • LM Studio: Start the local server'));
+      console.log(chalk.white('   • Stable Diffusion: Start AUTOMATIC1111\n'));
       return;
     }
 
@@ -67,13 +67,13 @@ export class LocalModelRunner {
 
     this.isRunning = true;
     this.spinner = ora({
-      text: "Waiting for requests...",
-      color: "cyan",
+      text: 'Waiting for requests...',
+      color: 'cyan',
     }).start();
 
     // Handle graceful shutdown
-    process.on("SIGINT", () => this.stop());
-    process.on("SIGTERM", () => this.stop());
+    process.on('SIGINT', () => this.stop());
+    process.on('SIGTERM', () => this.stop());
 
     while (this.isRunning) {
       try {
@@ -81,7 +81,7 @@ export class LocalModelRunner {
       } catch (error) {
         if (this.isRunning) {
           const message =
-            error instanceof Error ? error.message : "Unknown error";
+            error instanceof Error ? error.message : 'Unknown error';
           this.spinner?.fail(chalk.red(`Error: ${message}`));
 
           // Wait before retrying
@@ -89,8 +89,8 @@ export class LocalModelRunner {
 
           if (this.isRunning) {
             this.spinner = ora({
-              text: "Reconnecting...",
-              color: "cyan",
+              text: 'Reconnecting...',
+              color: 'cyan',
             }).start();
           }
         }
@@ -145,13 +145,13 @@ export class LocalModelRunner {
 
     // Route to appropriate handler based on request type
     switch (request.requestType) {
-      case "llm_chat":
+      case 'llm_chat':
         await this.handleTextRequest(request, provider);
         break;
-      case "image_generation":
+      case 'image_generation':
         await this.handleImageRequest(request, provider);
         break;
-      case "video_generation":
+      case 'video_generation':
         await this.handleVideoRequest(request, provider);
         break;
       default:
@@ -160,7 +160,7 @@ export class LocalModelRunner {
           request.id,
           false,
           undefined,
-          `Unknown request type: ${request.requestType}`
+          `Unknown request type: ${request.requestType}`,
         );
     }
 
@@ -169,7 +169,7 @@ export class LocalModelRunner {
 
   private async handleTextRequest(
     request: LocalModelRequest,
-    provider: Provider
+    provider: Provider,
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -183,7 +183,7 @@ export class LocalModelRunner {
     try {
       // Build messages for the provider
       const messages = (request.payload.messages || []).map((m) => ({
-        role: m.role as "user" | "assistant" | "system",
+        role: m.role as 'user' | 'assistant' | 'system',
         content: m.content,
       }));
 
@@ -193,7 +193,7 @@ export class LocalModelRunner {
         maxTokens: request.payload.maxTokens,
       });
 
-      let fullContent = "";
+      let fullContent = '';
       let lastProgressUpdate = 0;
       const progressInterval = 100; // Update progress every 100ms max
 
@@ -209,7 +209,7 @@ export class LocalModelRunner {
 
         // Show streaming indicator
         if (chunk.content) {
-          process.stdout.write(chalk.white("."));
+          process.stdout.write(chalk.white('.'));
         }
       }
 
@@ -228,8 +228,8 @@ export class LocalModelRunner {
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(
         chalk.green(
-          `\n✓ Completed in ${duration}s (${fullContent.length} chars)\n`
-        )
+          `\n✓ Completed in ${duration}s (${fullContent.length} chars)\n`,
+        ),
       );
     } catch (error) {
       this.handleRequestError(request, error);
@@ -238,7 +238,7 @@ export class LocalModelRunner {
 
   private async handleImageRequest(
     request: LocalModelRequest,
-    provider: Provider
+    provider: Provider,
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -250,7 +250,7 @@ export class LocalModelRunner {
     }
 
     try {
-      const prompt = request.payload.prompt || "";
+      const prompt = request.payload.prompt || '';
       const config = request.payload.config || {};
 
       console.log(chalk.gray(`  Prompt: "${prompt.slice(0, 50)}..."`));
@@ -275,12 +275,14 @@ export class LocalModelRunner {
               request.id,
               progress.step,
               progress.totalSteps,
-              progress.preview
+              progress.preview,
             );
             process.stdout.write(
-              chalk.white(`\r  Step ${progress.step}/${progress.totalSteps}...`)
+              chalk.white(
+                `\r  Step ${progress.step}/${progress.totalSteps}...`,
+              ),
             );
-          }
+          },
         );
       } else {
         result = await provider.generateImage(request.modelId, prompt, {
@@ -304,7 +306,7 @@ export class LocalModelRunner {
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       const sizeKB = Math.round((result.imageBase64.length * 3) / 4 / 1024);
       console.log(
-        chalk.green(`\n✓ Generated image in ${duration}s (${sizeKB}KB)\n`)
+        chalk.green(`\n✓ Generated image in ${duration}s (${sizeKB}KB)\n`),
       );
     } catch (error) {
       this.handleRequestError(request, error);
@@ -313,7 +315,7 @@ export class LocalModelRunner {
 
   private async handleVideoRequest(
     request: LocalModelRequest,
-    provider: Provider
+    provider: Provider,
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -325,7 +327,7 @@ export class LocalModelRunner {
     }
 
     try {
-      const prompt = request.payload.prompt || "";
+      const prompt = request.payload.prompt || '';
       const config = request.payload.config || {};
 
       console.log(chalk.gray(`  Prompt: "${prompt.slice(0, 50)}..."`));
@@ -347,14 +349,12 @@ export class LocalModelRunner {
           await submitGenerationProgress(
             request.id,
             progress.step,
-            progress.totalSteps
+            progress.totalSteps,
           );
           process.stdout.write(
-            chalk.white(
-              `\r  Step ${progress.step}/${progress.totalSteps}...`
-            )
+            chalk.white(`\r  Step ${progress.step}/${progress.totalSteps}...`),
           );
-        }
+        },
       );
 
       // Submit result with video data
@@ -368,12 +368,12 @@ export class LocalModelRunner {
 
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       const sizeMB = Math.round(
-        (result.videoBase64.length * 3) / 4 / 1024 / 1024
+        (result.videoBase64.length * 3) / 4 / 1024 / 1024,
       );
       console.log(
         chalk.green(
-          `\n✓ Generated video in ${duration}s (${sizeMB}MB, ${result.duration?.toFixed(1) || "?"}s @ ${result.fps || "?"}fps)\n`
-        )
+          `\n✓ Generated video in ${duration}s (${sizeMB}MB, ${result.duration?.toFixed(1) || '?'}s @ ${result.fps || '?'}fps)\n`,
+        ),
       );
     } catch (error) {
       this.handleRequestError(request, error);
@@ -382,7 +382,7 @@ export class LocalModelRunner {
 
   private async handleRequestError(
     request: LocalModelRequest,
-    error: unknown
+    error: unknown,
   ): Promise<void> {
     if (error instanceof Error && (error as any).status_code === 404) {
       const message = `Model ${request.modelId} not found. Is it registered on your local server?`;
@@ -391,11 +391,11 @@ export class LocalModelRunner {
       return;
     }
 
-    let message = error instanceof Error ? error.message : "Unknown error";
+    let message = error instanceof Error ? error.message : 'Unknown error';
 
-    if (message === "fetch failed") {
+    if (message === 'fetch failed') {
       message =
-        "Failed to connect to the API. Please make sure your local model server is running.";
+        'Failed to connect to the API. Please make sure your local model server is running.';
     }
 
     console.log(error);
@@ -407,8 +407,8 @@ export class LocalModelRunner {
   private restoreSpinner(): void {
     if (this.isRunning) {
       this.spinner = ora({
-        text: "Waiting for requests...",
-        color: "cyan",
+        text: 'Waiting for requests...',
+        color: 'cyan',
       }).start();
       this.updateSpinner();
     }
@@ -419,14 +419,14 @@ export class LocalModelRunner {
       if (this.activeRequests > 0) {
         this.spinner.text = `Processing ${this.activeRequests} request(s)...`;
       } else {
-        this.spinner.text = "Waiting for requests...";
+        this.spinner.text = 'Waiting for requests...';
       }
     }
   }
 
   private async stop(): Promise<void> {
     await disconnectHeartbeat();
-    console.log(chalk.yellow("\n\nShutting down...\n"));
+    console.log(chalk.yellow('\n\nShutting down...\n'));
     this.isRunning = false;
     this.spinner?.stop();
     process.exit(0);

@@ -1,5 +1,5 @@
-import React, { useEffect } from "react";
-import { Box, Text, useApp } from "ink";
+import React, { useEffect } from 'react';
+import { Box, Text, useApp } from 'ink';
 import {
   getConfigPath,
   getEnvironment,
@@ -7,16 +7,16 @@ import {
   getOllamaBaseUrl,
   getLMStudioBaseUrl,
   getStableDiffusionBaseUrl,
-} from "../../config.js";
-import { LogoString } from "../../helpers.js";
+} from '../../config.js';
+import { LogoString } from '../../helpers.js';
 
 export function ConfigScreen() {
   const { exit } = useApp();
 
   const environment = getEnvironment();
   const info = getEnvironmentInfo();
-  const envColor = environment === "prod" ? "green" : "yellow";
-  const envBadge = environment === "prod" ? "PROD" : "LOCAL";
+  const envColor = environment === 'prod' ? 'green' : 'yellow';
+  const envBadge = environment === 'prod' ? 'PROD' : 'LOCAL';
 
   // Auto-exit after render
   useEffect(() => {
@@ -68,8 +68,8 @@ export function ConfigScreen() {
             <Box width={16}>
               <Text color="gray">API key:</Text>
             </Box>
-            <Text color={info.hasApiKey ? "green" : "yellow"}>
-              {info.hasApiKey ? "Set" : "Not set"}
+            <Text color={info.hasApiKey ? 'green' : 'yellow'}>
+              {info.hasApiKey ? 'Set' : 'Not set'}
             </Text>
           </Box>
         </Box>

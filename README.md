@@ -5,7 +5,6 @@ Run local models with MindStudio.
 Providers supported so far:
 
 - **Text Generation**
-
   - [Ollama](https://ollama.ai)
   - [LM Studio](https://lmstudio.ai/)
 

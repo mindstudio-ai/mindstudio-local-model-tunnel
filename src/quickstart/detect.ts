@@ -1,9 +1,12 @@
-import { exec } from "child_process";
-import { promisify } from "util";
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
-import { getStableDiffusionInstallPath, getComfyUIInstallPath } from "../config.js";
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import {
+  getStableDiffusionInstallPath,
+  getComfyUIInstallPath,
+} from '../config.js';
 
 const execAsync = promisify(exec);
 
@@ -22,7 +25,7 @@ export interface ProviderInfo {
  */
 async function commandExists(command: string): Promise<boolean> {
   try {
-    const checkCmd = process.platform === "win32" ? "where" : "which";
+    const checkCmd = process.platform === 'win32' ? 'where' : 'which';
     await execAsync(`${checkCmd} ${command}`);
     return true;
   } catch {
@@ -36,7 +39,7 @@ async function commandExists(command: string): Promise<boolean> {
 async function isPortOpen(port: number): Promise<boolean> {
   try {
     const response = await fetch(`http://localhost:${port}`, {
-      method: "HEAD",
+      method: 'HEAD',
       signal: AbortSignal.timeout(1000),
     });
     return true;
@@ -49,12 +52,12 @@ async function isPortOpen(port: number): Promise<boolean> {
  * Detect Ollama installation and status
  */
 async function detectOllama(): Promise<ProviderInfo> {
-  const installed = await commandExists("ollama");
+  const installed = await commandExists('ollama');
   let running = false;
 
   if (installed) {
     try {
-      const response = await fetch("http://localhost:11434/api/tags", {
+      const response = await fetch('http://localhost:11434/api/tags', {
         signal: AbortSignal.timeout(1000),
       });
       running = response.ok;
@@ -64,12 +67,12 @@ async function detectOllama(): Promise<ProviderInfo> {
   }
 
   return {
-    id: "ollama",
-    name: "Ollama",
-    description: "Text generation (llama, mistral, etc.)",
+    id: 'ollama',
+    name: 'Ollama',
+    description: 'Text generation (llama, mistral, etc.)',
     installed,
     running,
-    installable: process.platform !== "win32", // Auto-install on macOS/Linux
+    installable: process.platform !== 'win32', // Auto-install on macOS/Linux
   };
 }
 
@@ -81,18 +84,19 @@ async function detectLMStudio(): Promise<ProviderInfo> {
   let installed = false;
 
   const possiblePaths = {
-    darwin: ["/Applications/LM Studio.app"],
+    darwin: ['/Applications/LM Studio.app'],
     linux: [
-      path.join(os.homedir(), ".local/share/LM Studio"),
-      "/opt/lm-studio",
+      path.join(os.homedir(), '.local/share/LM Studio'),
+      '/opt/lm-studio',
     ],
     win32: [
-      path.join(process.env.LOCALAPPDATA || "", "LM Studio"),
-      path.join(process.env.PROGRAMFILES || "", "LM Studio"),
+      path.join(process.env.LOCALAPPDATA || '', 'LM Studio'),
+      path.join(process.env.PROGRAMFILES || '', 'LM Studio'),
     ],
   };
 
-  const paths = possiblePaths[process.platform as keyof typeof possiblePaths] || [];
+  const paths =
+    possiblePaths[process.platform as keyof typeof possiblePaths] || [];
   for (const p of paths) {
     if (fs.existsSync(p)) {
       installed = true;
@@ -103,7 +107,7 @@ async function detectLMStudio(): Promise<ProviderInfo> {
   // Check if server is running
   let running = false;
   try {
-    const response = await fetch("http://localhost:1234/v1/models", {
+    const response = await fetch('http://localhost:1234/v1/models', {
       signal: AbortSignal.timeout(1000),
     });
     running = response.ok;
@@ -113,9 +117,9 @@ async function detectLMStudio(): Promise<ProviderInfo> {
   }
 
   return {
-    id: "lmstudio",
-    name: "LM Studio",
-    description: "Text generation (GUI app)",
+    id: 'lmstudio',
+    name: 'LM Studio',
+    description: 'Text generation (GUI app)',
     installed,
     running,
     installable: false, // GUI app - can only open download page
@@ -128,22 +132,26 @@ async function detectLMStudio(): Promise<ProviderInfo> {
 async function detectStableDiffusion(): Promise<ProviderInfo> {
   // First check the saved install path from config
   const savedPath = getStableDiffusionInstallPath();
-  
+
   // Check common locations for SD Forge (Neo and legacy)
   const possiblePaths = [
     ...(savedPath ? [savedPath] : []), // Check saved path first
-    path.join(os.homedir(), "sd-webui-forge-neo"),
-    path.join(os.homedir(), "sd-webui-forge-classic"),
-    path.join(os.homedir(), "stable-diffusion-webui-forge"),
-    path.join(os.homedir(), "sd-forge"),
-    path.join(os.homedir(), "Projects", "sd-webui-forge-neo"),
-    path.join(os.homedir(), "Code", "sd-webui-forge-neo"),
+    path.join(os.homedir(), 'sd-webui-forge-neo'),
+    path.join(os.homedir(), 'sd-webui-forge-classic'),
+    path.join(os.homedir(), 'stable-diffusion-webui-forge'),
+    path.join(os.homedir(), 'sd-forge'),
+    path.join(os.homedir(), 'Projects', 'sd-webui-forge-neo'),
+    path.join(os.homedir(), 'Code', 'sd-webui-forge-neo'),
   ];
 
   let installed = false;
   for (const p of possiblePaths) {
     // Neo has launch.py; legacy has webui.sh/webui.bat
-    if (fs.existsSync(path.join(p, "launch.py")) || fs.existsSync(path.join(p, "webui.sh")) || fs.existsSync(path.join(p, "webui.bat"))) {
+    if (
+      fs.existsSync(path.join(p, 'launch.py')) ||
+      fs.existsSync(path.join(p, 'webui.sh')) ||
+      fs.existsSync(path.join(p, 'webui.bat'))
+    ) {
       installed = true;
       break;
     }
@@ -152,7 +160,7 @@ async function detectStableDiffusion(): Promise<ProviderInfo> {
   // Check if server is running
   let running = false;
   try {
-    const response = await fetch("http://127.0.0.1:7860/sdapi/v1/sd-models", {
+    const response = await fetch('http://127.0.0.1:7860/sdapi/v1/sd-models', {
       signal: AbortSignal.timeout(1000),
     });
     running = response.ok;
@@ -162,14 +170,16 @@ async function detectStableDiffusion(): Promise<ProviderInfo> {
   }
 
   // Check prerequisites for installation
-  const hasGit = await commandExists("git");
-  const hasPython = await commandExists("python3") || await commandExists("python");
+  const hasGit = await commandExists('git');
+  const hasPython =
+    (await commandExists('python3')) || (await commandExists('python'));
 
   // Check Python version for Forge Neo (requires 3.13+)
   let warning: string | undefined;
   if (hasPython && !running) {
     try {
-      const { getPythonVersion, isPythonVersionOk } = await import("./installers.js");
+      const { getPythonVersion, isPythonVersionOk } =
+        await import('./installers.js');
       const pyInfo = await getPythonVersion();
       if (pyInfo && !isPythonVersionOk(pyInfo)) {
         warning = `Python ${pyInfo.version} detected, Forge Neo requires 3.13+`;
@@ -180,12 +190,12 @@ async function detectStableDiffusion(): Promise<ProviderInfo> {
   }
 
   return {
-    id: "stable-diffusion",
-    name: "Stable Diffusion Forge Neo",
-    description: "Image generation",
+    id: 'stable-diffusion',
+    name: 'Stable Diffusion Forge Neo',
+    description: 'Image generation',
     installed,
     running,
-    installable: hasGit && hasPython && process.platform !== "win32",
+    installable: hasGit && hasPython && process.platform !== 'win32',
     warning,
   };
 }
@@ -198,15 +208,18 @@ async function detectComfyUI(): Promise<ProviderInfo> {
 
   const possiblePaths = [
     ...(savedPath ? [savedPath] : []),
-    path.join(os.homedir(), "ComfyUI"),
-    path.join(os.homedir(), "comfyui"),
-    path.join(os.homedir(), "Projects", "ComfyUI"),
-    path.join(os.homedir(), "Code", "ComfyUI"),
+    path.join(os.homedir(), 'ComfyUI'),
+    path.join(os.homedir(), 'comfyui'),
+    path.join(os.homedir(), 'Projects', 'ComfyUI'),
+    path.join(os.homedir(), 'Code', 'ComfyUI'),
   ];
 
   let installed = false;
   for (const p of possiblePaths) {
-    if (fs.existsSync(path.join(p, "main.py")) && fs.existsSync(path.join(p, "requirements.txt"))) {
+    if (
+      fs.existsSync(path.join(p, 'main.py')) &&
+      fs.existsSync(path.join(p, 'requirements.txt'))
+    ) {
       installed = true;
       break;
     }
@@ -215,7 +228,7 @@ async function detectComfyUI(): Promise<ProviderInfo> {
   // Check if server is running
   let running = false;
   try {
-    const response = await fetch("http://127.0.0.1:8188/system_stats", {
+    const response = await fetch('http://127.0.0.1:8188/system_stats', {
       signal: AbortSignal.timeout(1000),
     });
     running = response.ok;
@@ -224,16 +237,17 @@ async function detectComfyUI(): Promise<ProviderInfo> {
     running = false;
   }
 
-  const hasGit = await commandExists("git");
-  const hasPython = (await commandExists("python3")) || (await commandExists("python"));
+  const hasGit = await commandExists('git');
+  const hasPython =
+    (await commandExists('python3')) || (await commandExists('python'));
 
   return {
-    id: "comfyui",
-    name: "ComfyUI",
-    description: "Video generation (LTX-Video, Wan2.1)",
+    id: 'comfyui',
+    name: 'ComfyUI',
+    description: 'Video generation (LTX-Video, Wan2.1)',
     installed,
     running,
-    installable: hasGit && hasPython && process.platform !== "win32",
+    installable: hasGit && hasPython && process.platform !== 'win32',
   };
 }
 
@@ -260,10 +274,10 @@ export async function checkPrerequisites(): Promise<{
   curl: boolean;
 }> {
   const [git, python3, python, curl] = await Promise.all([
-    commandExists("git"),
-    commandExists("python3"),
-    commandExists("python"),
-    commandExists("curl"),
+    commandExists('git'),
+    commandExists('python3'),
+    commandExists('python'),
+    commandExists('curl'),
   ]);
 
   return {

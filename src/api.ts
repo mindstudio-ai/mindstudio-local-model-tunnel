@@ -1,10 +1,10 @@
-import { getApiKey, getApiBaseUrl } from "./config.js";
+import { getApiKey, getApiBaseUrl } from './config.js';
 
 export interface LocalModelRequest {
   id: string;
   organizationId: string;
   modelId: string;
-  requestType: "llm_chat" | "image_generation" | "video_generation";
+  requestType: 'llm_chat' | 'image_generation' | 'video_generation';
   payload: {
     messages?: Array<{ role: string; content: string }>;
     prompt?: string;
@@ -18,27 +18,27 @@ export interface LocalModelRequest {
 function getHeaders(): Record<string, string> {
   const apiKey = getApiKey();
   if (!apiKey) {
-    throw new Error("Not authenticated. Run: mindstudio-local auth");
+    throw new Error('Not authenticated. Run: mindstudio-local auth');
   }
 
   return {
     Authorization: `Bearer ${apiKey}`,
-    "Content-Type": "application/json",
+    'Content-Type': 'application/json',
   };
 }
 
 export async function pollForRequest(
-  models: string[]
+  models: string[],
 ): Promise<LocalModelRequest | null> {
   const baseUrl = getApiBaseUrl();
-  const modelsParam = models.join(",");
+  const modelsParam = models.join(',');
 
   const response = await fetch(
     `${baseUrl}/v1/local-models/poll?models=${encodeURIComponent(modelsParam)}`,
     {
-      method: "GET",
+      method: 'GET',
       headers: getHeaders(),
-    }
+    },
   );
 
   if (response.status === 204) {
@@ -58,17 +58,17 @@ export async function pollForRequest(
  */
 export async function submitProgress(
   requestId: string,
-  content: string
+  content: string,
 ): Promise<void> {
   const baseUrl = getApiBaseUrl();
 
   const response = await fetch(
     `${baseUrl}/v1/local-models/requests/${requestId}/progress`,
     {
-      method: "POST",
+      method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ content }),
-    }
+    },
   );
 
   if (!response.ok) {
@@ -83,22 +83,22 @@ export async function submitGenerationProgress(
   requestId: string,
   step: number,
   totalSteps: number,
-  preview?: string
+  preview?: string,
 ): Promise<void> {
   const baseUrl = getApiBaseUrl();
 
   const response = await fetch(
     `${baseUrl}/v1/local-models/requests/${requestId}/progress`,
     {
-      method: "POST",
+      method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({
-        type: "generation",
+        type: 'generation',
         step,
         totalSteps,
         preview,
       }),
-    }
+    },
   );
 
   if (!response.ok) {
@@ -151,23 +151,23 @@ export async function submitResult(
   requestId: string,
   success: boolean,
   result?: RequestResult,
-  error?: string
+  error?: string,
 ): Promise<void> {
   const baseUrl = getApiBaseUrl();
 
   const response = await fetch(
     `${baseUrl}/v1/local-models/requests/${requestId}/result`,
     {
-      method: "POST",
+      method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ success, result, error }),
-    }
+    },
   );
 
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(
-      `Result submission failed: ${response.status} ${errorText}`
+      `Result submission failed: ${response.status} ${errorText}`,
     );
   }
 }
@@ -177,7 +177,7 @@ export async function verifyApiKey(): Promise<boolean> {
 
   try {
     const response = await fetch(`${baseUrl}/v1/local-models/verify-api-key`, {
-      method: "GET",
+      method: 'GET',
       headers: getHeaders(),
     });
 
@@ -188,9 +188,9 @@ export async function verifyApiKey(): Promise<boolean> {
 }
 
 export type ModelTypeMindStudio =
-  | "llm_chat"
-  | "image_generation"
-  | "video_generation";
+  | 'llm_chat'
+  | 'image_generation'
+  | 'video_generation';
 
 export interface RegisterModelOptions {
   modelName: string;
@@ -202,8 +202,8 @@ export interface RegisterModelOptions {
 
 export async function registerLocalModel(
   modelNameOrOptions: string | RegisterModelOptions,
-  provider: string = "ollama",
-  modelType: ModelTypeMindStudio = "llm_chat"
+  provider: string = 'ollama',
+  modelType: ModelTypeMindStudio = 'llm_chat',
 ): Promise<void> {
   const baseUrl = getApiBaseUrl();
 
@@ -214,7 +214,7 @@ export async function registerLocalModel(
     parameters?: unknown[];
   };
 
-  if (typeof modelNameOrOptions === "string") {
+  if (typeof modelNameOrOptions === 'string') {
     // Legacy signature
     payload = {
       modelName: modelNameOrOptions,
@@ -226,13 +226,13 @@ export async function registerLocalModel(
     payload = {
       modelName: modelNameOrOptions.modelName,
       provider: modelNameOrOptions.provider,
-      modelType: modelNameOrOptions.modelType || "llm_chat",
+      modelType: modelNameOrOptions.modelType || 'llm_chat',
       parameters: modelNameOrOptions.parameters,
     };
   }
 
   const response = await fetch(`${baseUrl}/v1/local-models/models/create`, {
-    method: "POST",
+    method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify(payload),
   });
@@ -247,14 +247,14 @@ export async function getRegisteredModels(): Promise<string[]> {
   const baseUrl = getApiBaseUrl();
 
   const response = await fetch(`${baseUrl}/v1/local-models/models`, {
-    method: "GET",
+    method: 'GET',
     headers: getHeaders(),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(
-      `Failed to fetch registered models: ${response.status} ${errorText}`
+      `Failed to fetch registered models: ${response.status} ${errorText}`,
     );
   }
 
@@ -269,8 +269,8 @@ export async function requestDeviceAuth(): Promise<{
   const baseUrl = getApiBaseUrl();
 
   const response = await fetch(`${baseUrl}/developer/v2/request-auth-url`, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
   });
 
   if (!response.ok) {
@@ -287,14 +287,14 @@ export async function requestDeviceAuth(): Promise<{
 }
 
 export async function pollDeviceAuth(token: string): Promise<{
-  status: "pending" | "completed" | "expired";
+  status: 'pending' | 'completed' | 'expired';
   apiKey?: string;
 }> {
   const baseUrl = getApiBaseUrl();
 
   const response = await fetch(`${baseUrl}/developer/v2/poll-auth-url`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token }),
   });
 
@@ -304,7 +304,7 @@ export async function pollDeviceAuth(token: string): Promise<{
   }
 
   const data = (await response.json()) as {
-    status: "pending" | "completed" | "expired";
+    status: 'pending' | 'completed' | 'expired';
     apiKey?: string;
   };
 
@@ -315,7 +315,7 @@ export async function disconnectHeartbeat(): Promise<void> {
   const baseUrl = getApiBaseUrl();
 
   const response = await fetch(`${baseUrl}/v1/local-models/disconnect`, {
-    method: "POST",
+    method: 'POST',
     headers: getHeaders(),
   });
 

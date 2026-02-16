@@ -1,5 +1,5 @@
 // Main exports for programmatic use
-export { LocalModelRunner } from "./runner.js";
+export { LocalModelRunner } from './runner.js';
 export {
   // Discovery functions
   discoverAllModels,
@@ -44,7 +44,7 @@ export {
   type BooleanParameterSchema,
   type SelectOption,
   type NumberOptions,
-} from "./providers/index.js";
+} from './providers/index.js';
 export {
   getApiKey,
   setApiKey,
@@ -60,7 +60,7 @@ export {
   getEnvironment,
   setEnvironment,
   type Environment,
-} from "./config.js";
+} from './config.js';
 export {
   verifyApiKey,
   pollForRequest,
@@ -73,4 +73,4 @@ export {
   type RequestResult,
   type RegisterModelOptions,
   type ModelTypeMindStudio,
-} from "./api.js";
+} from './api.js';

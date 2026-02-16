@@ -1,14 +1,14 @@
 // Provider types - text, image, and video generation
-export type TextProviderType = "ollama" | "lmstudio";
-export type ImageProviderType = "stable-diffusion";
-export type VideoProviderType = "comfyui";
+export type TextProviderType = 'ollama' | 'lmstudio';
+export type ImageProviderType = 'stable-diffusion';
+export type VideoProviderType = 'comfyui';
 export type ProviderType =
   | TextProviderType
   | ImageProviderType
   | VideoProviderType;
 
 // Model capability types
-export type ModelCapability = "text" | "image" | "video";
+export type ModelCapability = 'text' | 'image' | 'video';
 
 // ============================================
 // Parameter Schema Types (for UI configuration)
@@ -32,25 +32,25 @@ export interface BaseParameterSchema {
 }
 
 export interface SelectParameterSchema extends BaseParameterSchema {
-  type: "select";
+  type: 'select';
   defaultValue: string | number | boolean;
   selectOptions: SelectOption[];
 }
 
 export interface NumberParameterSchema extends BaseParameterSchema {
-  type: "number";
+  type: 'number';
   defaultValue?: number;
   numberOptions?: NumberOptions;
 }
 
 export interface TextParameterSchema extends BaseParameterSchema {
-  type: "text";
+  type: 'text';
   defaultValue?: string;
   placeholder?: string;
 }
 
 export interface BooleanParameterSchema extends BaseParameterSchema {
-  type: "boolean";
+  type: 'boolean';
   defaultValue?: boolean;
 }
 
@@ -80,7 +80,7 @@ export interface LocalModel {
 // ============================================
 
 export interface ChatMessage {
-  role: "user" | "assistant" | "system";
+  role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
@@ -194,7 +194,7 @@ export interface BaseProvider {
  * Text generation provider (LLMs)
  */
 export interface TextProvider extends BaseProvider {
-  readonly capability: "text";
+  readonly capability: 'text';
 
   /**
    * Stream a chat completion
@@ -202,7 +202,7 @@ export interface TextProvider extends BaseProvider {
   chat(
     model: string,
     messages: ChatMessage[],
-    options?: ChatOptions
+    options?: ChatOptions,
   ): AsyncGenerator<ChatResponse>;
 }
 
@@ -210,7 +210,7 @@ export interface TextProvider extends BaseProvider {
  * Image generation provider
  */
 export interface ImageProvider extends BaseProvider {
-  readonly capability: "image";
+  readonly capability: 'image';
 
   /**
    * Generate an image from a prompt
@@ -218,7 +218,7 @@ export interface ImageProvider extends BaseProvider {
   generateImage(
     model: string,
     prompt: string,
-    options?: ImageGenerationOptions
+    options?: ImageGenerationOptions,
   ): Promise<ImageGenerationResult>;
 
   /**
@@ -228,7 +228,7 @@ export interface ImageProvider extends BaseProvider {
     model: string,
     prompt: string,
     options?: ImageGenerationOptions,
-    onProgress?: (progress: ImageGenerationProgress) => void
+    onProgress?: (progress: ImageGenerationProgress) => void,
   ): Promise<ImageGenerationResult>;
 
   /**
@@ -242,7 +242,7 @@ export interface ImageProvider extends BaseProvider {
  * Video generation provider
  */
 export interface VideoProvider extends BaseProvider {
-  readonly capability: "video";
+  readonly capability: 'video';
 
   /**
    * Generate a video from a prompt
@@ -251,7 +251,7 @@ export interface VideoProvider extends BaseProvider {
     model: string,
     prompt: string,
     options?: VideoGenerationOptions,
-    onProgress?: (progress: VideoGenerationProgress) => void
+    onProgress?: (progress: VideoGenerationProgress) => void,
   ): Promise<VideoGenerationResult>;
 
   /**
@@ -269,19 +269,19 @@ export type Provider = TextProvider | ImageProvider | VideoProvider;
  * Type guard for text providers
  */
 export function isTextProvider(provider: Provider): provider is TextProvider {
-  return provider.capability === "text";
+  return provider.capability === 'text';
 }
 
 /**
  * Type guard for image providers
  */
 export function isImageProvider(provider: Provider): provider is ImageProvider {
-  return provider.capability === "image";
+  return provider.capability === 'image';
 }
 
 /**
  * Type guard for video providers
  */
 export function isVideoProvider(provider: Provider): provider is VideoProvider {
-  return provider.capability === "video";
+  return provider.capability === 'video';
 }

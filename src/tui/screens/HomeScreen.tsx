@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from "react";
-import { Box, Text, useApp, useInput } from "ink";
-import Spinner from "ink-spinner";
-import { getApiKey } from "../../config.js";
+import React, { useState, useEffect } from 'react';
+import { Box, Text, useApp, useInput } from 'ink';
+import Spinner from 'ink-spinner';
+import { getApiKey } from '../../config.js';
 import {
   isAnyProviderRunning,
   getProviderStatuses,
-} from "../../providers/index.js";
-import { LogoString } from "../../helpers.js";
-import { ProviderStatus } from "../types.js";
+} from '../../providers/index.js';
+import { LogoString } from '../../helpers.js';
+import { ProviderStatus } from '../types.js';
 
 interface MenuItem {
   id: string;
@@ -30,7 +30,7 @@ export function HomeScreen() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [navigateTo, setNavigateTo] = useState<string | null>(null);
   const [runningProviders, setRunningProviders] = useState<ProviderStatus[]>(
-    []
+    [],
   );
 
   // Check system status on mount
@@ -55,77 +55,77 @@ export function HomeScreen() {
 
   // Start tunnel - main action
   menuItems.push({
-    id: "start",
-    label: "Start Tunnel",
-    description: "Launch the MindStudio local model tunnel",
-    action: () => setNavigateTo("start"),
+    id: 'start',
+    label: 'Start Tunnel',
+    description: 'Launch the MindStudio local model tunnel',
+    action: () => setNavigateTo('start'),
     disabled: !status?.authenticated || !status?.providersRunning,
     disabledReason: !status?.authenticated
-      ? "Authenticate first"
+      ? 'Authenticate first'
       : !status?.providersRunning
-      ? "No providers running"
-      : undefined,
+        ? 'No providers running'
+        : undefined,
   });
 
   // Setup wizard
   menuItems.push({
-    id: "setup",
-    label: "Setup Providers",
-    description: "Install and configure local AI providers",
-    action: () => setNavigateTo("setup"),
+    id: 'setup',
+    label: 'Setup Providers',
+    description: 'Install and configure local AI providers',
+    action: () => setNavigateTo('setup'),
   });
 
   // Auth
   menuItems.push({
-    id: "auth",
-    label: status?.authenticated ? "Re-authenticate" : "Authenticate",
+    id: 'auth',
+    label: status?.authenticated ? 'Re-authenticate' : 'Authenticate',
     description: status?.authenticated
-      ? "Already authenticated - re-authenticate if needed"
-      : "Log in to MindStudio",
-    action: () => setNavigateTo("auth"),
+      ? 'Already authenticated - re-authenticate if needed'
+      : 'Log in to MindStudio',
+    action: () => setNavigateTo('auth'),
   });
 
   // Register models
   menuItems.push({
-    id: "register",
-    label: "Register Models",
-    description: "Register your local models with MindStudio",
-    action: () => setNavigateTo("register"),
+    id: 'register',
+    label: 'Register Models',
+    description: 'Register your local models with MindStudio',
+    action: () => setNavigateTo('register'),
     disabled: !status?.authenticated,
-    disabledReason: "Authenticate first",
+    disabledReason: 'Authenticate first',
   });
 
   // Models
   menuItems.push({
-    id: "models",
-    label: "View Models",
-    description: "View available local models",
-    action: () => setNavigateTo("models"),
+    id: 'models',
+    label: 'View Models',
+    description: 'View available local models',
+    action: () => setNavigateTo('models'),
   });
 
   // Config
   menuItems.push({
-    id: "config",
-    label: "Configuration",
-    description: "View current configuration",
-    action: () => setNavigateTo("config"),
+    id: 'config',
+    label: 'Configuration',
+    description: 'View current configuration',
+    action: () => setNavigateTo('config'),
   });
 
   // Logout (only show if authenticated)
   if (status?.authenticated) {
     menuItems.push({
-      id: "logout",
-      label: "Logout",
-      description: "Clear all stored credentials and data",
-      action: () => setNavigateTo("logout"),
+      id: 'logout',
+      label: 'Logout',
+      description: 'Clear all stored credentials and data',
+      action: () => setNavigateTo('logout'),
     });
   }
 
   // Exit
   menuItems.push({
-    id: "exit",
-    label: "Exit",
-    description: "",
+    id: 'exit',
+    label: 'Exit',
+    description: '',
     action: () => exit(),
   });
 
@@ -159,7 +159,7 @@ export function HomeScreen() {
         item.action();
       }
     }
-    if (input === "q" || key.escape) {
+    if (input === 'q' || key.escape) {
       exit();
     }
   });
@@ -201,27 +201,27 @@ export function HomeScreen() {
       {/* Status indicators */}
       <Box marginBottom={1} flexDirection="column">
         <Box>
-          <Text color={status.authenticated ? "green" : "yellow"}>
-            {status.authenticated ? "●" : "○"}
+          <Text color={status.authenticated ? 'green' : 'yellow'}>
+            {status.authenticated ? '●' : '○'}
           </Text>
           <Text color="gray">
-            {" "}
-            Authentication:{" "}
-            {status.authenticated ? "Connected" : "Not authenticated"}
+            {' '}
+            Authentication:{' '}
+            {status.authenticated ? 'Connected' : 'Not authenticated'}
           </Text>
         </Box>
         <Box>
-          <Text color={status.providersRunning ? "green" : "yellow"}>
-            {status.providersRunning ? "●" : "○"}
+          <Text color={status.providersRunning ? 'green' : 'yellow'}>
+            {status.providersRunning ? '●' : '○'}
           </Text>
           <Text color="gray">
-            {" "}
-            Providers:{" "}
+            {' '}
+            Providers:{' '}
             {status.providersRunning
               ? `${runningProviders
                   .map((p) => p.provider.displayName)
-                  .join(", ")} running`
-              : "None running"}
+                  .join(', ')} running`
+              : 'None running'}
           </Text>
         </Box>
       </Box>
@@ -240,14 +240,14 @@ export function HomeScreen() {
           return (
             <Box key={item.id}>
               <Text
-                color={isDisabled ? "gray" : isSelected ? "cyan" : "white"}
+                color={isDisabled ? 'gray' : isSelected ? 'cyan' : 'white'}
                 dimColor={isDisabled}
               >
-                {isSelected ? "❯ " : "  "}
+                {isSelected ? '❯ ' : '  '}
                 {item.label}
                 {isDisabled && item.disabledReason
                   ? ` (${item.disabledReason})`
-                  : ""}
+                  : ''}
               </Text>
             </Box>
           );

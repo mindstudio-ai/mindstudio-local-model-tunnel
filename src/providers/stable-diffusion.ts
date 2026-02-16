@@ -1,4 +1,4 @@
-import { getStableDiffusionBaseUrl } from "../config.js";
+import { getStableDiffusionBaseUrl } from '../config.js';
 import type {
   ImageProvider,
   LocalModel,
@@ -6,7 +6,7 @@ import type {
   ImageGenerationResult,
   ImageGenerationProgress,
   ParameterSchema,
-} from "./types.js";
+} from './types.js';
 
 /**
  * Response from AUTOMATIC1111's /sdapi/v1/sd-models endpoint
@@ -73,9 +73,9 @@ interface SDUpscaler {
  * Default URL: http://127.0.0.1:7860
  */
 export class StableDiffusionProvider implements ImageProvider {
-  readonly name = "stable-diffusion" as const;
-  readonly displayName = "Stable Diffusion";
-  readonly capability = "image" as const;
+  readonly name = 'stable-diffusion' as const;
+  readonly displayName = 'Stable Diffusion';
+  readonly capability = 'image' as const;
 
   private getBaseUrl(): string {
     return getStableDiffusionBaseUrl();
@@ -84,7 +84,7 @@ export class StableDiffusionProvider implements ImageProvider {
   async isRunning(): Promise<boolean> {
     try {
       const response = await fetch(`${this.getBaseUrl()}/sdapi/v1/sd-models`, {
-        method: "GET",
+        method: 'GET',
         signal: AbortSignal.timeout(5000),
       });
       return response.ok;
@@ -106,7 +106,7 @@ export class StableDiffusionProvider implements ImageProvider {
       return models.map((m) => ({
         name: m.model_name,
         provider: this.name,
-        capability: "image" as const,
+        capability: 'image' as const,
       }));
     } catch {
       return [];
@@ -135,8 +135,8 @@ export class StableDiffusionProvider implements ImageProvider {
    */
   async setModel(modelName: string): Promise<void> {
     const response = await fetch(`${this.getBaseUrl()}/sdapi/v1/options`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sd_model_checkpoint: modelName }),
     });
 
@@ -149,7 +149,7 @@ export class StableDiffusionProvider implements ImageProvider {
   async generateImage(
     model: string,
     prompt: string,
-    options?: ImageGenerationOptions
+    options?: ImageGenerationOptions,
   ): Promise<ImageGenerationResult> {
     // Check if we need to switch models
     const currentModel = await this.getCurrentModel();
@@ -159,18 +159,18 @@ export class StableDiffusionProvider implements ImageProvider {
 
     const payload = {
       prompt,
-      negative_prompt: options?.negativePrompt || "",
+      negative_prompt: options?.negativePrompt || '',
       steps: options?.steps || 20,
       width: options?.width || 512,
       height: options?.height || 512,
       cfg_scale: options?.cfgScale || 7,
       seed: options?.seed ?? -1, // -1 = random
-      sampler_name: options?.sampler || "Euler a",
+      sampler_name: options?.sampler || 'Euler a',
     };
 
     const response = await fetch(`${this.getBaseUrl()}/sdapi/v1/txt2img`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
 
@@ -182,7 +182,7 @@ export class StableDiffusionProvider implements ImageProvider {
     const result = (await response.json()) as Txt2ImgResponse;
 
     if (!result.images || result.images.length === 0) {
-      throw new Error("No images returned from Stable Diffusion");
+      throw new Error('No images returned from Stable Diffusion');
     }
 
     // Parse generation info
@@ -190,14 +190,14 @@ export class StableDiffusionProvider implements ImageProvider {
     let seed: number | undefined;
     try {
       info = JSON.parse(result.info);
-      seed = typeof info.seed === "number" ? info.seed : undefined;
+      seed = typeof info.seed === 'number' ? info.seed : undefined;
     } catch {
       // Ignore parse errors
     }
 
     return {
       imageBase64: result.images[0],
-      mimeType: "image/png",
+      mimeType: 'image/png',
       seed,
       info,
     };
@@ -207,7 +207,7 @@ export class StableDiffusionProvider implements ImageProvider {
     model: string,
     prompt: string,
     options?: ImageGenerationOptions,
-    onProgress?: (progress: ImageGenerationProgress) => void
+    onProgress?: (progress: ImageGenerationProgress) => void,
   ): Promise<ImageGenerationResult> {
     // Start generation in the background
     const generatePromise = this.generateImage(model, prompt, options);
@@ -218,7 +218,7 @@ export class StableDiffusionProvider implements ImageProvider {
         while (true) {
           try {
             const response = await fetch(
-              `${this.getBaseUrl()}/sdapi/v1/progress`
+              `${this.getBaseUrl()}/sdapi/v1/progress`,
             );
             if (!response.ok) break;
 
@@ -268,26 +268,26 @@ export class StableDiffusionProvider implements ImageProvider {
    */
   private getDefaultSamplers(): string[] {
     return [
-      "Euler a",
-      "Euler",
-      "LMS",
-      "Heun",
-      "DPM2",
-      "DPM2 a",
-      "DPM++ 2S a",
-      "DPM++ 2M",
-      "DPM++ SDE",
-      "DPM fast",
-      "DPM adaptive",
-      "LMS Karras",
-      "DPM2 Karras",
-      "DPM2 a Karras",
-      "DPM++ 2S a Karras",
-      "DPM++ 2M Karras",
-      "DPM++ SDE Karras",
-      "DDIM",
-      "PLMS",
-      "UniPC",
+      'Euler a',
+      'Euler',
+      'LMS',
+      'Heun',
+      'DPM2',
+      'DPM2 a',
+      'DPM++ 2S a',
+      'DPM++ 2M',
+      'DPM++ SDE',
+      'DPM fast',
+      'DPM adaptive',
+      'LMS Karras',
+      'DPM2 Karras',
+      'DPM2 a Karras',
+      'DPM++ 2S a Karras',
+      'DPM++ 2M Karras',
+      'DPM++ SDE Karras',
+      'DDIM',
+      'PLMS',
+      'UniPC',
     ];
   }
 
@@ -315,35 +315,36 @@ export class StableDiffusionProvider implements ImageProvider {
 
     return [
       {
-        type: "select",
-        label: "Sampler",
-        variable: "sampler",
-        helpText: "The sampling method used for image generation",
-        defaultValue: "Euler a",
+        type: 'select',
+        label: 'Sampler',
+        variable: 'sampler',
+        helpText: 'The sampling method used for image generation',
+        defaultValue: 'Euler a',
         selectOptions: samplers.map((name) => ({
           label: name,
           value: name,
         })),
       },
       {
-        type: "select",
-        label: "Width",
-        variable: "width",
-        defaultValue: "512",
+        type: 'select',
+        label: 'Width',
+        variable: 'width',
+        defaultValue: '512',
         selectOptions: dimensionOptions,
       },
       {
-        type: "select",
-        label: "Height",
-        variable: "height",
-        defaultValue: "512",
+        type: 'select',
+        label: 'Height',
+        variable: 'height',
+        defaultValue: '512',
         selectOptions: dimensionOptions,
       },
       {
-        type: "number",
-        label: "Steps",
-        variable: "steps",
-        helpText: "Number of denoising steps. More steps = higher quality but slower.",
+        type: 'number',
+        label: 'Steps',
+        variable: 'steps',
+        helpText:
+          'Number of denoising steps. More steps = higher quality but slower.',
         defaultValue: 20,
         numberOptions: {
           min: 1,
@@ -352,10 +353,11 @@ export class StableDiffusionProvider implements ImageProvider {
         },
       },
       {
-        type: "number",
-        label: "CFG Scale",
-        variable: "cfgScale",
-        helpText: "How strongly the image should follow the prompt. Higher = more literal.",
+        type: 'number',
+        label: 'CFG Scale',
+        variable: 'cfgScale',
+        helpText:
+          'How strongly the image should follow the prompt. Higher = more literal.',
         defaultValue: 7,
         numberOptions: {
           min: 1,
@@ -364,10 +366,11 @@ export class StableDiffusionProvider implements ImageProvider {
         },
       },
       {
-        type: "number",
-        label: "Seed",
-        variable: "seed",
-        helpText: "A specific value used to guide the 'randomness' of generation. Use -1 for random.",
+        type: 'number',
+        label: 'Seed',
+        variable: 'seed',
+        helpText:
+          "A specific value used to guide the 'randomness' of generation. Use -1 for random.",
         defaultValue: -1,
         numberOptions: {
           min: -1,
@@ -375,11 +378,11 @@ export class StableDiffusionProvider implements ImageProvider {
         },
       },
       {
-        type: "text",
-        label: "Negative Prompt",
-        variable: "negativePrompt",
+        type: 'text',
+        label: 'Negative Prompt',
+        variable: 'negativePrompt',
         helpText: "Things you don't want in the image",
-        placeholder: "blurry, low quality, distorted",
+        placeholder: 'blurry, low quality, distorted',
       },
     ];
   }

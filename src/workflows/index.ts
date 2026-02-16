@@ -6,14 +6,14 @@ import {
   buildLtxVideoWorkflow,
   LTX_VIDEO_OUTPUT_NODE,
   LTX_VIDEO_DEFAULTS,
-} from "./ltx-video.js";
+} from './ltx-video.js';
 import {
   buildWan21Workflow,
   WAN21_OUTPUT_NODE,
   WAN21_DEFAULTS,
-} from "./wan2.1.js";
+} from './wan2.1.js';
 
-export type ModelFamily = "ltx-video" | "wan2.1";
+export type ModelFamily = 'ltx-video' | 'wan2.1';
 
 export interface WorkflowConfig {
   family: ModelFamily;
@@ -57,8 +57,8 @@ const MODEL_REGISTRY: Array<{
   {
     pattern: /ltx[_-]?video/i,
     config: {
-      family: "ltx-video",
-      displayName: "LTX-Video",
+      family: 'ltx-video',
+      displayName: 'LTX-Video',
       buildWorkflow: (params) =>
         buildLtxVideoWorkflow({
           model: params.model,
@@ -87,8 +87,8 @@ const MODEL_REGISTRY: Array<{
   {
     pattern: /wan2[\._]?1/i,
     config: {
-      family: "wan2.1",
-      displayName: "Wan 2.1",
+      family: 'wan2.1',
+      displayName: 'Wan 2.1',
       buildWorkflow: (params) =>
         buildWan21Workflow({
           model: params.model,
@@ -119,7 +119,7 @@ const MODEL_REGISTRY: Array<{
  * Find the workflow configuration for a given model filename.
  */
 export function getWorkflowForModel(
-  modelFilename: string
+  modelFilename: string,
 ): WorkflowConfig | null {
   for (const entry of MODEL_REGISTRY) {
     if (entry.pattern.test(modelFilename)) {
@@ -143,5 +143,5 @@ export function getSupportedFamilies(): WorkflowConfig[] {
   return MODEL_REGISTRY.map((entry) => entry.config);
 }
 
-export { buildLtxVideoWorkflow } from "./ltx-video.js";
-export { buildWan21Workflow } from "./wan2.1.js";
+export { buildLtxVideoWorkflow } from './ltx-video.js';
+export { buildWan21Workflow } from './wan2.1.js';

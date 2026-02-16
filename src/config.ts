@@ -1,6 +1,6 @@
-import Conf from "conf";
+import Conf from 'conf';
 
-export type Environment = "prod" | "local";
+export type Environment = 'prod' | 'local';
 
 interface EnvironmentConfig {
   apiKey?: string;
@@ -22,19 +22,19 @@ interface ConfigSchema {
 }
 
 const config = new Conf<ConfigSchema>({
-  projectName: "mindstudio-local",
+  projectName: 'mindstudio-local',
   defaults: {
-    environment: "prod",
-    ollamaBaseUrl: "http://localhost:11434",
-    lmstudioBaseUrl: "http://localhost:1234/v1",
-    stableDiffusionBaseUrl: "http://127.0.0.1:7860",
-    comfyuiBaseUrl: "http://127.0.0.1:8188",
+    environment: 'prod',
+    ollamaBaseUrl: 'http://localhost:11434',
+    lmstudioBaseUrl: 'http://localhost:1234/v1',
+    stableDiffusionBaseUrl: 'http://127.0.0.1:7860',
+    comfyuiBaseUrl: 'http://127.0.0.1:8188',
     environments: {
       prod: {
-        apiBaseUrl: "https://api.mindstudio.ai",
+        apiBaseUrl: 'https://api.mindstudio.ai',
       },
       local: {
-        apiBaseUrl: "http://localhost:3129",
+        apiBaseUrl: 'http://localhost:3129',
       },
     },
   },
@@ -42,11 +42,11 @@ const config = new Conf<ConfigSchema>({
 
 // Environment management
 export function getEnvironment(): Environment {
-  return config.get("environment");
+  return config.get('environment');
 }
 
 export function setEnvironment(env: Environment): void {
-  config.set("environment", env);
+  config.set('environment', env);
 }
 
 // Get config for current environment
@@ -66,7 +66,7 @@ export function getApiKey(): string | undefined {
 }
 
 export function setApiKey(key: string): void {
-  setEnvConfig("apiKey", key);
+  setEnvConfig('apiKey', key);
 }
 
 export function clearApiKey(): void {
@@ -80,61 +80,61 @@ export function getApiBaseUrl(): string {
 }
 
 export function setApiBaseUrl(url: string): void {
-  setEnvConfig("apiBaseUrl", url);
+  setEnvConfig('apiBaseUrl', url);
 }
 
 // Ollama (shared across environments)
 export function getOllamaBaseUrl(): string {
-  return config.get("ollamaBaseUrl");
+  return config.get('ollamaBaseUrl');
 }
 
 export function setOllamaBaseUrl(url: string): void {
-  config.set("ollamaBaseUrl", url);
+  config.set('ollamaBaseUrl', url);
 }
 
 // LM Studio (shared across environments)
 export function getLMStudioBaseUrl(): string {
-  return config.get("lmstudioBaseUrl");
+  return config.get('lmstudioBaseUrl');
 }
 
 export function setLMStudioBaseUrl(url: string): void {
-  config.set("lmstudioBaseUrl", url);
+  config.set('lmstudioBaseUrl', url);
 }
 
 // Stable Diffusion / AUTOMATIC1111 (shared across environments)
 export function getStableDiffusionBaseUrl(): string {
-  return config.get("stableDiffusionBaseUrl");
+  return config.get('stableDiffusionBaseUrl');
 }
 
 export function setStableDiffusionBaseUrl(url: string): void {
-  config.set("stableDiffusionBaseUrl", url);
+  config.set('stableDiffusionBaseUrl', url);
 }
 
 // Stable Diffusion install path
 export function getStableDiffusionInstallPath(): string | undefined {
-  return config.get("stableDiffusionInstallPath");
+  return config.get('stableDiffusionInstallPath');
 }
 
 export function setStableDiffusionInstallPath(path: string): void {
-  config.set("stableDiffusionInstallPath", path);
+  config.set('stableDiffusionInstallPath', path);
 }
 
 // ComfyUI (shared across environments)
 export function getComfyUIBaseUrl(): string {
-  return config.get("comfyuiBaseUrl");
+  return config.get('comfyuiBaseUrl');
 }
 
 export function setComfyUIBaseUrl(url: string): void {
-  config.set("comfyuiBaseUrl", url);
+  config.set('comfyuiBaseUrl', url);
 }
 
 // ComfyUI install path
 export function getComfyUIInstallPath(): string | undefined {
-  return config.get("comfyuiInstallPath");
+  return config.get('comfyuiInstallPath');
 }
 
 export function setComfyUIInstallPath(path: string): void {
-  config.set("comfyuiInstallPath", path);
+  config.set('comfyuiInstallPath', path);
 }
 
 export function getConfigPath(): string {

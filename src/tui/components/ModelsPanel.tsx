@@ -1,32 +1,40 @@
-import React from "react";
-import { Box, Text } from "ink";
-import type { LocalModel } from "../../providers/types.js";
+import React from 'react';
+import { Box, Text } from 'ink';
+import type { LocalModel } from '../../providers/types.js';
 
 interface ModelsPanelProps {
   models: LocalModel[];
 }
 
-function getCapabilityBadge(capability: string): { text: string; color: string } {
+function getCapabilityBadge(capability: string): {
+  text: string;
+  color: string;
+} {
   switch (capability) {
-    case "text":
-      return { text: "text", color: "blue" };
-    case "image":
-      return { text: "image", color: "magenta" };
-    case "video":
-      return { text: "video", color: "yellow" };
+    case 'text':
+      return { text: 'text', color: 'blue' };
+    case 'image':
+      return { text: 'image', color: 'magenta' };
+    case 'video':
+      return { text: 'video', color: 'yellow' };
     default:
-      return { text: capability, color: "gray" };
+      return { text: capability, color: 'gray' };
   }
 }
 
 function formatModelName(name: string, maxLength: number = 24): string {
   if (name.length <= maxLength) return name;
-  return name.slice(0, maxLength - 1) + "…";
+  return name.slice(0, maxLength - 1) + '…';
 }
 
 export function ModelsPanel({ models }: ModelsPanelProps) {
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="gray"
+      paddingX={1}
+    >
       <Box marginBottom={1}>
         <Text bold color="white">
           MODELS
@@ -39,7 +47,7 @@ export function ModelsPanel({ models }: ModelsPanelProps) {
         models.slice(0, 8).map((model, index) => {
           const badge = getCapabilityBadge(model.capability);
           const isLast = index === Math.min(models.length, 8) - 1;
-          const prefix = isLast ? "└─" : "├─";
+          const prefix = isLast ? '└─' : '├─';
 
           return (
             <Box key={model.name}>
@@ -52,7 +60,7 @@ export function ModelsPanel({ models }: ModelsPanelProps) {
         })
       )}
       {models.length > 8 && (
-        <Text color="gray">   +{models.length - 8} more</Text>
+        <Text color="gray"> +{models.length - 8} more</Text>
       )}
     </Box>
   );

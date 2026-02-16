@@ -1,20 +1,20 @@
-import React, { useState, useEffect } from "react";
-import { Box, Text, useApp, useInput } from "ink";
-import Spinner from "ink-spinner";
+import React, { useState, useEffect } from 'react';
+import { Box, Text, useApp, useInput } from 'ink';
+import Spinner from 'ink-spinner';
 import {
   discoverAllModels,
   getProviderStatuses,
   type LocalModel,
-} from "../../providers/index.js";
-import { getRegisteredModels } from "../../api.js";
-import { getApiKey } from "../../config.js";
-import { LogoString } from "../../helpers.js";
+} from '../../providers/index.js';
+import { getRegisteredModels } from '../../api.js';
+import { getApiKey } from '../../config.js';
+import { LogoString } from '../../helpers.js';
 
 export function ModelsScreen() {
   const { exit } = useApp();
   const [models, setModels] = useState<LocalModel[]>([]);
   const [registeredModels, setRegisteredModels] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
   const [loading, setLoading] = useState(true);
   const [providersRunning, setProvidersRunning] = useState(0);
@@ -49,14 +49,14 @@ export function ModelsScreen() {
 
   // Handle keyboard input
   useInput((input, key) => {
-    if (input === "q" || key.escape || key.return) {
+    if (input === 'q' || key.escape || key.return) {
       exit();
     }
   });
 
-  const textModels = models.filter((m) => m.capability === "text");
-  const imageModels = models.filter((m) => m.capability === "image");
-  const videoModels = models.filter((m) => m.capability === "video");
+  const textModels = models.filter((m) => m.capability === 'text');
+  const imageModels = models.filter((m) => m.capability === 'image');
+  const videoModels = models.filter((m) => m.capability === 'video');
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -68,7 +68,7 @@ export function ModelsScreen() {
         </Text>
         {loading && (
           <Text color="cyan">
-            {" "}
+            {' '}
             <Spinner type="dots" />
           </Text>
         )}
@@ -77,9 +77,7 @@ export function ModelsScreen() {
       {!loading && providersRunning === 0 && (
         <Box flexDirection="column">
           <Text color="yellow">No providers are running.</Text>
-          <Text color="gray">
-            Start a provider to see available models.
-          </Text>
+          <Text color="gray">Start a provider to see available models.</Text>
         </Box>
       )}
 
@@ -103,14 +101,14 @@ export function ModelsScreen() {
               const isRegistered = registeredModels.has(model.name);
               return (
                 <Box key={model.name}>
-                  <Text color={isRegistered ? "green" : "yellow"}>
-                    {isRegistered ? "●" : "○"}{" "}
+                  <Text color={isRegistered ? 'green' : 'yellow'}>
+                    {isRegistered ? '●' : '○'}{' '}
                   </Text>
                   <Text>{model.name}</Text>
                   <Text color="gray"> [{model.provider}]</Text>
                   {!isRegistered && (
                     <Text color="gray" dimColor>
-                      {" "}
+                      {' '}
                       (not registered)
                     </Text>
                   )}
@@ -132,14 +130,14 @@ export function ModelsScreen() {
               const isRegistered = registeredModels.has(model.name);
               return (
                 <Box key={model.name}>
-                  <Text color={isRegistered ? "magenta" : "yellow"}>
-                    {isRegistered ? "●" : "○"}{" "}
+                  <Text color={isRegistered ? 'magenta' : 'yellow'}>
+                    {isRegistered ? '●' : '○'}{' '}
                   </Text>
                   <Text>{model.name}</Text>
                   <Text color="gray"> [{model.provider}]</Text>
                   {!isRegistered && (
                     <Text color="gray" dimColor>
-                      {" "}
+                      {' '}
                       (not registered)
                     </Text>
                   )}
@@ -161,14 +159,14 @@ export function ModelsScreen() {
               const isRegistered = registeredModels.has(model.name);
               return (
                 <Box key={model.name}>
-                  <Text color={isRegistered ? "blue" : "yellow"}>
-                    {isRegistered ? "●" : "○"}{" "}
+                  <Text color={isRegistered ? 'blue' : 'yellow'}>
+                    {isRegistered ? '●' : '○'}{' '}
                   </Text>
                   <Text>{model.name}</Text>
                   <Text color="gray"> [{model.provider}]</Text>
                   {!isRegistered && (
                     <Text color="gray" dimColor>
-                      {" "}
+                      {' '}
                       (not registered)
                     </Text>
                   )}

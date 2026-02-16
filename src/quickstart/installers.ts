@@ -1,16 +1,16 @@
-import { exec, spawn } from "child_process";
-import { promisify } from "util";
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
-import open from "open";
+import { exec, spawn } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import open from 'open';
 import {
   setStableDiffusionInstallPath,
   getStableDiffusionInstallPath,
   setComfyUIInstallPath,
   getComfyUIInstallPath,
-} from "../config.js";
-import chalk from "chalk";
+} from '../config.js';
+import chalk from 'chalk';
 
 export { getStableDiffusionInstallPath };
 export { getComfyUIInstallPath };
@@ -56,7 +56,7 @@ async function tryPythonCommand(cmd: string): Promise<PythonInfo | null> {
     let executable = cmd;
     try {
       const { stdout: exeOut } = await execAsync(
-        `${cmd} -c "import sys; print(sys.executable)"`
+        `${cmd} -c "import sys; print(sys.executable)"`,
       );
       executable = exeOut.trim();
     } catch {
@@ -79,11 +79,11 @@ export async function getPythonVersion(): Promise<PythonInfo | null> {
   // then generic ones. This handles cases where a venv or older version
   // shadows the newer install on PATH.
   const candidates = [
-    "python3.13",
-    "python3.14",
-    "python3.15",
-    "python3",
-    "python",
+    'python3.13',
+    'python3.14',
+    'python3.15',
+    'python3',
+    'python',
   ];
 
   const results: PythonInfo[] = [];
@@ -130,35 +130,35 @@ export function isPythonVersionOk(info: {
  * Install Ollama (macOS/Linux only)
  */
 export async function installOllama(
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
-  if (process.platform === "win32") {
+  if (process.platform === 'win32') {
     onProgress({
-      stage: "error",
-      message: "Auto-install not supported on Windows",
-      error: "Please download Ollama from https://ollama.com/download",
+      stage: 'error',
+      message: 'Auto-install not supported on Windows',
+      error: 'Please download Ollama from https://ollama.com/download',
     });
-    await open("https://ollama.com/download");
+    await open('https://ollama.com/download');
     return false;
   }
 
   try {
     onProgress({
-      stage: "download",
-      message: "Installing Ollama (you may be prompted for your password)...",
+      stage: 'download',
+      message: 'Installing Ollama (you may be prompted for your password)...',
     });
 
     // Use spawn with inherited stdio so user can see and respond to sudo prompt
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(
-        "bash",
-        ["-c", "curl -fsSL https://ollama.com/install.sh | sh"],
+        'bash',
+        ['-c', 'curl -fsSL https://ollama.com/install.sh | sh'],
         {
-          stdio: "inherit", // Inherit stdin/stdout/stderr for password prompt
-        }
+          stdio: 'inherit', // Inherit stdin/stdout/stderr for password prompt
+        },
       );
 
-      proc.on("close", (code) => {
+      proc.on('close', (code) => {
         if (code === 0) {
           resolve();
         } else {
@@ -166,22 +166,22 @@ export async function installOllama(
         }
       });
 
-      proc.on("error", (err) => {
+      proc.on('error', (err) => {
         reject(err);
       });
     });
 
     onProgress({
-      stage: "complete",
-      message: "Ollama installed successfully!",
+      stage: 'complete',
+      message: 'Ollama installed successfully!',
       complete: true,
     });
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : 'Unknown error';
     onProgress({
-      stage: "error",
-      message: "Installation failed",
+      stage: 'error',
+      message: 'Installation failed',
       error: message,
     });
     return false;
@@ -193,61 +193,61 @@ export async function installOllama(
  */
 export async function pullOllamaModel(
   model: string,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   try {
-    onProgress({ stage: "pull", message: `Pulling ${model}...` });
+    onProgress({ stage: 'pull', message: `Pulling ${model}...` });
 
     // Use spawn to get real-time output
     return new Promise((resolve) => {
-      const proc = spawn("ollama", ["pull", model], {
-        stdio: ["ignore", "pipe", "pipe"],
+      const proc = spawn('ollama', ['pull', model], {
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      proc.stdout?.on("data", (data) => {
+      proc.stdout?.on('data', (data) => {
         const line = data.toString().trim();
         if (line) {
-          onProgress({ stage: "pull", message: line });
+          onProgress({ stage: 'pull', message: line });
         }
       });
 
-      proc.stderr?.on("data", (data) => {
+      proc.stderr?.on('data', (data) => {
         const line = data.toString().trim();
         if (line) {
-          onProgress({ stage: "pull", message: line });
+          onProgress({ stage: 'pull', message: line });
         }
       });
 
-      proc.on("close", (code) => {
+      proc.on('close', (code) => {
         if (code === 0) {
           onProgress({
-            stage: "complete",
+            stage: 'complete',
             message: `${model} ready!`,
             complete: true,
           });
           resolve(true);
         } else {
           onProgress({
-            stage: "error",
-            message: "Pull failed",
+            stage: 'error',
+            message: 'Pull failed',
             error: `Exit code: ${code}`,
           });
           resolve(false);
         }
       });
 
-      proc.on("error", (error) => {
+      proc.on('error', (error) => {
         onProgress({
-          stage: "error",
-          message: "Pull failed",
+          stage: 'error',
+          message: 'Pull failed',
           error: error.message,
         });
         resolve(false);
       });
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    onProgress({ stage: "error", message: "Pull failed", error: message });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    onProgress({ stage: 'error', message: 'Pull failed', error: message });
     return false;
   }
 }
@@ -256,16 +256,16 @@ export async function pullOllamaModel(
  * Open LM Studio download page
  */
 export async function installLMStudio(
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   onProgress({
-    stage: "browser",
-    message: "Opening LM Studio download page...",
+    stage: 'browser',
+    message: 'Opening LM Studio download page...',
   });
-  await open("https://lmstudio.ai/download");
+  await open('https://lmstudio.ai/download');
   onProgress({
-    stage: "manual",
-    message: "Please install LM Studio and enable the local server",
+    stage: 'manual',
+    message: 'Please install LM Studio and enable the local server',
     complete: true,
   });
   return true;
@@ -276,35 +276,35 @@ export async function installLMStudio(
  */
 export async function installStableDiffusion(
   onProgress: ProgressCallback,
-  installDir?: string
+  installDir?: string,
 ): Promise<boolean> {
-  const targetDir = installDir || path.join(os.homedir(), "sd-webui-forge-neo");
+  const targetDir = installDir || path.join(os.homedir(), 'sd-webui-forge-neo');
 
   try {
     onProgress({
-      stage: "clone",
+      stage: 'clone',
       message:
-        "Cloning Stable Diffusion Forge Neo repository (this may take a while)...",
+        'Cloning Stable Diffusion Forge Neo repository (this may take a while)...',
     });
 
     // Use spawn with inherited stdio to show git clone progress
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(
-        "git",
+        'git',
         [
-          "clone",
-          "--progress",
-          "--branch",
-          "neo",
-          "https://github.com/Haoming02/sd-webui-forge-classic.git",
+          'clone',
+          '--progress',
+          '--branch',
+          'neo',
+          'https://github.com/Haoming02/sd-webui-forge-classic.git',
           targetDir,
         ],
         {
-          stdio: "inherit", // Show clone progress
-        }
+          stdio: 'inherit', // Show clone progress
+        },
       );
 
-      proc.on("close", (code) => {
+      proc.on('close', (code) => {
         if (code === 0) {
           resolve();
         } else {
@@ -312,7 +312,7 @@ export async function installStableDiffusion(
         }
       });
 
-      proc.on("error", (err) => {
+      proc.on('error', (err) => {
         reject(err);
       });
     });
@@ -321,34 +321,34 @@ export async function installStableDiffusion(
     setStableDiffusionInstallPath(targetDir);
 
     onProgress({
-      stage: "complete",
+      stage: 'complete',
       message: `Installed to ${targetDir}`,
       complete: true,
     });
 
     onProgress({
-      stage: "info",
+      stage: 'info',
       message: `To start: cd "${targetDir}" && python launch.py --api`,
     });
 
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : 'Unknown error';
 
-    if (message.includes("already exists") || message.includes("code 128")) {
+    if (message.includes('already exists') || message.includes('code 128')) {
       // Still save the path even if already installed
       setStableDiffusionInstallPath(targetDir);
       onProgress({
-        stage: "complete",
-        message: "Already installed!",
+        stage: 'complete',
+        message: 'Already installed!',
         complete: true,
       });
       return true;
     }
 
     onProgress({
-      stage: "error",
-      message: "Installation failed",
+      stage: 'error',
+      message: 'Installation failed',
       error: message,
     });
     return false;
@@ -363,9 +363,9 @@ export async function hasDefaultSdModel(): Promise<boolean> {
   if (!installPath) return false;
   const modelFile = path.join(
     installPath,
-    "models",
-    "Stable-diffusion",
-    "sd_xl_base_1.0.safetensors"
+    'models',
+    'Stable-diffusion',
+    'sd_xl_base_1.0.safetensors',
   );
   return fs.existsSync(modelFile);
 }
@@ -375,23 +375,23 @@ export async function hasDefaultSdModel(): Promise<boolean> {
  * Uses wget with progress output (falls back to curl).
  */
 export async function downloadSdModel(
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   const installPath = getStableDiffusionInstallPath();
 
   if (!installPath) {
     onProgress({
-      stage: "error",
-      message: "Stable Diffusion install path not found",
-      error: "Please install Stable Diffusion first",
+      stage: 'error',
+      message: 'Stable Diffusion install path not found',
+      error: 'Please install Stable Diffusion first',
     });
     return false;
   }
 
-  const modelsDir = path.join(installPath, "models", "Stable-diffusion");
+  const modelsDir = path.join(installPath, 'models', 'Stable-diffusion');
   const modelUrl =
-    "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors";
-  const modelFile = path.join(modelsDir, "sd_xl_base_1.0.safetensors");
+    'https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors';
+  const modelFile = path.join(modelsDir, 'sd_xl_base_1.0.safetensors');
 
   try {
     // Ensure models directory exists
@@ -400,21 +400,21 @@ export async function downloadSdModel(
     // Check if model already exists
     if (fs.existsSync(modelFile)) {
       onProgress({
-        stage: "complete",
-        message: "SDXL base model already exists!",
+        stage: 'complete',
+        message: 'SDXL base model already exists!',
         complete: true,
       });
       return true;
     }
 
     onProgress({
-      stage: "download",
-      message: "Downloading SDXL base model (~6.5 GB)...",
+      stage: 'download',
+      message: 'Downloading SDXL base model (~6.5 GB)...',
     });
 
     // Check available download tools: wget (better progress on Linux/macOS), curl (everywhere)
-    const isWindows = process.platform === "win32";
-    const whichCmd = isWindows ? "where" : "which";
+    const isWindows = process.platform === 'win32';
+    const whichCmd = isWindows ? 'where' : 'which';
     const hasWget = await new Promise<boolean>((resolve) => {
       exec(`${whichCmd} wget`, (error) => resolve(!error));
     });
@@ -424,31 +424,31 @@ export async function downloadSdModel(
 
       if (hasWget) {
         proc = spawn(
-          "wget",
-          ["-c", "--show-progress", "-O", modelFile, modelUrl],
-          { stdio: "inherit" }
+          'wget',
+          ['-c', '--show-progress', '-O', modelFile, modelUrl],
+          { stdio: 'inherit' },
         );
       } else {
         // curl is available on macOS, Linux, and Windows 10+
         proc = spawn(
-          "curl",
-          ["-L", "-C", "-", "--progress-bar", "-o", modelFile, modelUrl],
-          { stdio: "inherit" }
+          'curl',
+          ['-L', '-C', '-', '--progress-bar', '-o', modelFile, modelUrl],
+          { stdio: 'inherit' },
         );
       }
 
-      proc.on("close", (code) => {
+      proc.on('close', (code) => {
         if (code === 0) {
           onProgress({
-            stage: "complete",
-            message: "SDXL base model downloaded!",
+            stage: 'complete',
+            message: 'SDXL base model downloaded!',
             complete: true,
           });
           resolve(true);
         } else {
           onProgress({
-            stage: "error",
-            message: "Download failed",
+            stage: 'error',
+            message: 'Download failed',
             error: `Exit code ${code}. The model may require accepting the license at huggingface.co first. You can also download manually from Civitai.`,
           });
           // Clean up partial file
@@ -461,20 +461,20 @@ export async function downloadSdModel(
         }
       });
 
-      proc.on("error", (err) => {
+      proc.on('error', (err) => {
         onProgress({
-          stage: "error",
-          message: "Download failed",
+          stage: 'error',
+          message: 'Download failed',
           error: err.message,
         });
         resolve(false);
       });
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : 'Unknown error';
     onProgress({
-      stage: "error",
-      message: "Failed to download model",
+      stage: 'error',
+      message: 'Failed to download model',
       error: message,
     });
     return false;
@@ -487,15 +487,15 @@ export async function downloadSdModel(
  * We start it and poll in the background until it's ready.
  */
 export async function startStableDiffusion(
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   const installPath = getStableDiffusionInstallPath();
 
   if (!installPath) {
     onProgress({
-      stage: "error",
-      message: "Stable Diffusion install path not found",
-      error: "Please install Stable Diffusion first",
+      stage: 'error',
+      message: 'Stable Diffusion install path not found',
+      error: 'Please install Stable Diffusion first',
     });
     return false;
   }
@@ -505,41 +505,41 @@ export async function startStableDiffusion(
     const pyInfo = await getPythonVersion();
     if (!pyInfo) {
       onProgress({
-        stage: "error",
-        message: "Python not found",
+        stage: 'error',
+        message: 'Python not found',
         error: [
           chalk.white(
-            "Python is not installed. Forge Neo requires Python 3.13+."
+            'Python is not installed. Forge Neo requires Python 3.13+.',
           ),
-          chalk.cyan("Install from https://www.python.org/downloads/"),
-        ].join("\n"),
+          chalk.cyan('Install from https://www.python.org/downloads/'),
+        ].join('\n'),
       });
       return false;
     }
 
     if (!isPythonVersionOk(pyInfo)) {
       onProgress({
-        stage: "error",
+        stage: 'error',
         message: `Python ${pyInfo.version} is too old`,
         error: [
           chalk.white(
-            `Forge Neo requires Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+. You have ${pyInfo.version}.`
+            `Forge Neo requires Python ${REQUIRED_PYTHON_MAJOR}.${REQUIRED_PYTHON_MINOR}+. You have ${pyInfo.version}.`,
           ),
-          "",
-          chalk.yellow("How to fix:"),
-          chalk.white("  Install Python 3.13: ") +
-            chalk.cyan("https://www.python.org/downloads/"),
-          chalk.white("  If using pyenv: ") +
-            chalk.cyan("pyenv install 3.13.12 && pyenv global 3.13.12"),
-          chalk.white("  Then delete the old venv: ") +
+          '',
+          chalk.yellow('How to fix:'),
+          chalk.white('  Install Python 3.13: ') +
+            chalk.cyan('https://www.python.org/downloads/'),
+          chalk.white('  If using pyenv: ') +
+            chalk.cyan('pyenv install 3.13.12 && pyenv global 3.13.12'),
+          chalk.white('  Then delete the old venv: ') +
             chalk.cyan(`rm -rf ${installPath}/venv`),
-        ].join("\n"),
+        ].join('\n'),
       });
       return false;
     }
 
     onProgress({
-      stage: "start",
+      stage: 'start',
       message: `Starting Stable Diffusion server (Python ${pyInfo.version})...`,
     });
 
@@ -548,17 +548,17 @@ export async function startStableDiffusion(
 
     // Determine the launch method based on platform
     // Neo fork removed .sh scripts; on Linux/macOS we create/activate venv and run launch.py
-    const isWindows = process.platform === "win32";
+    const isWindows = process.platform === 'win32';
 
     // Detect the driver's max CUDA version so we can pick the right PyTorch build.
     // Forge Neo defaults to cu130 which requires very new drivers.
     let cudaEnv: Record<string, string> = {};
     try {
       const { stdout: smiOut } = await execAsync(
-        "nvidia-smi --query-gpu=driver_version --format=csv,noheader"
+        'nvidia-smi --query-gpu=driver_version --format=csv,noheader',
       );
       // nvidia-smi also shows CUDA version in its header; parse from full output
-      const { stdout: smiFullOut } = await execAsync("nvidia-smi");
+      const { stdout: smiFullOut } = await execAsync('nvidia-smi');
       const cudaMatch = smiFullOut.match(/CUDA Version:\s*(\d+)\.(\d+)/);
       if (cudaMatch) {
         const driverCudaMajor = parseInt(cudaMatch[1]);
@@ -568,23 +568,23 @@ export async function startStableDiffusion(
         // Available PyTorch CUDA builds: cu118, cu121, cu124, cu126, cu128, cu130
         let cuTag: string;
         if (driverCudaMajor >= 13) {
-          cuTag = "cu130";
+          cuTag = 'cu130';
         } else if (driverCudaMajor === 12 && driverCudaMinor >= 8) {
-          cuTag = "cu128";
+          cuTag = 'cu128';
         } else if (driverCudaMajor === 12 && driverCudaMinor >= 6) {
-          cuTag = "cu126";
+          cuTag = 'cu126';
         } else if (driverCudaMajor === 12 && driverCudaMinor >= 4) {
-          cuTag = "cu124";
+          cuTag = 'cu124';
         } else if (driverCudaMajor === 12) {
-          cuTag = "cu121";
+          cuTag = 'cu121';
         } else {
-          cuTag = "cu118";
+          cuTag = 'cu118';
         }
 
         // Only override if driver doesn't support the default cu130
-        if (cuTag !== "cu130") {
+        if (cuTag !== 'cu130') {
           onProgress({
-            stage: "start",
+            stage: 'start',
             message: `Driver supports CUDA ${driverCudaMajor}.${driverCudaMinor}, using PyTorch with ${cuTag}`,
           });
           const torchIndexUrl = `https://download.pytorch.org/whl/${cuTag}`;
@@ -605,25 +605,25 @@ export async function startStableDiffusion(
     // If we have CUDA env overrides and an existing venv (Linux/macOS),
     // check if the venv has wrong PyTorch CUDA bindings and needs recreation
     if (!isWindows && cudaEnv.TORCH_INDEX_URL) {
-      const venvPythonCheck = path.join(installPath, "venv", "bin", "python");
+      const venvPythonCheck = path.join(installPath, 'venv', 'bin', 'python');
       if (fs.existsSync(venvPythonCheck)) {
         try {
           const { stdout: torchCheck } = await execAsync(
-            `"${venvPythonCheck}" -c "import torch; print(torch.version.cuda or 'none')"`
+            `"${venvPythonCheck}" -c "import torch; print(torch.version.cuda or 'none')"`,
           );
           const installedCuda = torchCheck.trim();
-          const targetCu = cudaEnv.TORCH_INDEX_URL.split("/").pop() || "";
+          const targetCu = cudaEnv.TORCH_INDEX_URL.split('/').pop() || '';
           // e.g. installedCuda="13.0" and targetCu="cu121" -> mismatch
           const installedCuTag =
-            "cu" + installedCuda.replace(".", "").replace(/0$/, "");
+            'cu' + installedCuda.replace('.', '').replace(/0$/, '');
           if (installedCuTag !== targetCu) {
             onProgress({
-              stage: "start",
+              stage: 'start',
               message: `Existing venv has PyTorch for CUDA ${installedCuda}, recreating with ${targetCu}...`,
             });
             await new Promise((r) => setTimeout(r, 1000));
             // Remove the old venv so the launch script recreates it
-            fs.rmSync(path.join(installPath, "venv"), {
+            fs.rmSync(path.join(installPath, 'venv'), {
               recursive: true,
               force: true,
             });
@@ -641,15 +641,15 @@ export async function startStableDiffusion(
 
       if (isWindows) {
         // Windows: use webui-user.bat which handles venv and launches
-        proc = spawn("cmd", ["/c", "webui-user.bat"], {
+        proc = spawn('cmd', ['/c', 'webui-user.bat'], {
           cwd: installPath,
-          stdio: "inherit",
+          stdio: 'inherit',
           env,
         });
       } else {
         // Linux/macOS: create venv if needed using the correct python, activate, and run launch.py
-        const venvDir = path.join(installPath, "venv");
-        const venvPython = path.join(venvDir, "bin", "python");
+        const venvDir = path.join(installPath, 'venv');
+        const venvPython = path.join(venvDir, 'bin', 'python');
 
         const launchScript = [
           `if [ ! -f "${venvPython}" ]; then`,
@@ -658,11 +658,11 @@ export async function startStableDiffusion(
           `fi`,
           `source "${venvDir}/bin/activate"`,
           `python launch.py --api`,
-        ].join("\n");
+        ].join('\n');
 
-        proc = spawn("bash", ["-c", launchScript], {
+        proc = spawn('bash', ['-c', launchScript], {
           cwd: installPath,
-          stdio: "inherit",
+          stdio: 'inherit',
           env,
         });
       }
@@ -678,18 +678,18 @@ export async function startStableDiffusion(
 
           try {
             const response = await fetch(
-              "http://127.0.0.1:7860/sdapi/v1/sd-models",
-              { signal: AbortSignal.timeout(3000) }
+              'http://127.0.0.1:7860/sdapi/v1/sd-models',
+              { signal: AbortSignal.timeout(3000) },
             );
             if (response.ok) {
-              console.log("\n\n✓ Stable Diffusion server is ready!\n");
+              console.log('\n\n✓ Stable Diffusion server is ready!\n');
               console.log(
                 chalk.yellow(
-                  "Please leave this terminal running and open another terminal to run mindstudio-local.\n"
-                )
+                  'Please leave this terminal running and open another terminal to run mindstudio-local.\n',
+                ),
               );
               console.log(
-                "Press Ctrl+C to stop the server and return to the menu.\n"
+                'Press Ctrl+C to stop the server and return to the menu.\n',
               );
               return;
             }
@@ -701,46 +701,46 @@ export async function startStableDiffusion(
 
       pollForReady();
 
-      proc.on("close", (code) => {
+      proc.on('close', (code) => {
         if (code === 0) {
           onProgress({
-            stage: "complete",
-            message: "Stable Diffusion server stopped.",
+            stage: 'complete',
+            message: 'Stable Diffusion server stopped.',
             complete: true,
           });
           resolve(true);
         } else {
           onProgress({
-            stage: "error",
-            message: "Stable Diffusion failed to start",
+            stage: 'error',
+            message: 'Stable Diffusion failed to start',
             error: [
               `Process exited with code ${code}. Check the output above for details.`,
-              "",
-              chalk.yellow("Common fixes:"),
+              '',
+              chalk.yellow('Common fixes:'),
               chalk.cyan(`  - Delete the venv and retry: `) +
                 chalk.cyan(`rm -rf ${installPath}/venv`),
-              chalk.cyan("  - Ensure Python 3.13+ is installed"),
-              chalk.cyan("  - Ensure NVIDIA drivers and CUDA are up to date"),
-            ].join("\n"),
+              chalk.cyan('  - Ensure Python 3.13+ is installed'),
+              chalk.cyan('  - Ensure NVIDIA drivers and CUDA are up to date'),
+            ].join('\n'),
           });
           resolve(false);
         }
       });
 
-      proc.on("error", (err) => {
+      proc.on('error', (err) => {
         onProgress({
-          stage: "error",
-          message: "Failed to start",
+          stage: 'error',
+          message: 'Failed to start',
           error: err.message,
         });
         resolve(false);
       });
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : 'Unknown error';
     onProgress({
-      stage: "error",
-      message: "Failed to start Stable Diffusion",
+      stage: 'error',
+      message: 'Failed to start Stable Diffusion',
       error: message,
     });
     return false;
@@ -751,18 +751,18 @@ export async function startStableDiffusion(
  * Run a command that may need elevated privileges (cross-platform)
  */
 async function runKillCommand(command: string): Promise<boolean> {
-  const isWindows = process.platform === "win32";
+  const isWindows = process.platform === 'win32';
   return new Promise((resolve) => {
     let proc: ReturnType<typeof spawn>;
     if (isWindows) {
-      proc = spawn("cmd", ["/c", command], { stdio: "inherit" });
+      proc = spawn('cmd', ['/c', command], { stdio: 'inherit' });
     } else {
-      proc = spawn("sudo", ["bash", "-c", command], { stdio: "inherit" });
+      proc = spawn('sudo', ['bash', '-c', command], { stdio: 'inherit' });
     }
-    proc.on("close", (code) => {
+    proc.on('close', (code) => {
       resolve(code === 0 || code === 1); // 1 = no process found, which is OK
     });
-    proc.on("error", () => {
+    proc.on('error', () => {
       resolve(false);
     });
   });
@@ -772,30 +772,30 @@ async function runKillCommand(command: string): Promise<boolean> {
  * Stop Stable Diffusion server
  */
 export async function stopStableDiffusion(
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   try {
     onProgress({
-      stage: "start",
-      message: "Stopping Stable Diffusion server...",
+      stage: 'start',
+      message: 'Stopping Stable Diffusion server...',
     });
 
-    const isWindows = process.platform === "win32";
+    const isWindows = process.platform === 'win32';
 
     if (!isWindows) {
       onProgress({
-        stage: "info",
-        message: "You may be prompted for your password...",
+        stage: 'info',
+        message: 'You may be prompted for your password...',
       });
     }
 
     // Kill python processes running webui
     if (isWindows) {
       await runKillCommand(
-        'taskkill /F /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *launch*" 2>nul || exit 0'
+        'taskkill /F /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *launch*" 2>nul || exit 0',
       );
       await runKillCommand(
-        'taskkill /F /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *webui*" 2>nul || exit 0'
+        'taskkill /F /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *webui*" 2>nul || exit 0',
       );
     } else {
       await runKillCommand("pkill -f 'python.*launch.py' || true");
@@ -808,14 +808,14 @@ export async function stopStableDiffusion(
 
     // Verify it's stopped
     try {
-      const response = await fetch("http://127.0.0.1:7860/sdapi/v1/sd-models", {
+      const response = await fetch('http://127.0.0.1:7860/sdapi/v1/sd-models', {
         signal: AbortSignal.timeout(2000),
       });
       if (response.ok) {
         onProgress({
-          stage: "complete",
+          stage: 'complete',
           message:
-            "Server may still be running. Try killing the process manually.",
+            'Server may still be running. Try killing the process manually.',
           complete: true,
         });
         return false;
@@ -825,14 +825,14 @@ export async function stopStableDiffusion(
     }
 
     onProgress({
-      stage: "complete",
-      message: "Stable Diffusion server stopped!",
+      stage: 'complete',
+      message: 'Stable Diffusion server stopped!',
       complete: true,
     });
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    onProgress({ stage: "error", message: "Failed to stop", error: message });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    onProgress({ stage: 'error', message: 'Failed to stop', error: message });
     return false;
   }
 }
@@ -841,15 +841,15 @@ export async function stopStableDiffusion(
  * Start Ollama server
  */
 export async function startOllama(
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   try {
-    onProgress({ stage: "start", message: "Starting Ollama server..." });
+    onProgress({ stage: 'start', message: 'Starting Ollama server...' });
 
     // Start in background
-    const proc = spawn("ollama", ["serve"], {
+    const proc = spawn('ollama', ['serve'], {
       detached: true,
-      stdio: "ignore",
+      stdio: 'ignore',
     });
     proc.unref();
 
@@ -858,13 +858,13 @@ export async function startOllama(
 
     // Check if it's running
     try {
-      const response = await fetch("http://localhost:11434/api/tags", {
+      const response = await fetch('http://localhost:11434/api/tags', {
         signal: AbortSignal.timeout(2000),
       });
       if (response.ok) {
         onProgress({
-          stage: "complete",
-          message: "Ollama server started!",
+          stage: 'complete',
+          message: 'Ollama server started!',
           complete: true,
         });
         return true;
@@ -874,14 +874,14 @@ export async function startOllama(
     }
 
     onProgress({
-      stage: "complete",
-      message: "Ollama starting in background...",
+      stage: 'complete',
+      message: 'Ollama starting in background...',
       complete: true,
     });
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    onProgress({ stage: "error", message: "Failed to start", error: message });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    onProgress({ stage: 'error', message: 'Failed to start', error: message });
     return false;
   }
 }
@@ -890,37 +890,37 @@ export async function startOllama(
  * Stop Ollama server
  */
 export async function stopOllama(
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   try {
-    onProgress({ stage: "start", message: "Stopping Ollama server..." });
+    onProgress({ stage: 'start', message: 'Stopping Ollama server...' });
 
-    const isWindows = process.platform === "win32";
+    const isWindows = process.platform === 'win32';
 
     if (!isWindows) {
       onProgress({
-        stage: "info",
-        message: "You may be prompted for your password...",
+        stage: 'info',
+        message: 'You may be prompted for your password...',
       });
     }
 
     if (isWindows) {
-      await runKillCommand("taskkill /F /IM ollama.exe 2>nul || exit 0");
+      await runKillCommand('taskkill /F /IM ollama.exe 2>nul || exit 0');
       await runKillCommand(
-        'taskkill /F /FI "IMAGENAME eq ollama_runners*" 2>nul || exit 0'
+        'taskkill /F /FI "IMAGENAME eq ollama_runners*" 2>nul || exit 0',
       );
     } else {
       // 1. Try systemctl first (if running as a service)
-      await runKillCommand("systemctl stop ollama 2>/dev/null || true");
+      await runKillCommand('systemctl stop ollama 2>/dev/null || true');
 
       // 2. pkill with -f flag to match full command line
       await runKillCommand("pkill -f 'ollama serve' || true");
 
       // 3. Try killall
-      await runKillCommand("killall ollama 2>/dev/null || true");
+      await runKillCommand('killall ollama 2>/dev/null || true');
 
       // 4. Try pkill without -f
-      await runKillCommand("pkill ollama || true");
+      await runKillCommand('pkill ollama || true');
     }
 
     // Wait a moment for process to terminate
@@ -928,15 +928,15 @@ export async function stopOllama(
 
     // Verify it's stopped by checking if the API is still responding
     try {
-      const response = await fetch("http://localhost:11434/api/tags", {
+      const response = await fetch('http://localhost:11434/api/tags', {
         signal: AbortSignal.timeout(2000),
       });
       if (response.ok) {
         // Still running
         onProgress({
-          stage: "complete",
+          stage: 'complete',
           message:
-            "Ollama may still be running. Check with: ps aux | grep ollama",
+            'Ollama may still be running. Check with: ps aux | grep ollama',
           complete: true,
         });
         return false;
@@ -946,14 +946,14 @@ export async function stopOllama(
     }
 
     onProgress({
-      stage: "complete",
-      message: "Ollama server stopped!",
+      stage: 'complete',
+      message: 'Ollama server stopped!',
       complete: true,
     });
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    onProgress({ stage: "error", message: "Failed to stop", error: message });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    onProgress({ stage: 'error', message: 'Failed to stop', error: message });
     return false;
   }
 }
@@ -967,65 +967,75 @@ export async function stopOllama(
  */
 export async function installComfyUI(
   installPath: string,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   try {
-    onProgress({ stage: "start", message: "Cloning ComfyUI repository..." });
+    onProgress({ stage: 'start', message: 'Cloning ComfyUI repository...' });
 
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(
-        "git",
-        ["clone", "https://github.com/comfyanonymous/ComfyUI.git", installPath],
-        { stdio: "inherit" }
+        'git',
+        ['clone', 'https://github.com/comfyanonymous/ComfyUI.git', installPath],
+        { stdio: 'inherit' },
       );
-      proc.on("close", (code) => {
+      proc.on('close', (code) => {
         if (code === 0) resolve();
         else reject(new Error(`git clone failed with code ${code}`));
       });
-      proc.on("error", reject);
+      proc.on('error', reject);
     });
 
-    onProgress({ stage: "venv", message: "Creating virtual environment..." });
+    onProgress({ stage: 'venv', message: 'Creating virtual environment...' });
 
     const pyInfo = await getPythonVersion();
-    const pythonCmd = pyInfo?.executable || "python3";
+    const pythonCmd = pyInfo?.executable || 'python3';
 
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn(pythonCmd, ["-m", "venv", path.join(installPath, "venv")], {
-        stdio: "inherit",
-      });
-      proc.on("close", (code) => {
+      const proc = spawn(
+        pythonCmd,
+        ['-m', 'venv', path.join(installPath, 'venv')],
+        {
+          stdio: 'inherit',
+        },
+      );
+      proc.on('close', (code) => {
         if (code === 0) resolve();
         else reject(new Error(`venv creation failed with code ${code}`));
       });
-      proc.on("error", reject);
+      proc.on('error', reject);
     });
 
     onProgress({
-      stage: "deps",
-      message: "Installing dependencies (this may take a while)...",
+      stage: 'deps',
+      message: 'Installing dependencies (this may take a while)...',
     });
 
     // Detect CUDA version for PyTorch index URL
     let pipExtraArgs: string[] = [];
     try {
-      const { stdout: smiFullOut } = await execAsync("nvidia-smi");
+      const { stdout: smiFullOut } = await execAsync('nvidia-smi');
       const cudaMatch = smiFullOut.match(/CUDA Version:\s*(\d+)\.(\d+)/);
       if (cudaMatch) {
         const driverCudaMajor = parseInt(cudaMatch[1]);
         const driverCudaMinor = parseInt(cudaMatch[2]);
 
         let cuTag: string;
-        if (driverCudaMajor >= 13) cuTag = "cu130";
-        else if (driverCudaMajor === 12 && driverCudaMinor >= 8) cuTag = "cu128";
-        else if (driverCudaMajor === 12 && driverCudaMinor >= 6) cuTag = "cu126";
-        else if (driverCudaMajor === 12 && driverCudaMinor >= 4) cuTag = "cu124";
-        else if (driverCudaMajor === 12) cuTag = "cu121";
-        else cuTag = "cu118";
+        if (driverCudaMajor >= 13) cuTag = 'cu130';
+        else if (driverCudaMajor === 12 && driverCudaMinor >= 8)
+          cuTag = 'cu128';
+        else if (driverCudaMajor === 12 && driverCudaMinor >= 6)
+          cuTag = 'cu126';
+        else if (driverCudaMajor === 12 && driverCudaMinor >= 4)
+          cuTag = 'cu124';
+        else if (driverCudaMajor === 12) cuTag = 'cu121';
+        else cuTag = 'cu118';
 
-        pipExtraArgs = ["--extra-index-url", `https://download.pytorch.org/whl/${cuTag}`];
+        pipExtraArgs = [
+          '--extra-index-url',
+          `https://download.pytorch.org/whl/${cuTag}`,
+        ];
         onProgress({
-          stage: "deps",
+          stage: 'deps',
           message: `Driver supports CUDA ${driverCudaMajor}.${driverCudaMinor}, using PyTorch with ${cuTag}`,
         });
       }
@@ -1033,39 +1043,39 @@ export async function installComfyUI(
       // No NVIDIA GPU
     }
 
-    const isWindows = process.platform === "win32";
+    const isWindows = process.platform === 'win32';
     const pipPath = isWindows
-      ? path.join(installPath, "venv", "Scripts", "pip")
-      : path.join(installPath, "venv", "bin", "pip");
+      ? path.join(installPath, 'venv', 'Scripts', 'pip')
+      : path.join(installPath, 'venv', 'bin', 'pip');
 
     await new Promise<void>((resolve, reject) => {
       const args = [
-        "install",
-        "-r",
-        path.join(installPath, "requirements.txt"),
+        'install',
+        '-r',
+        path.join(installPath, 'requirements.txt'),
         ...pipExtraArgs,
       ];
-      const proc = spawn(pipPath, args, { stdio: "inherit", cwd: installPath });
-      proc.on("close", (code) => {
+      const proc = spawn(pipPath, args, { stdio: 'inherit', cwd: installPath });
+      proc.on('close', (code) => {
         if (code === 0) resolve();
         else reject(new Error(`pip install failed with code ${code}`));
       });
-      proc.on("error", reject);
+      proc.on('error', reject);
     });
 
     setComfyUIInstallPath(installPath);
 
     onProgress({
-      stage: "complete",
-      message: "ComfyUI installed successfully!",
+      stage: 'complete',
+      message: 'ComfyUI installed successfully!',
       complete: true,
     });
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : 'Unknown error';
     onProgress({
-      stage: "error",
-      message: "ComfyUI installation failed",
+      stage: 'error',
+      message: 'ComfyUI installation failed',
       error: message,
     });
     return false;
@@ -1080,9 +1090,9 @@ async function installCustomNode(
   installPath: string,
   repoUrl: string,
   dirName: string,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
-  const customNodesDir = path.join(installPath, "custom_nodes");
+  const customNodesDir = path.join(installPath, 'custom_nodes');
   if (!fs.existsSync(customNodesDir)) {
     fs.mkdirSync(customNodesDir, { recursive: true });
   }
@@ -1090,44 +1100,47 @@ async function installCustomNode(
   const nodeDir = path.join(customNodesDir, dirName);
   if (fs.existsSync(nodeDir)) {
     onProgress({
-      stage: "complete",
+      stage: 'complete',
       message: `${dirName} already installed, skipping.`,
     });
     return true;
   }
 
   onProgress({
-    stage: "start",
+    stage: 'start',
     message: `Installing ${dirName}...`,
   });
 
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn("git", ["clone", repoUrl, nodeDir], {
-      stdio: "inherit",
+    const proc = spawn('git', ['clone', repoUrl, nodeDir], {
+      stdio: 'inherit',
     });
-    proc.on("close", (code) => {
+    proc.on('close', (code) => {
       if (code === 0) resolve();
       else reject(new Error(`git clone ${dirName} failed with code ${code}`));
     });
-    proc.on("error", reject);
+    proc.on('error', reject);
   });
 
-  const reqFile = path.join(nodeDir, "requirements.txt");
+  const reqFile = path.join(nodeDir, 'requirements.txt');
   if (fs.existsSync(reqFile)) {
-    const isWindows = process.platform === "win32";
+    const isWindows = process.platform === 'win32';
     const pipPath = isWindows
-      ? path.join(installPath, "venv", "Scripts", "pip")
-      : path.join(installPath, "venv", "bin", "pip");
+      ? path.join(installPath, 'venv', 'Scripts', 'pip')
+      : path.join(installPath, 'venv', 'bin', 'pip');
 
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn(pipPath, ["install", "-r", reqFile], {
-        stdio: "inherit",
+      const proc = spawn(pipPath, ['install', '-r', reqFile], {
+        stdio: 'inherit',
       });
-      proc.on("close", (code) => {
+      proc.on('close', (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`pip install ${dirName} deps failed with code ${code}`));
+        else
+          reject(
+            new Error(`pip install ${dirName} deps failed with code ${code}`),
+          );
       });
-      proc.on("error", reject);
+      proc.on('error', reject);
     });
   }
 
@@ -1140,14 +1153,14 @@ async function installCustomNode(
  *  - ComfyUI-VideoHelperSuite (MP4 output)
  */
 export async function installComfyUICustomNodes(
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   const installPath = getComfyUIInstallPath();
   if (!installPath) {
     onProgress({
-      stage: "error",
-      message: "ComfyUI not installed",
-      error: "Install ComfyUI first",
+      stage: 'error',
+      message: 'ComfyUI not installed',
+      error: 'Install ComfyUI first',
     });
     return false;
   }
@@ -1155,29 +1168,29 @@ export async function installComfyUICustomNodes(
   try {
     await installCustomNode(
       installPath,
-      "https://github.com/Lightricks/ComfyUI-LTXVideo.git",
-      "ComfyUI-LTXVideo",
-      onProgress
+      'https://github.com/Lightricks/ComfyUI-LTXVideo.git',
+      'ComfyUI-LTXVideo',
+      onProgress,
     );
 
     await installCustomNode(
       installPath,
-      "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
-      "ComfyUI-VideoHelperSuite",
-      onProgress
+      'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git',
+      'ComfyUI-VideoHelperSuite',
+      onProgress,
     );
 
     onProgress({
-      stage: "complete",
-      message: "Custom nodes installed!",
+      stage: 'complete',
+      message: 'Custom nodes installed!',
       complete: true,
     });
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : 'Unknown error';
     onProgress({
-      stage: "error",
-      message: "Failed to install custom nodes",
+      stage: 'error',
+      message: 'Failed to install custom nodes',
       error: message,
     });
     return false;
@@ -1188,84 +1201,89 @@ export async function installComfyUICustomNodes(
  * Start ComfyUI server (terminal takeover).
  */
 export async function startComfyUI(
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   const installPath = getComfyUIInstallPath();
   if (!installPath) {
     onProgress({
-      stage: "error",
-      message: "ComfyUI not installed",
-      error: "Install ComfyUI first",
+      stage: 'error',
+      message: 'ComfyUI not installed',
+      error: 'Install ComfyUI first',
     });
     return false;
   }
 
   try {
-    onProgress({ stage: "start", message: "Starting ComfyUI server..." });
+    onProgress({ stage: 'start', message: 'Starting ComfyUI server...' });
     await new Promise((r) => setTimeout(r, 500));
 
-    const isWindows = process.platform === "win32";
+    const isWindows = process.platform === 'win32';
 
     return new Promise((resolve) => {
       let proc: ReturnType<typeof spawn>;
 
       if (isWindows) {
-        const venvPython = path.join(installPath, "venv", "Scripts", "python.exe");
-        proc = spawn(venvPython, ["main.py", "--listen", "--port", "8188"], {
+        const venvPython = path.join(
+          installPath,
+          'venv',
+          'Scripts',
+          'python.exe',
+        );
+        proc = spawn(venvPython, ['main.py', '--listen', '--port', '8188'], {
           cwd: installPath,
-          stdio: "inherit",
+          stdio: 'inherit',
         });
       } else {
-        const venvDir = path.join(installPath, "venv");
+        const venvDir = path.join(installPath, 'venv');
         const launchScript = [
           `source "${venvDir}/bin/activate"`,
           `python main.py --listen --port 8188`,
-        ].join("\n");
+        ].join('\n');
 
-        proc = spawn("bash", ["-c", launchScript], {
+        proc = spawn('bash', ['-c', launchScript], {
           cwd: installPath,
-          stdio: "inherit",
+          stdio: 'inherit',
         });
       }
 
-      proc.on("close", (code) => {
+      proc.on('close', (code) => {
         if (code === 0) {
           onProgress({
-            stage: "complete",
-            message: "ComfyUI server stopped.",
+            stage: 'complete',
+            message: 'ComfyUI server stopped.',
             complete: true,
           });
           resolve(true);
         } else {
           onProgress({
-            stage: "error",
-            message: "ComfyUI failed to start",
+            stage: 'error',
+            message: 'ComfyUI failed to start',
             error: [
               `Process exited with code ${code}. Check the output above.`,
-              "",
-              chalk.yellow("Common fixes:"),
-              chalk.white("  - Delete the venv and retry: ") +
+              '',
+              chalk.yellow('Common fixes:'),
+              chalk.white('  - Delete the venv and retry: ') +
                 chalk.cyan(`rm -rf ${installPath}/venv`),
-              chalk.white("  - Ensure Python 3.10+ is installed"),
-              chalk.white("  - Ensure NVIDIA drivers and CUDA are up to date"),
-            ].join("\n"),
+              chalk.white('  - Ensure Python 3.10+ is installed'),
+              chalk.white('  - Ensure NVIDIA drivers and CUDA are up to date'),
+            ].join('\n'),
           });
           resolve(false);
         }
       });
 
-      proc.on("error", (err) => {
+      proc.on('error', (err) => {
         onProgress({
-          stage: "error",
-          message: "Failed to start",
+          stage: 'error',
+          message: 'Failed to start',
           error: err.message,
         });
         resolve(false);
       });
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    onProgress({ stage: "error", message: "Failed to start", error: message });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    onProgress({ stage: 'error', message: 'Failed to start', error: message });
     return false;
   }
 }
@@ -1274,23 +1292,23 @@ export async function startComfyUI(
  * Stop ComfyUI server.
  */
 export async function stopComfyUI(
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   try {
-    onProgress({ stage: "start", message: "Stopping ComfyUI server..." });
+    onProgress({ stage: 'start', message: 'Stopping ComfyUI server...' });
 
-    const isWindows = process.platform === "win32";
+    const isWindows = process.platform === 'win32';
 
     if (!isWindows) {
       onProgress({
-        stage: "start",
-        message: "You may be prompted for your password...",
+        stage: 'start',
+        message: 'You may be prompted for your password...',
       });
     }
 
     if (isWindows) {
       await runKillCommand(
-        'taskkill /F /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *ComfyUI*" 2>nul || exit 0'
+        'taskkill /F /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *ComfyUI*" 2>nul || exit 0',
       );
     } else {
       await runKillCommand("pkill -f 'python.*main.py.*--port 8188' || true");
@@ -1301,13 +1319,13 @@ export async function stopComfyUI(
 
     // Verify
     try {
-      const response = await fetch("http://127.0.0.1:8188/system_stats", {
+      const response = await fetch('http://127.0.0.1:8188/system_stats', {
         signal: AbortSignal.timeout(2000),
       });
       if (response.ok) {
         onProgress({
-          stage: "complete",
-          message: "ComfyUI may still be running.",
+          stage: 'complete',
+          message: 'ComfyUI may still be running.',
           complete: true,
         });
         return false;
@@ -1317,14 +1335,14 @@ export async function stopComfyUI(
     }
 
     onProgress({
-      stage: "complete",
-      message: "ComfyUI server stopped!",
+      stage: 'complete',
+      message: 'ComfyUI server stopped!',
       complete: true,
     });
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    onProgress({ stage: "error", message: "Failed to stop", error: message });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    onProgress({ stage: 'error', message: 'Failed to stop', error: message });
     return false;
   }
 }
@@ -1343,44 +1361,44 @@ interface ComfyUIModelDownload {
 
 const COMFYUI_MODELS: ComfyUIModelDownload[] = [
   {
-    id: "ltx-video",
-    label: "LTX-Video 2B",
+    id: 'ltx-video',
+    label: 'LTX-Video 2B',
     files: [
       {
-        url: "https://huggingface.co/Lightricks/LTX-Video/resolve/main/ltx-video-2b-v0.9.5.safetensors",
-        dest: "models/checkpoints",
-        filename: "ltx-video-2b-v0.9.5.safetensors",
-        sizeLabel: "~6 GB",
+        url: 'https://huggingface.co/Lightricks/LTX-Video/resolve/main/ltx-video-2b-v0.9.5.safetensors',
+        dest: 'models/checkpoints',
+        filename: 'ltx-video-2b-v0.9.5.safetensors',
+        sizeLabel: '~6 GB',
       },
       {
-        url: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors",
-        dest: "models/text_encoders",
-        filename: "t5xxl_fp16.safetensors",
-        sizeLabel: "~10 GB",
+        url: 'https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors',
+        dest: 'models/text_encoders',
+        filename: 't5xxl_fp16.safetensors',
+        sizeLabel: '~10 GB',
       },
     ],
   },
   {
-    id: "wan2.1-t2v",
-    label: "Wan 2.1 T2V 1.3B",
+    id: 'wan2.1-t2v',
+    label: 'Wan 2.1 T2V 1.3B',
     files: [
       {
-        url: "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
-        dest: "models/diffusion_models",
-        filename: "wan2.1_t2v_1.3B_fp16.safetensors",
-        sizeLabel: "~2.6 GB",
+        url: 'https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors',
+        dest: 'models/diffusion_models',
+        filename: 'wan2.1_t2v_1.3B_fp16.safetensors',
+        sizeLabel: '~2.6 GB',
       },
       {
-        url: "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-        dest: "models/text_encoders",
-        filename: "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-        sizeLabel: "~5 GB",
+        url: 'https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors',
+        dest: 'models/text_encoders',
+        filename: 'umt5_xxl_fp8_e4m3fn_scaled.safetensors',
+        sizeLabel: '~5 GB',
       },
       {
-        url: "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
-        dest: "models/vae",
-        filename: "wan_2.1_vae.safetensors",
-        sizeLabel: "~0.3 GB",
+        url: 'https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors',
+        dest: 'models/vae',
+        filename: 'wan_2.1_vae.safetensors',
+        sizeLabel: '~0.3 GB',
       },
     ],
   },
@@ -1397,7 +1415,7 @@ export function hasComfyUIModel(modelId: string): boolean {
   if (!modelDef) return false;
 
   return modelDef.files.every((file) =>
-    fs.existsSync(path.join(installPath, file.dest, file.filename))
+    fs.existsSync(path.join(installPath, file.dest, file.filename)),
   );
 }
 
@@ -1414,7 +1432,7 @@ export function getComfyUIModelStatus(): Array<{
     id: model.id,
     label: model.label,
     installed: hasComfyUIModel(model.id),
-    totalSize: model.files.map((f) => f.sizeLabel).join(" + "),
+    totalSize: model.files.map((f) => f.sizeLabel).join(' + '),
   }));
 }
 
@@ -1423,14 +1441,14 @@ export function getComfyUIModelStatus(): Array<{
  */
 export async function downloadComfyUIModel(
   modelId: string,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
 ): Promise<boolean> {
   const installPath = getComfyUIInstallPath();
   if (!installPath) {
     onProgress({
-      stage: "error",
-      message: "ComfyUI not installed",
-      error: "Install ComfyUI first",
+      stage: 'error',
+      message: 'ComfyUI not installed',
+      error: 'Install ComfyUI first',
     });
     return false;
   }
@@ -1438,8 +1456,8 @@ export async function downloadComfyUIModel(
   const modelDef = COMFYUI_MODELS.find((m) => m.id === modelId);
   if (!modelDef) {
     onProgress({
-      stage: "error",
-      message: "Unknown model",
+      stage: 'error',
+      message: 'Unknown model',
       error: `Model ID "${modelId}" is not recognized`,
     });
     return false;
@@ -1453,7 +1471,7 @@ export async function downloadComfyUIModel(
 
       if (fs.existsSync(destFile)) {
         onProgress({
-          stage: "download",
+          stage: 'download',
           message: `[${i + 1}/${modelDef.files.length}] ${file.filename} already exists, skipping.`,
         });
         continue;
@@ -1462,61 +1480,65 @@ export async function downloadComfyUIModel(
       fs.mkdirSync(destDir, { recursive: true });
 
       onProgress({
-        stage: "download",
+        stage: 'download',
         message: `[${i + 1}/${modelDef.files.length}] Downloading ${file.filename} (${file.sizeLabel})...`,
       });
 
-      const isWindows = process.platform === "win32";
+      const isWindows = process.platform === 'win32';
       let downloadCmd: string;
       let downloadArgs: string[];
 
       if (isWindows) {
-        downloadCmd = "curl";
-        downloadArgs = ["-L", "-o", destFile, "--progress-bar", file.url];
+        downloadCmd = 'curl';
+        downloadArgs = ['-L', '-o', destFile, '--progress-bar', file.url];
       } else {
         let hasWget = false;
         try {
-          await execAsync("which wget");
+          await execAsync('which wget');
           hasWget = true;
         } catch {
           // No wget
         }
 
         if (hasWget) {
-          downloadCmd = "wget";
-          downloadArgs = ["-O", destFile, "--show-progress", file.url];
+          downloadCmd = 'wget';
+          downloadArgs = ['-O', destFile, '--show-progress', file.url];
         } else {
-          downloadCmd = "curl";
-          downloadArgs = ["-L", "-o", destFile, "--progress-bar", file.url];
+          downloadCmd = 'curl';
+          downloadArgs = ['-L', '-o', destFile, '--progress-bar', file.url];
         }
       }
 
       await new Promise<void>((resolve, reject) => {
-        const proc = spawn(downloadCmd, downloadArgs, { stdio: "inherit" });
-        proc.on("close", (code) => {
+        const proc = spawn(downloadCmd, downloadArgs, { stdio: 'inherit' });
+        proc.on('close', (code) => {
           if (code === 0) resolve();
           else {
             if (fs.existsSync(destFile)) {
-              try { fs.unlinkSync(destFile); } catch { /* ignore */ }
+              try {
+                fs.unlinkSync(destFile);
+              } catch {
+                /* ignore */
+              }
             }
             reject(new Error(`Download failed with code ${code}`));
           }
         });
-        proc.on("error", reject);
+        proc.on('error', reject);
       });
     }
 
     onProgress({
-      stage: "complete",
+      stage: 'complete',
       message: `${modelDef.label} model downloaded successfully!`,
       complete: true,
     });
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : 'Unknown error';
     onProgress({
-      stage: "error",
-      message: "Download failed",
+      stage: 'error',
+      message: 'Download failed',
       error: message,
     });
     return false;

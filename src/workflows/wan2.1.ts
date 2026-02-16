@@ -35,11 +35,11 @@ export interface Wan21Params {
 }
 
 export const WAN21_DEFAULTS: Wan21Params = {
-  model: "wan2.1_t2v_1.3B_fp16.safetensors",
-  textEncoder: "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-  vae: "wan_2.1_vae.safetensors",
-  prompt: "",
-  negativePrompt: "worst quality, blurry, distorted",
+  model: 'wan2.1_t2v_1.3B_fp16.safetensors',
+  textEncoder: 'umt5_xxl_fp8_e4m3fn_scaled.safetensors',
+  vae: 'wan_2.1_vae.safetensors',
+  prompt: '',
+  negativePrompt: 'worst quality, blurry, distorted',
   width: 480,
   height: 320,
   numFrames: 25,
@@ -53,54 +53,54 @@ export const WAN21_DEFAULTS: Wan21Params = {
  * Build a Wan2.1 text-to-video workflow in ComfyUI API format.
  */
 export function buildWan21Workflow(
-  params: Partial<Wan21Params> & { prompt: string }
+  params: Partial<Wan21Params> & { prompt: string },
 ): Record<string, unknown> {
   const p = { ...WAN21_DEFAULTS, ...params };
   const seed = p.seed === -1 ? Math.floor(Math.random() * 2 ** 32) : p.seed;
 
   return {
     // Node 1: Load diffusion model (UNET)
-    "1": {
-      class_type: "UNETLoader",
+    '1': {
+      class_type: 'UNETLoader',
       inputs: {
         unet_name: p.model,
-        weight_dtype: "default",
+        weight_dtype: 'default',
       },
     },
     // Node 2: Load text encoder (UMT5-XXL)
-    "2": {
-      class_type: "CLIPLoader",
+    '2': {
+      class_type: 'CLIPLoader',
       inputs: {
         clip_name: p.textEncoder,
-        type: "wan",
+        type: 'wan',
       },
     },
     // Node 3: Load VAE
-    "3": {
-      class_type: "VAELoader",
+    '3': {
+      class_type: 'VAELoader',
       inputs: {
         vae_name: p.vae,
       },
     },
     // Node 4: Positive prompt encoding
-    "4": {
-      class_type: "CLIPTextEncode",
+    '4': {
+      class_type: 'CLIPTextEncode',
       inputs: {
         text: p.prompt,
-        clip: ["2", 0],
+        clip: ['2', 0],
       },
     },
     // Node 5: Negative prompt encoding
-    "5": {
-      class_type: "CLIPTextEncode",
+    '5': {
+      class_type: 'CLIPTextEncode',
       inputs: {
         text: p.negativePrompt,
-        clip: ["2", 0],
+        clip: ['2', 0],
       },
     },
     // Node 6: Empty latent image (for video frames)
-    "6": {
-      class_type: "EmptySD3LatentImage",
+    '6': {
+      class_type: 'EmptySD3LatentImage',
       inputs: {
         width: p.width,
         height: p.height,
@@ -108,38 +108,38 @@ export function buildWan21Workflow(
       },
     },
     // Node 7: KSampler
-    "7": {
-      class_type: "KSampler",
+    '7': {
+      class_type: 'KSampler',
       inputs: {
-        model: ["1", 0],
-        positive: ["4", 0],
-        negative: ["5", 0],
-        latent_image: ["6", 0],
+        model: ['1', 0],
+        positive: ['4', 0],
+        negative: ['5', 0],
+        latent_image: ['6', 0],
         seed: seed,
         steps: p.steps,
         cfg: p.cfgScale,
-        sampler_name: "euler",
-        scheduler: "normal",
+        sampler_name: 'euler',
+        scheduler: 'normal',
         denoise: 1.0,
       },
     },
     // Node 8: VAE Decode
-    "8": {
-      class_type: "VAEDecode",
+    '8': {
+      class_type: 'VAEDecode',
       inputs: {
-        samples: ["7", 0],
-        vae: ["3", 0],
+        samples: ['7', 0],
+        vae: ['3', 0],
       },
     },
     // Node 9: Save as MP4 via VideoHelperSuite
-    "9": {
-      class_type: "VHS_VideoCombine",
+    '9': {
+      class_type: 'VHS_VideoCombine',
       inputs: {
-        images: ["8", 0],
+        images: ['8', 0],
         frame_rate: p.fps,
         loop_count: 0,
-        filename_prefix: "wan21_output",
-        format: "video/h264-mp4",
+        filename_prefix: 'wan21_output',
+        format: 'video/h264-mp4',
         pingpong: false,
         save_output: true,
       },
@@ -148,4 +148,4 @@ export function buildWan21Workflow(
 }
 
 /** Output node ID for fetching results */
-export const WAN21_OUTPUT_NODE = "9";
+export const WAN21_OUTPUT_NODE = '9';

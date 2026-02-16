@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { requestEvents } from "../events.js";
-import type { RequestLogEntry } from "../types.js";
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { requestEvents } from '../events.js';
+import type { RequestLogEntry } from '../types.js';
 
 interface UseRequestsResult {
   requests: RequestLogEntry[];
@@ -17,7 +17,7 @@ export function useRequests(maxHistory: number = 50): UseRequestsResult {
     const interval = setInterval(() => {
       // Force re-render for active requests to update elapsed time
       setRequests((prev) => {
-        const hasActive = prev.some((r) => r.status === "processing");
+        const hasActive = prev.some((r) => r.status === 'processing');
         return hasActive ? [...prev] : prev;
       });
     }, 1000);
@@ -31,7 +31,7 @@ export function useRequests(maxHistory: number = 50): UseRequestsResult {
         id: event.id,
         modelId: event.modelId,
         requestType: event.requestType,
-        status: "processing",
+        status: 'processing',
         startTime: event.timestamp,
       };
 
@@ -44,7 +44,7 @@ export function useRequests(maxHistory: number = 50): UseRequestsResult {
       if (existing) {
         const updated: RequestLogEntry = {
           ...existing,
-          status: event.success ? "completed" : "failed",
+          status: event.success ? 'completed' : 'failed',
           endTime: Date.now(),
           duration: event.duration,
           result: event.result,
@@ -53,7 +53,7 @@ export function useRequests(maxHistory: number = 50): UseRequestsResult {
 
         requestsRef.current.set(event.id, updated);
         setRequests((prev) =>
-          prev.map((r) => (r.id === event.id ? updated : r))
+          prev.map((r) => (r.id === event.id ? updated : r)),
         );
       }
     });
@@ -64,7 +64,7 @@ export function useRequests(maxHistory: number = 50): UseRequestsResult {
     };
   }, [maxHistory]);
 
-  const activeCount = requests.filter((r) => r.status === "processing").length;
+  const activeCount = requests.filter((r) => r.status === 'processing').length;
 
   const clear = useCallback(() => {
     requestsRef.current.clear();

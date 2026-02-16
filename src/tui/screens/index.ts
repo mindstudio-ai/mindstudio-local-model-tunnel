@@ -1,17 +1,17 @@
-import React from "react";
-import { render } from "ink";
-import { StatusScreen } from "./StatusScreen.js";
-import { ConfigScreen } from "./ConfigScreen.js";
-import { HomeScreen } from "./HomeScreen.js";
-import { ModelsScreen } from "./ModelsScreen.js";
+import React from 'react';
+import { render } from 'ink';
+import { StatusScreen } from './StatusScreen.js';
+import { ConfigScreen } from './ConfigScreen.js';
+import { HomeScreen } from './HomeScreen.js';
+import { ModelsScreen } from './ModelsScreen.js';
 
-export { StatusScreen } from "./StatusScreen.js";
-export { ConfigScreen } from "./ConfigScreen.js";
-export { HomeScreen } from "./HomeScreen.js";
-export { ModelsScreen } from "./ModelsScreen.js";
+export { StatusScreen } from './StatusScreen.js';
+export { ConfigScreen } from './ConfigScreen.js';
+export { HomeScreen } from './HomeScreen.js';
+export { ModelsScreen } from './ModelsScreen.js';
 
 function clearTerminal() {
-  process.stdout.write("\x1B[2J\x1B[3J\x1B[H");
+  process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
 }
 
 export async function showStatusScreen(): Promise<void> {

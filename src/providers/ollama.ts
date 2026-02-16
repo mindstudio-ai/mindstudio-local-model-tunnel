@@ -1,17 +1,17 @@
-import { Ollama } from "ollama";
-import { getOllamaBaseUrl } from "../config.js";
+import { Ollama } from 'ollama';
+import { getOllamaBaseUrl } from '../config.js';
 import type {
   TextProvider,
   LocalModel,
   ChatMessage,
   ChatOptions,
   ChatResponse,
-} from "./types.js";
+} from './types.js';
 
 export class OllamaProvider implements TextProvider {
-  readonly name = "ollama" as const;
-  readonly displayName = "Ollama";
-  readonly capability = "text" as const;
+  readonly name = 'ollama' as const;
+  readonly displayName = 'Ollama';
+  readonly capability = 'text' as const;
 
   private createClient(): Ollama {
     return new Ollama({ host: getOllamaBaseUrl() });
@@ -35,7 +35,7 @@ export class OllamaProvider implements TextProvider {
       return response.models.map((m) => ({
         name: m.name,
         provider: this.name,
-        capability: "text" as const,
+        capability: 'text' as const,
         size: m.size,
         parameterSize: m.details?.parameter_size,
         quantization: m.details?.quantization_level,
@@ -48,7 +48,7 @@ export class OllamaProvider implements TextProvider {
   async *chat(
     model: string,
     messages: ChatMessage[],
-    options?: ChatOptions
+    options?: ChatOptions,
   ): AsyncGenerator<ChatResponse> {
     const client = this.createClient();
 

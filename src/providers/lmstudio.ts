@@ -1,11 +1,11 @@
-import { getLMStudioBaseUrl } from "../config.js";
+import { getLMStudioBaseUrl } from '../config.js';
 import type {
   TextProvider,
   LocalModel,
   ChatMessage,
   ChatOptions,
   ChatResponse,
-} from "./types.js";
+} from './types.js';
 
 interface LMStudioModel {
   id: string;
@@ -18,9 +18,9 @@ interface LMStudioModelsResponse {
 }
 
 export class LMStudioProvider implements TextProvider {
-  readonly name = "lmstudio" as const;
-  readonly displayName = "LM Studio";
-  readonly capability = "text" as const;
+  readonly name = 'lmstudio' as const;
+  readonly displayName = 'LM Studio';
+  readonly capability = 'text' as const;
 
   private getBaseUrl(): string {
     return getLMStudioBaseUrl();
@@ -29,7 +29,7 @@ export class LMStudioProvider implements TextProvider {
   async isRunning(): Promise<boolean> {
     try {
       const response = await fetch(`${this.getBaseUrl()}/models`, {
-        method: "GET",
+        method: 'GET',
         signal: AbortSignal.timeout(3000),
       });
       return response.ok;
@@ -51,7 +51,7 @@ export class LMStudioProvider implements TextProvider {
       return data.data.map((m) => ({
         name: m.id,
         provider: this.name,
-        capability: "text" as const,
+        capability: 'text' as const,
       }));
     } catch {
       return [];
@@ -61,12 +61,12 @@ export class LMStudioProvider implements TextProvider {
   async *chat(
     model: string,
     messages: ChatMessage[],
-    options?: ChatOptions
+    options?: ChatOptions,
   ): AsyncGenerator<ChatResponse> {
     const response = await fetch(`${this.getBaseUrl()}/chat/completions`, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         model,
@@ -86,39 +86,39 @@ export class LMStudioProvider implements TextProvider {
     }
 
     if (!response.body) {
-      throw new Error("No response body from LM Studio");
+      throw new Error('No response body from LM Studio');
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = "";
+    let buffer = '';
 
     try {
       while (true) {
         const { done, value } = await reader.read();
 
         if (done) {
-          yield { content: "", done: true };
+          yield { content: '', done: true };
           break;
         }
 
         buffer += decoder.decode(value, { stream: true });
 
         // Process SSE lines
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
         for (const line of lines) {
           const trimmed = line.trim();
 
-          if (!trimmed || !trimmed.startsWith("data: ")) {
+          if (!trimmed || !trimmed.startsWith('data: ')) {
             continue;
           }
 
           const data = trimmed.slice(6); // Remove "data: " prefix
 
-          if (data === "[DONE]") {
-            yield { content: "", done: true };
+          if (data === '[DONE]') {
+            yield { content: '', done: true };
             return;
           }
 
@@ -131,7 +131,7 @@ export class LMStudioProvider implements TextProvider {
             };
 
             const choice = parsed.choices[0];
-            const content = choice?.delta?.content || "";
+            const content = choice?.delta?.content || '';
             const isDone = choice?.finish_reason !== null;
 
             if (content) {

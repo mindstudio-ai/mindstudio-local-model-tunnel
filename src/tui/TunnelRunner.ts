@@ -5,7 +5,7 @@ import {
   submitResult,
   disconnectHeartbeat,
   type LocalModelRequest,
-} from "../api.js";
+} from '../api.js';
 import {
   getProvider,
   isTextProvider,
@@ -14,8 +14,8 @@ import {
   discoverAllModels,
   type Provider,
   type LocalModel,
-} from "../providers/index.js";
-import { requestEvents } from "./events.js";
+} from '../providers/index.js';
+import { requestEvents } from './events.js';
 
 /**
  * TunnelRunner handles the polling and request processing loop.
@@ -97,20 +97,20 @@ export class TunnelRunner {
 
     try {
       switch (request.requestType) {
-        case "llm_chat":
+        case 'llm_chat':
           await this.handleTextRequest(request, provider, startTime);
           break;
-        case "image_generation":
+        case 'image_generation':
           await this.handleImageRequest(request, provider, startTime);
           break;
-        case "video_generation":
+        case 'video_generation':
           await this.handleVideoRequest(request, provider, startTime);
           break;
         default:
           throw new Error(`Unsupported request type: ${request.requestType}`);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
+      const message = error instanceof Error ? error.message : 'Unknown error';
       await submitResult(request.id, false, undefined, message);
       requestEvents.emitComplete({
         id: request.id,
@@ -124,14 +124,14 @@ export class TunnelRunner {
   private async handleTextRequest(
     request: LocalModelRequest,
     provider: Provider,
-    startTime: number
+    startTime: number,
   ): Promise<void> {
     if (!isTextProvider(provider)) {
       throw new Error(`Provider does not support text generation`);
     }
 
     const messages = (request.payload.messages || []).map((m) => ({
-      role: m.role as "user" | "assistant" | "system",
+      role: m.role as 'user' | 'assistant' | 'system',
       content: m.content,
     }));
 
@@ -140,7 +140,7 @@ export class TunnelRunner {
       maxTokens: request.payload.maxTokens,
     });
 
-    let fullContent = "";
+    let fullContent = '';
     let lastProgressUpdate = 0;
     const progressInterval = 100;
 
@@ -175,13 +175,13 @@ export class TunnelRunner {
   private async handleImageRequest(
     request: LocalModelRequest,
     provider: Provider,
-    startTime: number
+    startTime: number,
   ): Promise<void> {
     if (!isImageProvider(provider)) {
       throw new Error(`Provider does not support image generation`);
     }
 
-    const prompt = request.payload.prompt || "";
+    const prompt = request.payload.prompt || '';
     const config = request.payload.config || {};
 
     let result;
@@ -203,14 +203,14 @@ export class TunnelRunner {
             request.id,
             progress.step,
             progress.totalSteps,
-            progress.preview
+            progress.preview,
           );
           requestEvents.emitProgress({
             id: request.id,
             step: progress.step,
             totalSteps: progress.totalSteps,
           });
-        }
+        },
       );
     } else {
       result = await provider.generateImage(request.modelId, prompt, {
@@ -243,13 +243,13 @@ export class TunnelRunner {
   private async handleVideoRequest(
     request: LocalModelRequest,
     provider: Provider,
-    startTime: number
+    startTime: number,
   ): Promise<void> {
     if (!isVideoProvider(provider)) {
       throw new Error(`Provider does not support video generation`);
     }
 
-    const prompt = request.payload.prompt || "";
+    const prompt = request.payload.prompt || '';
     const config = request.payload.config || {};
 
     const result = await provider.generateVideo(
@@ -269,14 +269,14 @@ export class TunnelRunner {
         await submitGenerationProgress(
           request.id,
           progress.step,
-          progress.totalSteps
+          progress.totalSteps,
         );
         requestEvents.emitProgress({
           id: request.id,
           step: progress.step,
           totalSteps: progress.totalSteps,
         });
-      }
+      },
     );
 
     await submitResult(request.id, true, {

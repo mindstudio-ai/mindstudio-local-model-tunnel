@@ -1,5 +1,5 @@
-import React from "react";
-import { Box, Text } from "ink";
+import React from 'react';
+import { Box, Text } from 'ink';
 
 interface Shortcut {
   key: string;
@@ -10,7 +10,7 @@ interface StatusBarProps {
   shortcuts?: Shortcut[];
 }
 
-const defaultShortcuts: Shortcut[] = [{ key: "Ctrl+C", label: "Force Quit" }];
+const defaultShortcuts: Shortcut[] = [{ key: 'Ctrl+C', label: 'Force Quit' }];
 
 export function StatusBar({ shortcuts = defaultShortcuts }: StatusBarProps) {
   return (

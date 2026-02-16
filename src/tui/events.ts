@@ -1,9 +1,9 @@
-import { EventEmitter } from "events";
+import { EventEmitter } from 'events';
 
 export interface RequestStartEvent {
   id: string;
   modelId: string;
-  requestType: "llm_chat" | "image_generation" | "video_generation";
+  requestType: 'llm_chat' | 'image_generation' | 'video_generation';
   timestamp: number;
 }
 
@@ -28,30 +28,30 @@ export interface RequestCompleteEvent {
 
 class RequestEventEmitter extends EventEmitter {
   emitStart(event: RequestStartEvent) {
-    this.emit("request:start", event);
+    this.emit('request:start', event);
   }
 
   emitProgress(event: RequestProgressEvent) {
-    this.emit("request:progress", event);
+    this.emit('request:progress', event);
   }
 
   emitComplete(event: RequestCompleteEvent) {
-    this.emit("request:complete", event);
+    this.emit('request:complete', event);
   }
 
   onStart(handler: (event: RequestStartEvent) => void) {
-    this.on("request:start", handler);
-    return () => this.off("request:start", handler);
+    this.on('request:start', handler);
+    return () => this.off('request:start', handler);
   }
 
   onProgress(handler: (event: RequestProgressEvent) => void) {
-    this.on("request:progress", handler);
-    return () => this.off("request:progress", handler);
+    this.on('request:progress', handler);
+    return () => this.off('request:progress', handler);
   }
 
   onComplete(handler: (event: RequestCompleteEvent) => void) {
-    this.on("request:complete", handler);
-    return () => this.off("request:complete", handler);
+    this.on('request:complete', handler);
+    return () => this.off('request:complete', handler);
   }
 }
 

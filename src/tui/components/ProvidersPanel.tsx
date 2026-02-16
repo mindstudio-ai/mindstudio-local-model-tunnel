@@ -1,6 +1,6 @@
-import React from "react";
-import { Box, Text } from "ink";
-import type { ProviderStatus } from "../types.js";
+import React from 'react';
+import { Box, Text } from 'ink';
+import type { ProviderStatus } from '../types.js';
 
 interface ProvidersPanelProps {
   providers: ProviderStatus[];
@@ -8,7 +8,12 @@ interface ProvidersPanelProps {
 
 export function ProvidersPanel({ providers }: ProvidersPanelProps) {
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="gray"
+      paddingX={1}
+    >
       <Box marginBottom={1}>
         <Text bold color="white">
           PROVIDERS
@@ -19,16 +24,16 @@ export function ProvidersPanel({ providers }: ProvidersPanelProps) {
       ) : (
         providers.map(({ provider, running }) => (
           <Box key={provider.name}>
-            <Text color={running ? "green" : "gray"}>
-              {running ? "●" : "○"}
+            <Text color={running ? 'green' : 'gray'}>
+              {running ? '●' : '○'}
             </Text>
             <Text> </Text>
-            <Text color={running ? "white" : "gray"}>
+            <Text color={running ? 'white' : 'gray'}>
               {provider.displayName}
             </Text>
             <Text color="gray"> </Text>
-            <Text color={running ? "green" : "gray"} dimColor={!running}>
-              {running ? "Running" : "Stopped"}
+            <Text color={running ? 'green' : 'gray'} dimColor={!running}>
+              {running ? 'Running' : 'Stopped'}
             </Text>
           </Box>
         ))

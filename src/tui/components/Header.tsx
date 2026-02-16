@@ -1,11 +1,11 @@
-import React from "react";
-import { Box, Text } from "ink";
-import type { ConnectionStatus } from "../types.js";
-import { LogoString } from "../../helpers.js";
+import React from 'react';
+import { Box, Text } from 'ink';
+import type { ConnectionStatus } from '../types.js';
+import { LogoString } from '../../helpers.js';
 
 interface HeaderProps {
   connection: ConnectionStatus;
-  environment: "prod" | "local";
+  environment: 'prod' | 'local';
   activeRequests: number;
 }
 
@@ -15,23 +15,23 @@ export function Header({
   activeRequests,
 }: HeaderProps) {
   const connectionColor =
-    connection === "connected"
-      ? "green"
-      : connection === "connecting"
-      ? "yellow"
-      : "red";
+    connection === 'connected'
+      ? 'green'
+      : connection === 'connecting'
+        ? 'yellow'
+        : 'red';
 
   const connectionText =
-    connection === "connected"
-      ? "Connected"
-      : connection === "connecting"
-      ? "Connecting..."
-      : connection === "disconnected"
-      ? "Disconnected"
-      : "Error";
+    connection === 'connected'
+      ? 'Connected'
+      : connection === 'connecting'
+        ? 'Connecting...'
+        : connection === 'disconnected'
+          ? 'Disconnected'
+          : 'Error';
 
-  const envBadge = environment === "prod" ? "PROD" : "LOCAL";
-  const envColor = environment === "prod" ? "green" : "yellow";
+  const envBadge = environment === 'prod' ? 'PROD' : 'LOCAL';
+  const envColor = environment === 'prod' ? 'green' : 'yellow';
 
   return (
     <Box flexDirection="column" marginBottom={1}>
