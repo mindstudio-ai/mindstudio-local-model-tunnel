@@ -13,7 +13,7 @@ import {
   useModels,
   useRequests,
 } from './hooks/index.js';
-import { TunnelRunner } from './TunnelRunner.js';
+import { TunnelRunner } from '../runner.js';
 
 interface AppProps {
   runner: TunnelRunner;

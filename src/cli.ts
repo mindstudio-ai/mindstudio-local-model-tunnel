@@ -16,16 +16,11 @@ import {
   setEnvironment,
   getEnvironmentInfo,
   type Environment,
-  getOllamaBaseUrl,
-  getLMStudioBaseUrl,
-  getStableDiffusionBaseUrl,
 } from './config.js';
 import {
   discoverAllModels,
   discoverAllModelsWithParameters,
-  getProviderStatuses,
   isAnyProviderRunning,
-  type LocalModel,
 } from './providers/index.js';
 import {
   getRegisteredModels,
@@ -34,8 +29,13 @@ import {
   requestDeviceAuth,
   verifyApiKey,
 } from './api.js';
-import { LocalModelRunner } from './runner.js';
-import { displayModels } from './helpers.js';
+import { TunnelRunner } from './runner.js';
+import {
+  displayModels,
+  sleep,
+  waitForEnter,
+  clearTerminal,
+} from './helpers.js';
 
 const program = new Command();
 
@@ -83,64 +83,111 @@ program
     console.log(chalk.blue(`\nMindStudio Authentication ${envBadge()}\n`));
     console.log(chalk.white(`API: ${info.apiBaseUrl}\n`));
 
-    const spinner = ora('Requesting authorization...').start();
+    const success = await performAuth();
+    if (success) {
+      console.log(chalk.white(`Config saved to: ${getConfigPath()}\n`));
+    } else {
+      process.exit(1);
+    }
+  });
 
-    const { url: authUrl, token } = await requestDeviceAuth();
-    spinner.stop();
+const MODEL_TYPE_MAP = {
+  text: 'llm_chat',
+  image: 'image_generation',
+  video: 'video_generation',
+} as const;
 
-    console.log(chalk.white('Opening browser for authentication...\n'));
-    console.log(chalk.white(`  If browser doesn't open, visit:`));
-    console.log(chalk.cyan(`  ${authUrl}\n`));
+/**
+ * Shared auth flow: request device auth, open browser, poll for completion.
+ * Returns true on success, false on failure.
+ */
+async function performAuth(): Promise<boolean> {
+  const { url: authUrl, token } = await requestDeviceAuth();
+  console.log(chalk.white('\nOpening browser for authentication...\n'));
+  console.log(chalk.white("  If browser doesn't open, visit:"));
+  console.log(chalk.cyan(`  ${authUrl}\n`));
+  await open(authUrl);
 
-    await open(authUrl);
+  const pollSpinner = ora('Waiting for browser authorization...').start();
+  const pollInterval = 2000;
+  const maxAttempts = 30;
 
-    const pollSpinner = ora('Waiting for browser authorization...').start();
-    const pollInterval = 2000;
-    const maxAttempts = 30;
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(pollInterval);
+    const result = await pollDeviceAuth(token);
 
-    for (let i = 0; i < maxAttempts; i++) {
-      await sleep(pollInterval);
-
-      const result = await pollDeviceAuth(token);
-
-      if (result.status === 'completed' && result.apiKey) {
-        setApiKey(result.apiKey);
-        pollSpinner.succeed(chalk.green('Authenticated successfully!'));
-        console.log(chalk.white(`Config saved to: ${getConfigPath()}\n`));
-        return;
-      }
-
-      if (result.status === 'expired') {
-        pollSpinner.fail(chalk.red('Authorization expired. Please try again.'));
-        process.exit(1);
-      }
-
-      const remaining = Math.floor(((maxAttempts - i) * pollInterval) / 1000);
-      pollSpinner.text = `Waiting for browser authorization... (${remaining}s remaining)`;
+    if (result.status === 'completed' && result.apiKey) {
+      setApiKey(result.apiKey);
+      pollSpinner.succeed(chalk.green('Authenticated successfully!'));
+      return true;
     }
 
-    pollSpinner.fail(chalk.red('Authorization timed out. Please try again.'));
-    process.exit(1);
-  });
+    if (result.status === 'expired') {
+      pollSpinner.fail(chalk.red('Authorization expired. Please try again.'));
+      return false;
+    }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+    const remaining = Math.floor(((maxAttempts - i) * pollInterval) / 1000);
+    pollSpinner.text = `Waiting for browser authorization... (${remaining}s remaining)`;
+  }
+
+  pollSpinner.fail(chalk.red('Authorization timed out. Please try again.'));
+  return false;
 }
 
-async function waitForEnter(): Promise<void> {
-  const { spawn } = await import('child_process');
+/**
+ * Shared register flow: discover models, find unregistered ones, register them.
+ * Returns { registered: number, total: number } on success.
+ * Throws on critical errors. Returns null if nothing to do.
+ */
+async function performRegister(): Promise<{
+  registered: number;
+  total: number;
+} | null> {
+  const spinner = ora('Discovering local models...').start();
 
-  console.log(chalk.gray('\nPress Enter to continue...'));
+  const localModels = await discoverAllModelsWithParameters();
+  if (localModels.length === 0) {
+    spinner.fail(chalk.yellow('No local models found.'));
+    return null;
+  }
 
-  return new Promise((resolve) => {
-    const isWindows = process.platform === 'win32';
-    const child = isWindows
-      ? spawn('cmd', ['/c', 'pause >nul'], { stdio: 'inherit' })
-      : spawn('bash', ['-c', 'read -n 1 -s'], { stdio: 'inherit' });
+  const registeredModels = await getRegisteredModels();
+  const registeredNames = new Set(registeredModels);
+  const unregisteredModels = localModels.filter(
+    (m) => !registeredNames.has(m.name),
+  );
 
-    child.on('close', () => resolve());
-    child.on('error', () => resolve());
-  });
+  if (unregisteredModels.length === 0) {
+    spinner.succeed(chalk.green('All models already registered.'));
+    return { registered: 0, total: localModels.length };
+  }
+
+  spinner.text = `Registering ${unregisteredModels.length} models...`;
+  console.log('\n');
+
+  for (const model of unregisteredModels) {
+    const modelType =
+      MODEL_TYPE_MAP[model.capability as keyof typeof MODEL_TYPE_MAP];
+
+    await registerLocalModel({
+      modelName: model.name,
+      provider: model.provider,
+      modelType,
+      parameters: model.parameters,
+    });
+
+    const providerTag = chalk.gray(`[${model.provider}]`);
+    const paramsInfo = model.parameters
+      ? chalk.cyan(` (${model.parameters.length} params)`)
+      : '';
+    console.log(chalk.green(`✓ ${model.name} ${providerTag}${paramsInfo}`));
+  }
+
+  spinner.succeed(
+    chalk.green(`Registered ${unregisteredModels.length} models.`),
+  );
+  return { registered: unregisteredModels.length, total: localModels.length };
 }
 
 // Logout command
@@ -168,50 +215,9 @@ program
 program
   .command('status')
   .description('Check connection status')
-  .option('--simple', 'Use simple text output (no TUI)')
-  .action(async (options) => {
-    if (!options.simple) {
-      process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
-      const { showStatusScreen } = await import('./tui/screens/index.js');
-      await showStatusScreen();
-      return;
-    }
-
-    // Simple mode (original behavior)
-    const info = getEnvironmentInfo();
-    console.log(chalk.blue(`\nStatus ${envBadge()}\n`));
-    console.log(chalk.white(`API: ${info.apiBaseUrl}\n`));
-
-    // Check API key
-    const apiKey = getApiKey();
-    if (apiKey) {
-      const isValid = await verifyApiKey();
-      if (isValid) {
-        console.log(chalk.green('✓ MindStudio: Connected'));
-      } else {
-        console.log(chalk.red('✗ MindStudio: Invalid API key'));
-      }
-    } else {
-      console.log(chalk.yellow('○ MindStudio: Not authenticated'));
-    }
-
-    // Check all providers
-    const providerStatuses = await getProviderStatuses();
-    for (const { provider, running } of providerStatuses) {
-      if (running) {
-        console.log(chalk.green(`✓ ${provider.displayName}: Running`));
-      } else {
-        console.log(chalk.gray(`○ ${provider.displayName}: Not running`));
-      }
-    }
-
-    // Show models if any provider is running
-    const models = await discoverAllModels();
-    if (models.length > 0) {
-      displayModels(models);
-    }
-
-    console.log('');
+  .action(async () => {
+    const { showStatusScreen } = await import('./tui/screens/index.js');
+    await showStatusScreen();
   });
 
 program
@@ -265,7 +271,7 @@ program
       return;
     }
 
-    // Simple mode (original behavior)
+    // Simple mode
     const info = getEnvironmentInfo();
     console.log(
       chalk.white(`Environment: ${info.current} (${info.apiBaseUrl})`),
@@ -302,9 +308,11 @@ program
       process.exit(1);
     }
 
-    // Start the runner
-    const runner = new LocalModelRunner();
-    await runner.start();
+    // Start the runner with simple chalk/ora output
+    const { attachSimpleListener } = await import('./simple-listener.js');
+    attachSimpleListener();
+    const runner = new TunnelRunner();
+    await runner.startWithDiscovery();
   });
 
 // Models command
@@ -345,33 +353,9 @@ program
 program
   .command('config')
   .description('Show configuration')
-  .option('--simple', 'Use simple text output (no TUI)')
-  .action(async (options) => {
-    if (!options.simple) {
-      process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
-      const { showConfigScreen } = await import('./tui/screens/index.js');
-      await showConfigScreen();
-      return;
-    }
-
-    // Simple mode (original behavior)
-    const info = getEnvironmentInfo();
-    console.log(chalk.blue(`\nConfiguration ${envBadge()}\n`));
-    console.log(`  Config file:     ${chalk.white(getConfigPath())}`);
-    console.log(`  Environment:     ${chalk.cyan(info.current)}`);
-    console.log(`  API URL:         ${chalk.white(info.apiBaseUrl)}`);
-    console.log(
-      `  API key:         ${
-        info.hasApiKey ? chalk.green('Set') : chalk.yellow('Not set')
-      }`,
-    );
-    console.log(chalk.blue('\nProvider URLs\n'));
-    console.log(`  Ollama:          ${chalk.white(getOllamaBaseUrl())}`);
-    console.log(`  LM Studio:       ${chalk.white(getLMStudioBaseUrl())}`);
-    console.log(
-      `  Stable Diffusion: ${chalk.white(getStableDiffusionBaseUrl())}`,
-    );
-    console.log('');
+  .action(async () => {
+    const { showConfigScreen } = await import('./tui/screens/index.js');
+    await showConfigScreen();
   });
 
 // Env command - switch or show environment
@@ -412,7 +396,6 @@ program
   .command('register')
   .description('Register all local models')
   .action(async () => {
-    // Check if authenticated
     const apiKey = getApiKey();
     if (!apiKey) {
       console.log(
@@ -421,7 +404,6 @@ program
       process.exit(1);
     }
 
-    // Check if any provider is running
     const anyProviderRunning = await isAnyProviderRunning();
     if (!anyProviderRunning) {
       console.log(chalk.red('\nNo local model provider is running.'));
@@ -433,80 +415,23 @@ program
       process.exit(1);
     }
 
-    // Get all local models from all providers (with parameter schemas)
-    const spinner = ora('Loading local models...').start();
-    const localModels = await discoverAllModelsWithParameters();
-    spinner.succeed();
-
-    if (localModels.length === 0) {
-      spinner.fail(chalk.yellow('No local models found.'));
-      console.log(chalk.white('  Ollama: ollama pull llama3.2'));
-      console.log(chalk.white('  LM Studio: Load a model in the app'));
-      console.log(
-        chalk.white('  Stable Diffusion: Models in models/Stable-diffusion/\n'),
-      );
-      process.exit(1);
-    }
-
-    const registeredModels = await getRegisteredModels();
-    const registeredNames = new Set(registeredModels);
-
-    const unregisteredModels = localModels.filter(
-      (m) => !registeredNames.has(m.name),
-    );
-
-    if (localModels.length > 0 && unregisteredModels.length === 0) {
-      console.log(
-        chalk.green('\n✓ All local models are already registered.\n'),
-      );
-      process.exit(0);
-    }
-
-    const registerSpinner = ora(`Registering models...`).start();
-
     try {
-      console.log('\n');
-      for (const model of unregisteredModels) {
-        const modelTypeMap = {
-          text: 'llm_chat',
-          image: 'image_generation',
-          video: 'video_generation',
-        } as const;
-
-        const modelType =
-          modelTypeMap[model.capability as keyof typeof modelTypeMap];
-
-        await registerLocalModel({
-          modelName: model.name,
-          provider: model.provider,
-          modelType,
-          parameters: model.parameters,
-        });
-
-        const providerTag = chalk.gray(`[${model.provider}]`);
-        const paramsInfo = model.parameters
-          ? chalk.cyan(` (${model.parameters.length} params)`)
-          : '';
+      const result = await performRegister();
+      if (result === null) {
+        process.exit(1);
+      }
+      if (result.registered > 0) {
         console.log(
-          chalk.green(`✓ ${model.name} ${providerTag}${paramsInfo}\n`),
+          chalk.white(
+            '\nManage models at: https://app.mindstudio.ai/services/self-hosted-models\n',
+          ),
         );
       }
-
-      registerSpinner.succeed(
-        chalk.green('All local models registered successfully.\n'),
-      );
-
-      console.log(
-        chalk.white(
-          'Manage models at: https://app.mindstudio.ai/services/self-hosted-models\n',
-        ),
-      );
       process.exit(0);
     } catch (error) {
-      registerSpinner.fail(chalk.red(`Failed to register models`));
       console.log(
         chalk.red(
-          `Error: ${error instanceof Error ? error.message : String(error)}\n`,
+          `\nFailed to register models: ${error instanceof Error ? error.message : String(error)}\n`,
         ),
       );
       process.exit(1);
@@ -534,7 +459,7 @@ async function runDefaultAction() {
       }
 
       // Handle the selected command
-      process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
+      clearTerminal();
       switch (nextCommand) {
         case 'start': {
           const { startTUI } = await import('./tui/index.js');
@@ -544,139 +469,47 @@ async function runDefaultAction() {
         case 'setup': {
           const { startQuickstart } = await import('./quickstart/index.js');
           await startQuickstart();
-          process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
+          clearTerminal();
           continue; // Return to home screen after setup
         }
         case 'auth': {
-          // Run auth flow (same logic as auth command)
-          const { url: authUrl, token } = await requestDeviceAuth();
-          console.log(chalk.white('\nOpening browser for authentication...\n'));
-          console.log(chalk.white("  If browser doesn't open, visit:"));
-          console.log(chalk.cyan(`  ${authUrl}\n`));
-          await open(authUrl);
-
-          const pollSpinner = ora(
-            'Waiting for browser authorization...',
-          ).start();
-          const pollInterval = 2000;
-          const maxAttempts = 30;
-
-          let authSuccess = false;
-          for (let i = 0; i < maxAttempts; i++) {
-            await sleep(pollInterval);
-            const result = await pollDeviceAuth(token);
-
-            if (result.status === 'completed' && result.apiKey) {
-              setApiKey(result.apiKey);
-              pollSpinner.succeed(chalk.green('Authenticated successfully!'));
-              authSuccess = true;
-              break;
-            }
-
-            if (result.status === 'expired') {
-              pollSpinner.fail(
-                chalk.red('Authorization expired. Please try again.'),
-              );
-              break;
-            }
-
-            const remaining = Math.floor(
-              ((maxAttempts - i) * pollInterval) / 1000,
-            );
-            pollSpinner.text = `Waiting for browser authorization... (${remaining}s remaining)`;
-          }
-
+          await performAuth();
           await waitForEnter();
-          process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
-          continue; // Return to home screen after auth
+          clearTerminal();
+          continue;
         }
         case 'register': {
-          const registerSpinner = ora('Discovering local models...').start();
-          try {
-            const apiKey = getApiKey();
-            if (!apiKey) {
-              registerSpinner.fail(
-                chalk.red('Not authenticated. Please authenticate first.'),
+          const apiKey = getApiKey();
+          if (!apiKey) {
+            console.log(
+              chalk.red('Not authenticated. Please authenticate first.'),
+            );
+          } else {
+            try {
+              await performRegister();
+            } catch (error) {
+              console.log(
+                chalk.red(
+                  `Failed: ${error instanceof Error ? error.message : String(error)}`,
+                ),
               );
-              await waitForEnter();
-              process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
-              continue;
             }
-
-            const localModels = await discoverAllModelsWithParameters();
-            if (localModels.length === 0) {
-              registerSpinner.fail(chalk.yellow('No local models found.'));
-              await waitForEnter();
-              process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
-              continue;
-            }
-
-            const registeredModels = await getRegisteredModels();
-            const registeredNames = new Set(registeredModels);
-            const unregisteredModels = localModels.filter(
-              (m) => !registeredNames.has(m.name),
-            );
-
-            if (unregisteredModels.length === 0) {
-              registerSpinner.succeed(
-                chalk.green('All models already registered.'),
-              );
-              await waitForEnter();
-              process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
-              continue;
-            }
-
-            registerSpinner.text = `Registering ${unregisteredModels.length} models...`;
-            console.log('\n');
-
-            for (const model of unregisteredModels) {
-              const modelTypeMap = {
-                text: 'llm_chat',
-                image: 'image_generation',
-                video: 'video_generation',
-              } as const;
-
-              const modelType =
-                modelTypeMap[model.capability as keyof typeof modelTypeMap];
-
-              await registerLocalModel({
-                modelName: model.name,
-                provider: model.provider,
-                modelType,
-                parameters: model.parameters,
-              });
-
-              console.log(chalk.green(`✓ ${model.name} [${model.provider}]`));
-            }
-
-            registerSpinner.succeed(
-              chalk.green(`Registered ${unregisteredModels.length} models.`),
-            );
-            await waitForEnter();
-          } catch (error) {
-            registerSpinner.fail(
-              chalk.red(
-                `Failed: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-              ),
-            );
           }
           await waitForEnter();
-          process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
-          continue; // Return to home screen
+          clearTerminal();
+          continue;
         }
         case 'models': {
           const { showModelsScreen } = await import('./tui/screens/index.js');
           await showModelsScreen();
-          process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
+          clearTerminal();
           continue; // Return to home screen after models
         }
         case 'config': {
           const { showConfigScreen } = await import('./tui/screens/index.js');
           await showConfigScreen();
           await waitForEnter();
-          process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
+          clearTerminal();
           continue; // Return to home screen after config
         }
         case 'logout': {
@@ -687,7 +520,7 @@ async function runDefaultAction() {
             ),
           );
           await waitForEnter();
-          process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
+          clearTerminal();
           continue; // Return to home screen after logout
         }
         default:

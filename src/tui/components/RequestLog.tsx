@@ -62,6 +62,8 @@ function RequestItem({ request }: { request: RequestLogEntry }) {
       resultInfo = ` (${request.result.chars} chars)`;
     } else if (request.result?.imageSize) {
       resultInfo = ` (${Math.round(request.result.imageSize / 1024)}KB)`;
+    } else if (request.result?.videoSize) {
+      resultInfo = ` (${Math.round(request.result.videoSize / 1024 / 1024)}MB)`;
     }
 
     return (

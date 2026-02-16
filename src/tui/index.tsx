@@ -1,7 +1,7 @@
 import React from 'react';
 import { render } from 'ink';
 import { App } from './App.js';
-import { TunnelRunner } from './TunnelRunner.js';
+import { TunnelRunner } from '../runner.js';
 
 export async function startTUI(): Promise<void> {
   // Clear the screen

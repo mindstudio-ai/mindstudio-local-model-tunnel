@@ -24,7 +24,11 @@ interface SystemStatus {
   providerCount: number;
 }
 
-export function HomeScreen() {
+interface HomeScreenProps {
+  onNavigate?: (command: string) => void;
+}
+
+export function HomeScreen({ onNavigate }: HomeScreenProps) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -164,14 +168,13 @@ export function HomeScreen() {
     }
   });
 
-  // Handle navigation by exiting with a code that cli.ts will interpret
+  // Handle navigation by calling the callback and exiting
   useEffect(() => {
     if (navigateTo) {
-      // We'll use process.env to communicate the next command
-      process.env.MINDSTUDIO_NEXT_COMMAND = navigateTo;
+      onNavigate?.(navigateTo);
       exit();
     }
-  }, [navigateTo, exit]);
+  }, [navigateTo, exit, onNavigate]);
 
   // Loading state
   if (!status) {

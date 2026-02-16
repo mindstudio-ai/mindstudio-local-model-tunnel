@@ -22,6 +22,7 @@ export interface RequestLogEntry {
   result?: {
     chars?: number;
     imageSize?: number;
+    videoSize?: number;
   };
   error?: string;
 }

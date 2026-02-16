@@ -15,23 +15,10 @@ import {
   downloadComfyUIModel,
   getComfyUIInstallPath,
 } from './installers.js';
-import { spawn } from 'child_process';
-
-const clear = () => process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
-
-function waitForEnter(): Promise<void> {
-  return new Promise((resolve) => {
-    const isWindows = process.platform === 'win32';
-    const child = isWindows
-      ? spawn('cmd', ['/c', 'pause >nul'], { stdio: 'inherit' })
-      : spawn('bash', ['-c', 'read -n 1 -s'], { stdio: 'inherit' });
-    child.on('close', () => resolve());
-    child.on('error', () => resolve());
-  });
-}
+import { waitForEnter, clearTerminal } from '../helpers.js';
 
 async function handleStartSd(): Promise<void> {
-  clear();
+  clearTerminal();
 
   const pyInfo = await getPythonVersion();
   console.log(
@@ -73,7 +60,7 @@ async function handleStartSd(): Promise<void> {
 }
 
 async function handleStopSd(): Promise<void> {
-  clear();
+  clearTerminal();
   console.log('Stopping Stable Diffusion server...\n');
 
   await stopStableDiffusion((progress) => {
@@ -86,7 +73,7 @@ async function handleStopSd(): Promise<void> {
 }
 
 async function handleInstallOllama(): Promise<void> {
-  clear();
+  clearTerminal();
   console.log('Installing Ollama...\n');
   console.log('You may be prompted for your password.\n');
 
@@ -111,7 +98,7 @@ async function handleInstallOllama(): Promise<void> {
 }
 
 async function handleStopOllama(): Promise<void> {
-  clear();
+  clearTerminal();
   console.log('Stopping Ollama server...\n');
 
   await stopOllama((progress) => {
@@ -124,7 +111,7 @@ async function handleStopOllama(): Promise<void> {
 }
 
 async function handleFixPython(): Promise<void> {
-  clear();
+  clearTerminal();
   const isMac = process.platform === 'darwin';
   const isWindows = process.platform === 'win32';
 
@@ -162,7 +149,7 @@ async function handleFixPython(): Promise<void> {
 }
 
 async function handleDownloadSdModel(): Promise<void> {
-  clear();
+  clearTerminal();
   console.log('Downloading SDXL base model...\n');
   console.log(
     'This will download sd_xl_base_1.0.safetensors (~6.5 GB) from Hugging Face.\n',
@@ -189,7 +176,7 @@ async function handleDownloadSdModel(): Promise<void> {
 }
 
 async function handleStartComfyUI(): Promise<void> {
-  clear();
+  clearTerminal();
   console.log('Starting ComfyUI server...\n');
   console.log('The server will take over this terminal.');
   console.log('Press Ctrl+C to stop the server and return to the menu.\n');
@@ -224,7 +211,7 @@ async function handleStartComfyUI(): Promise<void> {
 }
 
 async function handleStopComfyUI(): Promise<void> {
-  clear();
+  clearTerminal();
   console.log('Stopping ComfyUI server...\n');
 
   await stopComfyUI((progress) => {
@@ -237,7 +224,7 @@ async function handleStopComfyUI(): Promise<void> {
 }
 
 async function handleDownloadComfyUIModel(modelId: string): Promise<void> {
-  clear();
+  clearTerminal();
   console.log(`Downloading ${modelId} model for ComfyUI...\n`);
   console.log('This may download multiple files from HuggingFace.\n');
 
@@ -262,7 +249,7 @@ export async function startQuickstart(): Promise<void> {
   while (true) {
     let externalAction: string | null = null;
 
-    clear();
+    clearTerminal();
     const { waitUntilExit } = render(
       <QuickstartScreen
         onExternalAction={(action) => {

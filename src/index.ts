@@ -1,5 +1,19 @@
 // Main exports for programmatic use
-export { LocalModelRunner } from './runner.js';
+export { TunnelRunner } from './runner.js';
+export {
+  requestEvents,
+  type RequestStartEvent,
+  type RequestProgressEvent,
+  type RequestCompleteEvent,
+} from './events.js';
+export { attachSimpleListener, detachSimpleListener } from './simple-listener.js';
+export {
+  displayModels,
+  sleep,
+  waitForEnter,
+  clearTerminal,
+  LogoString,
+} from './helpers.js';
 export {
   // Discovery functions
   discoverAllModels,
@@ -17,14 +31,21 @@ export {
   // Type guards
   isTextProvider,
   isImageProvider,
+  isVideoProvider,
+  // Provider-specific getters (video)
+  getVideoProvider,
+  getVideoProviders,
   // Provider classes
   OllamaProvider,
   LMStudioProvider,
   StableDiffusionProvider,
+  ComfyUIProvider,
   // Types
   type Provider,
   type TextProvider,
   type ImageProvider,
+  type VideoProvider,
+  type VideoProviderType,
   type LocalModel,
   type ProviderType,
   type TextProviderType,
