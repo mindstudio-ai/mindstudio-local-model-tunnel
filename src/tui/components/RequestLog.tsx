@@ -107,14 +107,13 @@ export function RequestLog({ requests, maxVisible = 8 }: RequestLogProps) {
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor="gray"
+      width="100%"
+      height={30}
       paddingX={1}
-      minHeight={6}
     >
-      <Box marginBottom={1}>
-        <Text bold color="white">
-          REQUESTS
+      <Box>
+        <Text bold underline color="white">
+          Generation Requests
         </Text>
         {activeRequests.length > 0 && (
           <Text color="cyan"> ({activeRequests.length} active)</Text>
@@ -122,11 +121,11 @@ export function RequestLog({ requests, maxVisible = 8 }: RequestLogProps) {
       </Box>
 
       {requests.length === 0 ? (
-        <Box>
+        <Box marginTop={1}>
           <Text color="gray">Waiting for requests...</Text>
         </Box>
       ) : (
-        <Box flexDirection="column">
+        <Box flexDirection="column" marginTop={1}>
           {visibleRequests.map((request) => (
             <RequestItem key={request.id} request={request} />
           ))}

@@ -21,6 +21,7 @@ export async function startTUI(): Promise<'quit' | 'setup'> {
     />,
     {
       exitOnCtrlC: true,
+      incrementalRendering: true,
     },
   );
 

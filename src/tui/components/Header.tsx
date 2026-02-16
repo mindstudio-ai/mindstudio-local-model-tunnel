@@ -12,10 +12,10 @@ interface HeaderProps {
 
 const PAGE_LABELS: Record<Page, string> = {
   dashboard: '',
-  models: '> Models',
-  config: '> Config',
-  auth: '> Auth',
-  register: '> Register',
+  models: 'Models',
+  config: 'Config',
+  auth: 'Auth',
+  register: 'Register',
 };
 
 export function Header({
@@ -44,38 +44,37 @@ export function Header({
             ? 'Disconnected'
             : 'Error';
 
-  const envBadge = environment === 'prod' ? 'PROD' : 'LOCAL';
-  const envColor = environment === 'prod' ? 'green' : 'yellow';
-
   const breadcrumb = page ? PAGE_LABELS[page] : '';
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="row" alignItems="center" borderStyle="round" borderColor="cyan" paddingX={1} paddingY={1} width="100%">
       <Box>
         <Text color="cyan">{LogoString}</Text>
       </Box>
-      <Box marginTop={1} justifyContent="space-between">
+      <Box flexDirection="column" marginLeft={4}>
         <Box>
           <Text bold color="white">
             MindStudio Local Tunnel
           </Text>
-          <Text> </Text>
-          <Text color={envColor} bold>
-            [{envBadge}]
-          </Text>
-          {breadcrumb ? (
+          {environment !== 'prod' && (
             <>
               <Text> </Text>
-              <Text color="gray">{breadcrumb}</Text>
+              <Text color="yellow" bold>
+                [LOCAL]
+              </Text>
+            </>
+          )}
+          {breadcrumb ? (
+            <>
+              <Text color="gray"> {'>'} </Text>
+              <Text color="white" bold>{breadcrumb}</Text>
             </>
           ) : null}
         </Box>
-        <Box>
-          <Text color={connectionColor}>● {connectionText}</Text>
-          {activeRequests > 0 && (
-            <Text color="cyan"> | {activeRequests} active</Text>
-          )}
-        </Box>
+        <Text color={connectionColor}>● {connectionText}</Text>
+        {activeRequests > 0 && (
+          <Text color="cyan">{activeRequests} active request{activeRequests !== 1 ? 's' : ''}</Text>
+        )}
       </Box>
     </Box>
   );

@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useState } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
-import { Header, StatusBar } from './components/index.js';
+import { Box, Text, useApp, useStdout } from 'ink';
+import { Header, NavigationMenu } from './components/index.js';
+import type { MenuItem } from './components/index.js';
 import {
   useConnection,
   useProviders,
@@ -16,50 +17,7 @@ import {
   RegisterPage,
 } from './pages/index.js';
 import { TunnelRunner } from '../runner.js';
-import type { Page, ConnectionStatus } from './types.js';
-
-interface Shortcut {
-  key: string;
-  label: string;
-}
-
-function shortcutsForPage(
-  page: Page,
-  connectionStatus: ConnectionStatus,
-): Shortcut[] {
-  if (page === 'auth' || page === 'register') {
-    return [
-      { key: 'Esc', label: 'Back' },
-      { key: 'q', label: 'Quit' },
-    ];
-  }
-
-  if (page !== 'dashboard') {
-    return [
-      { key: 'Esc', label: 'Dashboard' },
-      { key: 'q', label: 'Quit' },
-    ];
-  }
-
-  // Dashboard shortcuts
-  const shortcuts: Shortcut[] = [
-    { key: 'm', label: 'Models' },
-    { key: 'c', label: 'Config' },
-  ];
-
-  if (connectionStatus === 'not_authenticated') {
-    shortcuts.push({ key: 'a', label: 'Auth' });
-  } else if (connectionStatus === 'connected') {
-    shortcuts.push({ key: 'a', label: 'Re-auth' });
-    shortcuts.push({ key: 'g', label: 'Register' });
-  }
-
-  shortcuts.push({ key: 's', label: 'Setup' });
-  shortcuts.push({ key: 'r', label: 'Refresh' });
-  shortcuts.push({ key: 'q', label: 'Quit' });
-
-  return shortcuts;
-}
+import type { Page } from './types.js';
 
 interface AppProps {
   runner: TunnelRunner;
@@ -68,6 +26,7 @@ interface AppProps {
 
 export function App({ runner, onExit }: AppProps) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   const {
     status: connectionStatus,
     environment,
@@ -123,43 +82,66 @@ export function App({ runner, onExit }: AppProps) {
     exit();
   }, [runner, onExit, exit]);
 
-  // Keyboard shortcuts
-  useInput((input, key) => {
-    const lowerInput = input.toLowerCase();
+  const handleNavigate = useCallback(
+    (id: string) => {
+      switch (id) {
+        case 'models':
+          setPage('models');
+          break;
+        case 'config':
+          setPage('config');
+          break;
+        case 'auth':
+          setPage('auth');
+          break;
+        case 'register':
+          setPage('register');
+          break;
+        case 'setup':
+          handleSetup();
+          break;
+        case 'refresh':
+          refreshAll();
+          break;
+        case 'quit':
+          handleQuit();
+          break;
+      }
+    },
+    [handleSetup, refreshAll, handleQuit],
+  );
 
-    // Quit from any page
-    if (lowerInput === 'q') {
-      handleQuit();
-      return;
-    }
+  const subpageMenuItems: MenuItem[] = [
+    { id: 'back', label: 'Back', description: 'Return to dashboard' },
+    { id: 'quit', label: 'Exit', description: 'Quit the application' },
+  ];
 
-    // Escape: go back from subpages to dashboard
-    if (key.escape) {
-      if (page !== 'dashboard') {
+  const handleSubpageNavigate = useCallback(
+    (id: string) => {
+      if (id === 'back') {
         setPage('dashboard');
-      } else {
+      } else if (id === 'quit') {
         handleQuit();
       }
-      return;
-    }
+    },
+    [handleQuit],
+  );
 
-    // Dashboard-only shortcuts
-    if (page === 'dashboard') {
-      if (lowerInput === 'm') {
-        setPage('models');
-      } else if (lowerInput === 'c') {
-        setPage('config');
-      } else if (lowerInput === 'a') {
-        setPage('auth');
-      } else if (lowerInput === 'g' && connectionStatus === 'connected') {
-        setPage('register');
-      } else if (lowerInput === 's') {
-        handleSetup();
-      } else if (lowerInput === 'r') {
-        refreshAll();
-      }
-    }
-  });
+  if (page === 'dashboard') {
+    return (
+      <Box flexDirection="column" height={(stdout?.rows ?? 24) - 4}>
+        <DashboardPage
+          providers={providers}
+          requests={requests}
+          activeCount={activeCount}
+          connectionStatus={connectionStatus}
+          environment={environment}
+          connectionError={connectionError}
+          onNavigate={handleNavigate}
+        />
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -170,20 +152,6 @@ export function App({ runner, onExit }: AppProps) {
         page={page}
       />
 
-      {connectionError && page === 'dashboard' && (
-        <Box marginBottom={1}>
-          <Text color="red">{connectionError}</Text>
-        </Box>
-      )}
-
-      {page === 'dashboard' && (
-        <DashboardPage
-          providers={providers}
-          models={models}
-          requests={requests}
-          activeCount={activeCount}
-        />
-      )}
       {page === 'models' && (
         <ModelsPage models={models} registeredNames={registeredNames} />
       )}
@@ -193,7 +161,7 @@ export function App({ runner, onExit }: AppProps) {
         <RegisterPage onComplete={handleRegisterComplete} />
       )}
 
-      <StatusBar shortcuts={shortcutsForPage(page, connectionStatus)} />
+      <NavigationMenu items={subpageMenuItems} onSelect={handleSubpageNavigate} />
     </Box>
   );
 }
