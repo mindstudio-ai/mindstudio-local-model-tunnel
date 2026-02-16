@@ -110,6 +110,7 @@ export function RequestLog({ requests, maxVisible = 8 }: RequestLogProps) {
       flexGrow={1}
       width="100%"
       paddingX={1}
+      marginTop={1}
     >
       <Box>
         <Text bold underline color="white">

@@ -69,7 +69,10 @@ export function DashboardPage({
   // Compute maxVisible for request log based on terminal height
   // Header box ~= 8 lines (border + padding + content), menu ~= items + 7, margin = 1
   const menuHeight = menuItems.length + 7;
-  const headerHeight = 8 + providers.length + (providers.length > 0 && !providers.some((p) => p.running) ? 3 : 0);
+  const headerHeight =
+    8 +
+    providers.length +
+    (providers.length > 0 && !providers.some((p) => p.running) ? 3 : 0);
   const termHeight = stdout?.rows ?? 24;
   const availableForLog = termHeight - 4 - headerHeight - menuHeight - 1;
   // Reserve 3 lines for the request log header + margin, rest for entries
@@ -78,11 +81,19 @@ export function DashboardPage({
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* Top section: Logo | Title + Providers in one bordered box */}
-      <Box flexDirection="row" alignItems="center" borderStyle="round" borderColor="cyan" paddingX={1} paddingY={1} width="100%">
-        <Box>
+      <Box
+        flexDirection="row"
+        alignItems="center"
+        borderStyle="round"
+        borderColor="cyan"
+        paddingX={1}
+        paddingY={1}
+        width="100%"
+      >
+        <Box marginLeft={3}>
           <Text color="cyan">{LogoString}</Text>
         </Box>
-        <Box flexDirection="column" marginLeft={4}>
+        <Box flexDirection="column" marginLeft={7}>
           <Box>
             <Text bold color="white">
               MindStudio Local Tunnel
@@ -97,9 +108,7 @@ export function DashboardPage({
             )}
           </Box>
           <Text color={connectionColor}>● {connectionText}</Text>
-          {connectionError && (
-            <Text color="red">{connectionError}</Text>
-          )}
+          {connectionError && <Text color="red">{connectionError}</Text>}
           <Text color="gray">{modelCount} models available</Text>
           <Box marginTop={1} flexDirection="column">
             <Text bold underline color="white">
@@ -118,26 +127,22 @@ export function DashboardPage({
                     {provider.displayName}
                   </Text>
                   <Text> </Text>
-                  <Text
-                    color={running ? 'green' : 'gray'}
-                    dimColor={!running}
-                  >
+                  <Text color={running ? 'green' : 'gray'} dimColor={!running}>
                     {running ? 'Running' : 'Stopped'}
                   </Text>
                 </Box>
               ))
             )}
-            {providers.length > 0 &&
-              !providers.some((p) => p.running) && (
-                <Box marginTop={1} flexDirection="column">
-                  <Text color="yellow" bold>
-                    No providers running
-                  </Text>
-                  <Text color="gray">
-                    Start a provider: ollama serve, LM Studio, etc.
-                  </Text>
-                </Box>
-              )}
+            {providers.length > 0 && !providers.some((p) => p.running) && (
+              <Box marginTop={1} flexDirection="column">
+                <Text color="yellow" bold>
+                  No providers running
+                </Text>
+                <Text color="gray">
+                  Start a provider: ollama serve, LM Studio, etc.
+                </Text>
+              </Box>
+            )}
           </Box>
         </Box>
       </Box>

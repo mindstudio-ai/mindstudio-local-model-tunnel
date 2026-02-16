@@ -15,7 +15,8 @@ interface NavigationMenuProps {
 }
 
 export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const backIndex = items.findIndex((i) => i.id === 'back');
+  const [selectedIndex, setSelectedIndex] = useState(backIndex >= 0 ? backIndex : 0);
 
   const findNextEnabled = (from: number, direction: 1 | -1): number => {
     let idx = from;
@@ -59,7 +60,7 @@ export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
       <Box flexDirection="column">
         {items.map((item, index) => {
           const isSelected = index === selectedIndex;
-          const prefix = isSelected ? '>' : ' ';
+          const prefix = isSelected ? '❯' : ' ';
 
           if (item.disabled) {
             return (
