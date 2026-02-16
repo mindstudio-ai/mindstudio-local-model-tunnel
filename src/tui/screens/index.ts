@@ -10,7 +10,6 @@ import {
   getStableDiffusionBaseUrl,
 } from '../../config.js';
 import { verifyApiKey } from '../../api.js';
-import { getRegisteredModels } from '../../api.js';
 import {
   getProviderStatuses,
   discoverAllModels,
@@ -84,108 +83,5 @@ export async function showConfigScreen(): Promise<void> {
   console.log(
     `  Stable Diffusion:  ${chalk.white(getStableDiffusionBaseUrl())}`,
   );
-  console.log('');
-}
-
-export async function showModelsScreen(): Promise<void> {
-  clearTerminal();
-
-  console.log(chalk.white(LogoString));
-  console.log(chalk.bold('\nLocal Models\n'));
-
-  const spinner = ora('Discovering models...').start();
-
-  const providerStatuses = await getProviderStatuses();
-  const runningCount = providerStatuses.filter((s) => s.running).length;
-
-  if (runningCount === 0) {
-    spinner.fail(chalk.yellow('No providers are running.'));
-    console.log(
-      chalk.gray('Start a provider to see available models.'),
-    );
-    return;
-  }
-
-  const models = await discoverAllModels();
-
-  if (models.length === 0) {
-    spinner.fail(chalk.yellow('No models found.'));
-    console.log(
-      chalk.gray(
-        'Download models using your provider (e.g., ollama pull llama3.2)',
-      ),
-    );
-    return;
-  }
-
-  spinner.stop();
-
-  // Get registered models if authenticated
-  let registeredNames = new Set<string>();
-  const apiKey = getApiKey();
-  if (apiKey) {
-    try {
-      const registered = await getRegisteredModels();
-      registeredNames = new Set(registered);
-    } catch {
-      // Ignore errors
-    }
-  }
-
-  const textModels = models.filter((m) => m.capability === 'text');
-  const imageModels = models.filter((m) => m.capability === 'image');
-  const videoModels = models.filter((m) => m.capability === 'video');
-
-  if (textModels.length > 0) {
-    console.log(chalk.green.bold(`Text Models (${textModels.length})`));
-    for (const model of textModels) {
-      const isRegistered = registeredNames.has(model.name);
-      const dot = isRegistered
-        ? chalk.green('●')
-        : chalk.yellow('○');
-      const suffix = isRegistered
-        ? ''
-        : chalk.gray(' (not registered)');
-      console.log(`  ${dot} ${model.name} ${chalk.gray(`[${model.provider}]`)}${suffix}`);
-    }
-    console.log('');
-  }
-
-  if (imageModels.length > 0) {
-    console.log(chalk.magenta.bold(`Image Models (${imageModels.length})`));
-    for (const model of imageModels) {
-      const isRegistered = registeredNames.has(model.name);
-      const dot = isRegistered
-        ? chalk.magenta('●')
-        : chalk.yellow('○');
-      const suffix = isRegistered
-        ? ''
-        : chalk.gray(' (not registered)');
-      console.log(`  ${dot} ${model.name} ${chalk.gray(`[${model.provider}]`)}${suffix}`);
-    }
-    console.log('');
-  }
-
-  if (videoModels.length > 0) {
-    console.log(chalk.blue.bold(`Video Models (${videoModels.length})`));
-    for (const model of videoModels) {
-      const isRegistered = registeredNames.has(model.name);
-      const dot = isRegistered
-        ? chalk.blue('●')
-        : chalk.yellow('○');
-      const suffix = isRegistered
-        ? ''
-        : chalk.gray(' (not registered)');
-      console.log(`  ${dot} ${model.name} ${chalk.gray(`[${model.provider}]`)}${suffix}`);
-    }
-    console.log('');
-  }
-
-  if (models.length > 0) {
-    console.log(
-      chalk.gray('● = registered with MindStudio, ○ = not registered'),
-    );
-  }
-
   console.log('');
 }

@@ -14,7 +14,6 @@ import {
   pullOllamaModel,
   startOllama,
   hasDefaultSdModel,
-  hasComfyUIModel,
   getComfyUIModelStatus,
   getPythonVersion,
   isPythonVersionOk,

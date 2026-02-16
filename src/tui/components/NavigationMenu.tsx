@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 
 export interface MenuItem {
@@ -16,9 +16,17 @@ interface NavigationMenuProps {
 }
 
 export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
-  const backIndex = items.findIndex((i) => i.id === 'back');
-  const firstSelectable = items.findIndex((i) => !i.disabled && !i.isSeparator);
-  const [selectedIndex, setSelectedIndex] = useState(backIndex >= 0 ? backIndex : (firstSelectable >= 0 ? firstSelectable : 0));
+  const getDefaultIndex = () => {
+    const backIdx = items.findIndex((i) => i.id === 'back');
+    if (backIdx >= 0) return backIdx;
+    const firstIdx = items.findIndex((i) => !i.disabled && !i.isSeparator);
+    return firstIdx >= 0 ? firstIdx : 0;
+  };
+  const [selectedIndex, setSelectedIndex] = useState(getDefaultIndex);
+
+  useEffect(() => {
+    setSelectedIndex(getDefaultIndex());
+  }, [items]);
 
   const findNextEnabled = (from: number, direction: 1 | -1): number => {
     let idx = from;
@@ -51,15 +59,14 @@ export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
     }
   });
 
-  // Fixed height: header + marginBottom + items + marginTop + hint + 2 border lines
-  // Add extra lines for separator marginTop spacing (separators after index 0 add 1 line each)
+  // Fixed height: header + items + hint + margins
   const separatorExtraLines = items.filter((item, idx) => item.isSeparator && idx > 0).length;
-  const menuHeight = items.length + 7 + separatorExtraLines;
+  const menuHeight = items.length + 4 + separatorExtraLines;
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} height={menuHeight} overflow="hidden">
-      <Box marginBottom={1}>
-        <Text bold underline color="white">Actions</Text>
+    <Box flexDirection="column" paddingX={1} marginBottom={1} borderStyle="single" borderTop borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray">
+      <Box marginTop={1}>
+        <Text color="gray" dimColor>Actions</Text>
       </Box>
       <Box flexDirection="column">
         {items.map((item, index) => {

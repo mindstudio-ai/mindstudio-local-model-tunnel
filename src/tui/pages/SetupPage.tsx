@@ -40,9 +40,8 @@ export function SetupPage({
     const comfyui = providers.find((p) => p.id === 'comfyui');
 
     // --- Text Generation ---
-    const hasTextItems = (ollama && (!ollama.installed || ollama.running)) ||
-      (ollama && ollama.installed && !ollama.running) ||
-      (ollama && !ollama.installed) ||
+    const hasTextItems =
+      (ollama && (!ollama.installed || ollama.running)) ||
       (lmstudio && !lmstudio.installed);
 
     if (hasTextItems) {
@@ -63,10 +62,7 @@ export function SetupPage({
             : 'Download Ollama (opens browser)',
           description: 'Install Ollama for text generation',
         });
-      } else if (!ollama.running) {
-        // Ollama is installed but not running - no start action from TUI
-        // (user needs to run `ollama serve` themselves)
-      } else {
+      } else if (ollama.running) {
         items.push({
           id: 'stop-ollama',
           label: 'Stop Ollama server',
@@ -75,8 +71,16 @@ export function SetupPage({
       }
     }
 
+    if (lmstudio && !lmstudio.installed) {
+      items.push({
+        id: 'install-lmstudio',
+        label: 'Download LM Studio (opens browser)',
+        description: 'Download LM Studio app',
+      });
+    }
+
     // --- Image Generation ---
-    const hasImageItems = sd && (sd.warning || !sd.installed || sd.installed);
+    const hasImageItems = sd != null;
     if (hasImageItems) {
       items.push({
         id: 'sep-image',
@@ -96,7 +100,13 @@ export function SetupPage({
       }
 
       if (!sd.installed) {
-        // SD install is handled in-app by quickstart, not external
+        if (sd.installable) {
+          items.push({
+            id: 'install-sd',
+            label: 'Install Stable Diffusion Forge Neo',
+            description: 'Clone and set up SD Forge Neo',
+          });
+        }
       } else if (!sd.running) {
         items.push({
           id: 'start-sd',
@@ -133,7 +143,13 @@ export function SetupPage({
 
     if (comfyui) {
       if (!comfyui.installed) {
-        // ComfyUI install is handled in-app by quickstart, not external
+        if (comfyui.installable) {
+          items.push({
+            id: 'install-comfyui',
+            label: 'Install ComfyUI',
+            description: 'Clone and set up ComfyUI for video generation',
+          });
+        }
       } else if (!comfyui.running) {
         items.push({
           id: 'start-comfyui',
@@ -160,6 +176,12 @@ export function SetupPage({
     }
 
     // --- General ---
+    items.push({
+      id: 'sep-general',
+      label: '',
+      description: '',
+      isSeparator: true,
+    });
     items.push({
       id: 'refresh',
       label: 'Refresh',
@@ -203,14 +225,11 @@ export function SetupPage({
         page="setup"
       />
 
-      {/* Provider Status Panel */}
-      <Box
-        flexDirection="column"
-        borderStyle="round"
-        borderColor="gray"
-        paddingX={1}
-      >
-        <Text bold>Provider Status</Text>
+      {/* Provider Status */}
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Text bold color="white" underline>
+          Provider Status
+        </Text>
         {loading ? (
           <Box marginTop={1}>
             <Text color="cyan">

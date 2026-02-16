@@ -11,8 +11,7 @@ import {
 } from './hooks/index.js';
 import {
   DashboardPage,
-  ModelsPage,
-  ConfigPage,
+  SettingsPage,
   AuthPage,
   RegisterPage,
   SetupPage,
@@ -67,13 +66,13 @@ export function App({ runner, initialPage, onExit }: AppProps) {
   const handleAuthComplete = useCallback(() => {
     retryConnection();
     refreshRegistered();
-    setPage('config');
+    setPage('settings');
   }, [retryConnection, refreshRegistered]);
 
   const handleRegisterComplete = useCallback(() => {
     refreshRegistered();
     refreshModels();
-    setPage('models');
+    setPage('settings');
   }, [refreshRegistered, refreshModels]);
 
   const handleQuit = useCallback(() => {
@@ -88,12 +87,6 @@ export function App({ runner, initialPage, onExit }: AppProps) {
     exit();
   }, [runner, onExit, exit]);
 
-  const handleOnboardingExternalAction = useCallback((action: string) => {
-    runner.stop();
-    onExit?.('onboarding:' + action);
-    exit();
-  }, [runner, onExit, exit]);
-
   const handleOnboardingComplete = useCallback(() => {
     retryConnection();
     refreshAll();
@@ -103,13 +96,10 @@ export function App({ runner, initialPage, onExit }: AppProps) {
   const handleNavigate = useCallback(
     (id: string) => {
       switch (id) {
-        case 'models':
-          setPage('models');
+        case 'settings':
+          setPage('settings');
           refreshModels();
           refreshRegistered();
-          break;
-        case 'config':
-          setPage('config');
           break;
         case 'auth':
           setPage('auth');
@@ -120,16 +110,12 @@ export function App({ runner, initialPage, onExit }: AppProps) {
         case 'setup':
           setPage('setup');
           break;
-        case 'refresh':
-        case 'refresh-models':
-          refreshAll();
-          break;
         case 'quit':
           handleQuit();
           break;
       }
     },
-    [refreshAll, refreshModels, refreshRegistered, handleQuit],
+    [refreshModels, refreshRegistered, handleQuit],
   );
 
   const commonMenuItems: MenuItem[] = [
@@ -138,14 +124,9 @@ export function App({ runner, initialPage, onExit }: AppProps) {
 
   const getSubpageMenuItems = useCallback((): MenuItem[] => {
     switch (page) {
-      case 'models':
+      case 'settings':
         return [
-          { id: 'refresh-models', label: 'Refresh', description: 'Re-scan local model providers' },
           { id: 'register', label: 'Register Models', description: 'Register models with MindStudio' },
-          ...commonMenuItems,
-        ];
-      case 'config':
-        return [
           { id: 'auth', label: 'Re-authenticate', description: 'Re-authenticate with MindStudio' },
           ...commonMenuItems,
         ];
@@ -172,7 +153,6 @@ export function App({ runner, initialPage, onExit }: AppProps) {
       {page === 'onboarding' ? (
         <OnboardingPage
           onComplete={handleOnboardingComplete}
-          onExternalAction={handleOnboardingExternalAction}
         />
       ) : page === 'dashboard' ? (
         <DashboardPage
@@ -202,10 +182,14 @@ export function App({ runner, initialPage, onExit }: AppProps) {
             page={page}
           />
 
-          {page === 'models' && (
-            <ModelsPage models={models} registeredNames={registeredNames} loading={modelsLoading} />
+          {page === 'settings' && (
+            <SettingsPage
+              models={models}
+              registeredNames={registeredNames}
+              modelsLoading={modelsLoading}
+              runningProviders={new Set(providers.filter(p => p.running).map(p => p.provider.name))}
+            />
           )}
-          {page === 'config' && <ConfigPage />}
           {page === 'auth' && <AuthPage onComplete={handleAuthComplete} />}
           {page === 'register' && (
             <RegisterPage onComplete={handleRegisterComplete} />

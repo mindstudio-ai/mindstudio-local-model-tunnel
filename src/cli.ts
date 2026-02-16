@@ -455,13 +455,6 @@ async function runDefaultAction() {
         initialPage = 'setup';
         continue;
       }
-      if (result.startsWith('onboarding:')) {
-        const action = result.slice('onboarding:'.length);
-        await executeSetupAction(action);
-        clearTerminal();
-        initialPage = 'onboarding';
-        continue;
-      }
       break;
     }
     process.exit(0);

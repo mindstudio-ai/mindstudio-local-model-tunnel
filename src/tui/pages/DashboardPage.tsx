@@ -39,24 +39,14 @@ export function DashboardPage({
   const menuItems = useMemo((): MenuItem[] => {
     return [
       {
-        id: 'models',
-        label: 'Manage Models',
-        description: 'Discover and manage local models',
-      },
-      {
-        id: 'config',
-        label: 'Configuration',
-        description: 'View current configuration',
+        id: 'settings',
+        label: 'Settings',
+        description: 'Models, configuration, and account',
       },
       {
         id: 'setup',
         label: 'Setup Providers',
         description: 'Run provider setup wizard',
-      },
-      {
-        id: 'refresh',
-        label: 'Refresh',
-        description: 'Refresh providers, models, and registration status',
       },
       {
         id: 'quit',
@@ -69,10 +59,10 @@ export function DashboardPage({
   // Compute maxVisible for request log based on terminal height
   // Header box ~= 8 lines (border + padding + content), menu ~= items + 7, margin = 1
   const menuHeight = menuItems.length + 7;
+  const runningCount = providers.filter((p) => p.running).length;
   const headerHeight =
     8 +
-    providers.length +
-    (providers.length > 0 && !providers.some((p) => p.running) ? 3 : 0);
+    (runningCount > 0 ? runningCount : 3);
   const termHeight = stdout?.rows ?? 24;
   const availableForLog = termHeight - 4 - headerHeight - menuHeight - 1;
   // Reserve 3 lines for the request log header + margin, rest for entries
@@ -116,24 +106,7 @@ export function DashboardPage({
             </Text>
             {providers.length === 0 ? (
               <Text color="gray">Loading...</Text>
-            ) : (
-              providers.map(({ provider, running }) => (
-                <Box key={provider.name}>
-                  <Text color={running ? 'green' : 'gray'}>
-                    {running ? '●' : '○'}
-                  </Text>
-                  <Text> </Text>
-                  <Text color={running ? 'white' : 'gray'}>
-                    {provider.displayName}
-                  </Text>
-                  <Text> </Text>
-                  <Text color={running ? 'green' : 'gray'} dimColor={!running}>
-                    {running ? 'Running' : 'Stopped'}
-                  </Text>
-                </Box>
-              ))
-            )}
-            {providers.length > 0 && !providers.some((p) => p.running) && (
+            ) : !providers.some((p) => p.running) ? (
               <Box marginTop={1} flexDirection="column">
                 <Text color="yellow" bold>
                   No providers running
@@ -142,13 +115,41 @@ export function DashboardPage({
                   Start a provider: ollama serve, LM Studio, etc.
                 </Text>
               </Box>
+            ) : (
+              providers.filter(({ running }) => running).map(({ provider }) => (
+                <Box key={provider.name}>
+                  <Text color="green">●</Text>
+                  <Text> </Text>
+                  <Text color="white">{provider.displayName}</Text>
+                  <Text> </Text>
+                  <Text color="green">Running</Text>
+                </Box>
+              ))
             )}
           </Box>
         </Box>
       </Box>
 
-      {/* Middle: Request log */}
-      <RequestLog requests={requests} maxVisible={maxVisible} />
+      {/* Middle: Request log or empty state */}
+      {!providers.some((p) => p.running) && providers.length > 0 ? (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="yellow"
+          paddingX={2}
+          paddingY={1}
+          marginTop={1}
+          flexGrow={1}
+        >
+          <Text bold color="yellow">No providers are running</Text>
+          <Box marginTop={1} flexDirection="column">
+            <Text>Set up a local AI provider to get started.</Text>
+            <Text color="gray" dimColor>Select "Setup Providers" below to install and configure a provider like Ollama.</Text>
+          </Box>
+        </Box>
+      ) : (
+        <RequestLog requests={requests} maxVisible={maxVisible} />
+      )}
 
       {/* Bottom: Navigation menu pane */}
       <NavigationMenu items={menuItems} onSelect={onNavigate} />

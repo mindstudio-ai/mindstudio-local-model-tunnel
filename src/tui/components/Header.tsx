@@ -13,8 +13,7 @@ interface HeaderProps {
 
 const PAGE_LABELS: Record<Page, string> = {
   dashboard: '',
-  models: 'Manage Models',
-  config: 'Config',
+  settings: 'Settings',
   auth: 'Auth',
   register: 'Register',
   setup: 'Setup Providers',

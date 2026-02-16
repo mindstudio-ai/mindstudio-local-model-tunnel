@@ -4,23 +4,18 @@ import Spinner from 'ink-spinner';
 import { NavigationMenu } from '../components/index.js';
 import type { MenuItem } from '../components/index.js';
 import { useAuth } from '../hooks/useAuth.js';
-import { useSetupProviders } from '../hooks/useSetupProviders.js';
 import { getApiKey } from '../../config.js';
 import { LogoString } from '../../helpers.js';
-import type { ProviderInfo } from '../../quickstart/detect.js';
 
-type WizardStep = 'welcome' | 'auth' | 'providers' | 'complete';
+type WizardStep = 'welcome' | 'auth';
 
 interface OnboardingPageProps {
   onComplete: () => void;
-  onExternalAction: (action: string) => void;
 }
 
 const STEP_LABELS: { key: WizardStep; label: string }[] = [
   { key: 'welcome', label: 'Welcome' },
   { key: 'auth', label: 'Authenticate' },
-  { key: 'providers', label: 'Providers' },
-  { key: 'complete', label: 'Ready' },
 ];
 
 function ProgressIndicator({ currentStep }: { currentStep: WizardStep }) {
@@ -46,21 +41,17 @@ function ProgressIndicator({ currentStep }: { currentStep: WizardStep }) {
   );
 }
 
-export function OnboardingPage({ onComplete, onExternalAction }: OnboardingPageProps) {
+export function OnboardingPage({ onComplete }: OnboardingPageProps) {
   const { stdout } = useStdout();
   const termHeight = (stdout?.rows ?? 24) - 4;
 
-  // Determine initial step based on existing state
   const [wizardStep, setWizardStep] = useState<WizardStep>(() => {
-    if (getApiKey()) return 'providers';
+    if (getApiKey()) return 'auth';
     return 'welcome';
   });
 
   // Auth hook
   const { status: authStatus, authUrl, timeRemaining, startAuth, cancel: cancelAuth } = useAuth();
-
-  // Provider detection hook
-  const { providers, loading: providersLoading, sdModelExists, comfyModelStatus, refresh: refreshProviders } = useSetupProviders();
 
   // Start auth when entering auth step
   useEffect(() => {
@@ -70,21 +61,21 @@ export function OnboardingPage({ onComplete, onExternalAction }: OnboardingPageP
     }
   }, [wizardStep]);
 
-  // Auto-advance from auth to providers on success
+  // Auto-advance to dashboard on auth success
   useEffect(() => {
     if (wizardStep === 'auth' && authStatus === 'success') {
-      const timer = setTimeout(() => setWizardStep('providers'), 1500);
+      const timer = setTimeout(() => onComplete(), 1500);
       return () => clearTimeout(timer);
     }
-  }, [wizardStep, authStatus]);
+  }, [wizardStep, authStatus, onComplete]);
 
   const handleGetStarted = useCallback(() => {
     if (getApiKey()) {
-      setWizardStep('providers');
+      onComplete();
     } else {
       setWizardStep('auth');
     }
-  }, []);
+  }, [onComplete]);
 
   const handleSkip = useCallback(() => {
     onComplete();
@@ -117,138 +108,9 @@ export function OnboardingPage({ onComplete, onExternalAction }: OnboardingPageP
       startAuth();
     } else if (id === 'skip' || id === 'quit') {
       cancelAuth();
-      setWizardStep('providers');
-    }
-  }, [cancelAuth, startAuth]);
-
-  // --- Providers Step ---
-  const providerMenuItems = useMemo((): MenuItem[] => {
-    if (providersLoading || providers.length === 0) {
-      return [
-        { id: 'continue', label: 'Continue', description: 'Proceed to finish' },
-      ];
-    }
-
-    const items: MenuItem[] = [];
-    const ollama = providers.find((p) => p.id === 'ollama');
-    const lmstudio = providers.find((p) => p.id === 'lmstudio');
-    const sd = providers.find((p) => p.id === 'stable-diffusion');
-    const comfyui = providers.find((p) => p.id === 'comfyui');
-
-    // --- Text Generation ---
-    if (ollama && !ollama.installed) {
-      items.push({
-        id: 'install-ollama',
-        label: ollama.installable
-          ? 'Install Ollama (automatic)'
-          : 'Download Ollama (opens browser)',
-        description: 'Install Ollama for text generation',
-      });
-    } else if (ollama && ollama.installed && !ollama.running) {
-      items.push({
-        id: 'start-ollama',
-        label: 'Start Ollama',
-        description: 'Start the Ollama server',
-      });
-    }
-
-    if (lmstudio && !lmstudio.installed) {
-      items.push({
-        id: 'install-lmstudio',
-        label: 'Download LM Studio (opens browser)',
-        description: 'Download LM Studio app',
-      });
-    }
-
-    // --- Image Generation ---
-    if (sd) {
-      if (sd.warning) {
-        items.push({
-          id: 'fix-python',
-          label: 'Install Python 3.13 (required for Forge Neo)',
-          description: 'Show Python installation instructions',
-        });
-      }
-      if (!sd.installed) {
-        // SD install handled in-app
-      } else if (!sd.running) {
-        items.push({
-          id: 'start-sd',
-          label: 'Start Stable Diffusion server',
-          description: 'Start the SD Forge Neo server',
-        });
-      }
-      if (sd.installed && !sdModelExists) {
-        items.push({
-          id: 'download-sd-model',
-          label: 'Download default SDXL model (~6.5 GB)',
-          description: 'Download sd_xl_base_1.0 from Hugging Face',
-        });
-      }
-    }
-
-    // --- Video Generation ---
-    if (comfyui) {
-      if (!comfyui.installed) {
-        // ComfyUI install handled in-app
-      } else if (!comfyui.running) {
-        items.push({
-          id: 'start-comfyui',
-          label: 'Start ComfyUI server',
-          description: 'Start the ComfyUI server',
-        });
-      } else {
-        for (const model of comfyModelStatus) {
-          if (!model.installed) {
-            items.push({
-              id: `download-comfyui-model:${model.id}`,
-              label: `Download ${model.label} (${model.totalSize})`,
-              description: `Download ${model.label} model files`,
-            });
-          }
-        }
-      }
-    }
-
-    items.push({ id: 'refresh', label: 'Refresh', description: 'Re-detect providers' });
-    items.push({ id: 'continue', label: 'Continue', description: 'Proceed to finish' });
-    items.push({ id: 'skip', label: 'Skip to Dashboard', description: 'Skip remaining setup' });
-
-    return items;
-  }, [providers, providersLoading, sdModelExists, comfyModelStatus]);
-
-  const handleProviderSelect = useCallback((id: string) => {
-    if (id === 'continue') {
-      setWizardStep('complete');
-    } else if (id === 'skip' || id === 'quit') {
-      handleSkip();
-    } else if (id === 'refresh') {
-      refreshProviders();
-    } else {
-      onExternalAction(id);
-    }
-  }, [handleSkip, refreshProviders, onExternalAction]);
-
-  // --- Complete Step ---
-  const completeMenuItems = useMemo((): MenuItem[] => [
-    { id: 'go-to-dashboard', label: 'Go to Dashboard', description: 'Start using MindStudio Local' },
-  ], []);
-
-  const handleCompleteSelect = useCallback((id: string) => {
-    if (id === 'go-to-dashboard' || id === 'quit') {
       onComplete();
     }
-  }, [onComplete]);
-
-  // Provider status groups for display
-  const providerGroups: Array<{ label: string; ids: string[] }> = [
-    { label: 'Text', ids: ['ollama', 'lmstudio'] },
-    { label: 'Image', ids: ['stable-diffusion'] },
-    { label: 'Video', ids: ['comfyui'] },
-  ];
-
-  const hasApiKey = !!getApiKey();
-  const runningProviderCount = providers.filter((p) => p.running).length;
+  }, [cancelAuth, startAuth, onComplete]);
 
   return (
     <Box flexDirection="column" height={termHeight}>
@@ -270,13 +132,9 @@ export function OnboardingPage({ onComplete, onExternalAction }: OnboardingPageP
         <Box flexDirection="column" paddingX={1} marginTop={1}>
           <Text bold color="white">Welcome to MindStudio Local!</Text>
           <Box marginTop={1} flexDirection="column">
-            <Text>Let's get you set up. Here's what we'll do:</Text>
-            <Box marginTop={1} flexDirection="column">
-              <Text color="cyan">  1. Connect your MindStudio account</Text>
-              <Text color="cyan">  2. Set up a local AI provider (like Ollama)</Text>
-            </Box>
+            <Text>Let's get you set up. We'll connect your MindStudio account.</Text>
             <Box marginTop={1}>
-              <Text color="gray">This only takes a minute or two.</Text>
+              <Text color="gray">This only takes a minute.</Text>
             </Box>
           </Box>
         </Box>
@@ -320,80 +178,6 @@ export function OnboardingPage({ onComplete, onExternalAction }: OnboardingPageP
         </Box>
       )}
 
-      {wizardStep === 'providers' && (
-        <Box flexDirection="column" paddingX={1} marginTop={1}>
-          <Text bold color="white">Set Up Providers</Text>
-          <Box
-            flexDirection="column"
-            borderStyle="round"
-            borderColor="gray"
-            paddingX={1}
-            marginTop={1}
-          >
-            {providersLoading ? (
-              <Box>
-                <Text color="cyan"><Spinner type="dots" /></Text>
-                <Text> Detecting providers...</Text>
-              </Box>
-            ) : (
-              providerGroups.map((group) => {
-                const groupProviders = providers.filter((p) => group.ids.includes(p.id));
-                if (groupProviders.length === 0) return null;
-                return (
-                  <Box key={group.label} marginTop={1} flexDirection="column">
-                    <Text color="gray" dimColor>{group.label}</Text>
-                    {groupProviders.map((provider: ProviderInfo) => (
-                      <Box key={provider.id} flexDirection="column">
-                        <Box>
-                          <Text color={provider.installed ? (provider.running ? 'green' : 'yellow') : 'red'}>
-                            {provider.installed ? (provider.running ? '\u25CF' : '\u25CB') : '\u2717'}
-                          </Text>
-                          <Text> {provider.name} - </Text>
-                          <Text color="gray">
-                            {provider.running
-                              ? 'Running'
-                              : provider.installed
-                                ? 'Installed (not running)'
-                                : 'Not installed'}
-                          </Text>
-                        </Box>
-                        {provider.warning && (
-                          <Box>
-                            <Text color="yellow"> {'\u26A0'} {provider.warning}</Text>
-                          </Box>
-                        )}
-                      </Box>
-                    ))}
-                  </Box>
-                );
-              })
-            )}
-          </Box>
-          {!providersLoading && (
-            <Box marginTop={1}>
-              <Text color="gray" italic>Tip: Ollama is the easiest way to get started with text generation.</Text>
-            </Box>
-          )}
-        </Box>
-      )}
-
-      {wizardStep === 'complete' && (
-        <Box flexDirection="column" paddingX={1} marginTop={1}>
-          <Text bold color="white">You're All Set!</Text>
-          <Box marginTop={1} flexDirection="column">
-            <Text color={hasApiKey ? 'green' : 'yellow'}>
-              {hasApiKey ? '\u2713' : '\u25CB'} MindStudio {hasApiKey ? 'connected' : 'not connected'}
-            </Text>
-            <Text color={runningProviderCount > 0 ? 'green' : 'yellow'}>
-              {runningProviderCount > 0 ? '\u2713' : '\u25CB'} {runningProviderCount} provider{runningProviderCount !== 1 ? 's' : ''} running
-            </Text>
-          </Box>
-          <Box marginTop={1}>
-            <Text color="gray">You can always set up more providers from the dashboard.</Text>
-          </Box>
-        </Box>
-      )}
-
       <Box flexGrow={1} />
 
       {/* Navigation Menu per step */}
@@ -402,12 +186,6 @@ export function OnboardingPage({ onComplete, onExternalAction }: OnboardingPageP
       )}
       {wizardStep === 'auth' && authStatus !== 'success' && (
         <NavigationMenu items={authMenuItems} onSelect={handleAuthSelect} />
-      )}
-      {wizardStep === 'providers' && (
-        <NavigationMenu items={providerMenuItems} onSelect={handleProviderSelect} />
-      )}
-      {wizardStep === 'complete' && (
-        <NavigationMenu items={completeMenuItems} onSelect={handleCompleteSelect} />
       )}
     </Box>
   );

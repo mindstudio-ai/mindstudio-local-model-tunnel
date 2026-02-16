@@ -2,6 +2,9 @@ import {
   startStableDiffusion,
   stopStableDiffusion,
   installOllama,
+  installLMStudio,
+  installStableDiffusion,
+  installComfyUI,
   pullOllamaModel,
   stopOllama,
   downloadSdModel,
@@ -12,6 +15,8 @@ import {
   downloadComfyUIModel,
   getComfyUIInstallPath,
 } from './installers.js';
+import * as path from 'path';
+import * as os from 'os';
 import { waitForEnter, clearTerminal } from '../helpers.js';
 
 async function handleStartSd(): Promise<void> {
@@ -238,6 +243,59 @@ async function handleDownloadComfyUIModel(modelId: string): Promise<void> {
   await waitForEnter();
 }
 
+async function handleInstallLMStudio(): Promise<void> {
+  clearTerminal();
+  console.log('Opening LM Studio download page...\n');
+
+  await installLMStudio((progress) => {
+    if (progress.message) console.log(progress.message);
+    if (progress.error) console.error(`Error: ${progress.error}`);
+  });
+
+  console.log('\nAfter installing, enable the local server in LM Studio.');
+  console.log('\nPress any key to return to setup menu...');
+  await waitForEnter();
+}
+
+async function handleInstallSd(): Promise<void> {
+  clearTerminal();
+  console.log('Installing Stable Diffusion Forge Neo...\n');
+
+  const success = await installStableDiffusion((progress) => {
+    if (progress.message && !progress.error) console.log(progress.message);
+    if (progress.error) console.error(`Error: ${progress.error}`);
+  });
+
+  if (success) {
+    console.log('\nStable Diffusion installed! You can start it from the setup menu.');
+  } else {
+    console.log('\nInstallation failed. Check errors above.');
+  }
+
+  console.log('\nPress any key to return to setup menu...');
+  await waitForEnter();
+}
+
+async function handleInstallComfyUI(): Promise<void> {
+  clearTerminal();
+  console.log('Installing ComfyUI...\n');
+
+  const installPath = path.join(os.homedir(), 'ComfyUI');
+  const success = await installComfyUI(installPath, (progress) => {
+    if (progress.message && !progress.error) console.log(progress.message);
+    if (progress.error) console.error(`Error: ${progress.error}`);
+  });
+
+  if (success) {
+    console.log('\nComfyUI installed! You can start it from the setup menu.');
+  } else {
+    console.log('\nInstallation failed. Check errors above.');
+  }
+
+  console.log('\nPress any key to return to setup menu...');
+  await waitForEnter();
+}
+
 export async function executeSetupAction(action: string): Promise<void> {
   // Check parameterized actions first
   if (action.startsWith('download-comfyui-model:')) {
@@ -249,6 +307,15 @@ export async function executeSetupAction(action: string): Promise<void> {
   switch (action) {
     case 'install-ollama':
       await handleInstallOllama();
+      return;
+    case 'install-lmstudio':
+      await handleInstallLMStudio();
+      return;
+    case 'install-sd':
+      await handleInstallSd();
+      return;
+    case 'install-comfyui':
+      await handleInstallComfyUI();
       return;
     case 'stop-ollama':
       await handleStopOllama();
