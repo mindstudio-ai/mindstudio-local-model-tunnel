@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useState } from 'react';
-import { Box, Text, useApp, useStdout } from 'ink';
+import { Box, useApp, useStdout } from 'ink';
 import { Header, NavigationMenu } from './components/index.js';
 import type { MenuItem } from './components/index.js';
 import {
@@ -34,7 +34,7 @@ export function App({ runner, onExit }: AppProps) {
     retry: retryConnection,
   } = useConnection();
   const { providers, refresh: refreshProviders } = useProviders();
-  const { models, refresh: refreshModels } = useModels();
+  const { models, loading: modelsLoading, refresh: refreshModels } = useModels();
   const { requests, activeCount } = useRequests();
   const { registeredNames, refresh: refreshRegistered } =
     useRegisteredModels(connectionStatus);
@@ -62,13 +62,14 @@ export function App({ runner, onExit }: AppProps) {
   const handleAuthComplete = useCallback(() => {
     retryConnection();
     refreshRegistered();
-    setPage('dashboard');
+    setPage('config');
   }, [retryConnection, refreshRegistered]);
 
   const handleRegisterComplete = useCallback(() => {
     refreshRegistered();
-    setPage('dashboard');
-  }, [refreshRegistered]);
+    refreshModels();
+    setPage('models');
+  }, [refreshRegistered, refreshModels]);
 
   const handleQuit = useCallback(() => {
     runner.stop();
@@ -87,6 +88,8 @@ export function App({ runner, onExit }: AppProps) {
       switch (id) {
         case 'models':
           setPage('models');
+          refreshModels();
+          refreshRegistered();
           break;
         case 'config':
           setPage('config');
@@ -101,6 +104,7 @@ export function App({ runner, onExit }: AppProps) {
           handleSetup();
           break;
         case 'refresh':
+        case 'refresh-models':
           refreshAll();
           break;
         case 'quit':
@@ -108,28 +112,47 @@ export function App({ runner, onExit }: AppProps) {
           break;
       }
     },
-    [handleSetup, refreshAll, handleQuit],
+    [handleSetup, refreshAll, refreshModels, refreshRegistered, handleQuit],
   );
 
-  const subpageMenuItems: MenuItem[] = [
+  const commonMenuItems: MenuItem[] = [
     { id: 'back', label: 'Back', description: 'Return to dashboard' },
-    { id: 'quit', label: 'Exit', description: 'Quit the application' },
   ];
+
+  const getSubpageMenuItems = useCallback((): MenuItem[] => {
+    switch (page) {
+      case 'models':
+        return [
+          { id: 'refresh-models', label: 'Refresh', description: 'Re-scan local model providers' },
+          { id: 'register', label: 'Register Models', description: 'Register models with MindStudio' },
+          ...commonMenuItems,
+        ];
+      case 'config':
+        return [
+          { id: 'auth', label: 'Re-authenticate', description: 'Re-authenticate with MindStudio' },
+          ...commonMenuItems,
+        ];
+      default:
+        return commonMenuItems;
+    }
+  }, [page]);
 
   const handleSubpageNavigate = useCallback(
     (id: string) => {
       if (id === 'back') {
         setPage('dashboard');
-      } else if (id === 'quit') {
-        handleQuit();
+      } else {
+        handleNavigate(id);
       }
     },
-    [handleQuit],
+    [handleNavigate],
   );
 
-  if (page === 'dashboard') {
-    return (
-      <Box flexDirection="column" height={(stdout?.rows ?? 24) - 4}>
+  const termHeight = (stdout?.rows ?? 24) - 4;
+
+  return (
+    <Box flexDirection="column" height={termHeight}>
+      {page === 'dashboard' ? (
         <DashboardPage
           providers={providers}
           requests={requests}
@@ -137,31 +160,32 @@ export function App({ runner, onExit }: AppProps) {
           connectionStatus={connectionStatus}
           environment={environment}
           connectionError={connectionError}
+          modelCount={models.length}
           onNavigate={handleNavigate}
         />
-      </Box>
-    );
-  }
+      ) : (
+        <>
+          <Header
+            connection={connectionStatus}
+            environment={environment}
+            activeRequests={activeCount}
+            page={page}
+          />
 
-  return (
-    <Box flexDirection="column" padding={1}>
-      <Header
-        connection={connectionStatus}
-        environment={environment}
-        activeRequests={activeCount}
-        page={page}
-      />
+          {page === 'models' && (
+            <ModelsPage models={models} registeredNames={registeredNames} loading={modelsLoading} />
+          )}
+          {page === 'config' && <ConfigPage />}
+          {page === 'auth' && <AuthPage onComplete={handleAuthComplete} />}
+          {page === 'register' && (
+            <RegisterPage onComplete={handleRegisterComplete} />
+          )}
 
-      {page === 'models' && (
-        <ModelsPage models={models} registeredNames={registeredNames} />
+          <Box flexGrow={1} />
+
+          <NavigationMenu items={getSubpageMenuItems()} onSelect={handleSubpageNavigate} />
+        </>
       )}
-      {page === 'config' && <ConfigPage />}
-      {page === 'auth' && <AuthPage onComplete={handleAuthComplete} />}
-      {page === 'register' && (
-        <RegisterPage onComplete={handleRegisterComplete} />
-      )}
-
-      <NavigationMenu items={subpageMenuItems} onSelect={handleSubpageNavigate} />
     </Box>
   );
 }

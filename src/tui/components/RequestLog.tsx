@@ -107,8 +107,8 @@ export function RequestLog({ requests, maxVisible = 8 }: RequestLogProps) {
   return (
     <Box
       flexDirection="column"
+      flexGrow={1}
       width="100%"
-      height={30}
       paddingX={1}
     >
       <Box>
@@ -121,8 +121,8 @@ export function RequestLog({ requests, maxVisible = 8 }: RequestLogProps) {
       </Box>
 
       {requests.length === 0 ? (
-        <Box marginTop={1}>
-          <Text color="gray">Waiting for requests...</Text>
+        <Box flexGrow={1} alignItems="center" justifyContent="center">
+          <Text color="gray">No generation requests yet</Text>
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={1}>

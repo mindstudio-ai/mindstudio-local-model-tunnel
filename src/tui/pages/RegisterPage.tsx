@@ -25,24 +25,33 @@ export function RegisterPage({ onComplete }: RegisterPageProps) {
 
   if (status === 'idle') {
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Text color="gray">Starting model registration...</Text>
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Text bold color="white" underline>
+          Register Models
+        </Text>
+        <Box marginTop={1}>
+          <Text color="gray">Starting model registration...</Text>
+        </Box>
       </Box>
     );
   }
 
   if (status === 'error') {
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Text color="red">Registration failed: {error}</Text>
-        <Text color="gray">Press Escape to go back.</Text>
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Text bold color="white" underline>
+          Register Models
+        </Text>
+        <Box marginTop={1}>
+          <Text color="red">Registration failed: {error}</Text>
+        </Box>
       </Box>
     );
   }
 
   if (status === 'discovering') {
     return (
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
         <Text bold color="white" underline>
           Register Models
         </Text>
@@ -58,7 +67,7 @@ export function RegisterPage({ onComplete }: RegisterPageProps) {
 
   if (status === 'registering') {
     return (
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
         <Text bold color="white" underline>
           Register Models
         </Text>
@@ -80,7 +89,7 @@ export function RegisterPage({ onComplete }: RegisterPageProps) {
   const existingModels = registeredModels.filter((m) => !m.isNew);
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={1} paddingX={1}>
       <Text bold color="white" underline>
         Register Models
       </Text>
@@ -120,10 +129,6 @@ export function RegisterPage({ onComplete }: RegisterPageProps) {
           ))}
         </Box>
       )}
-
-      <Box marginTop={1}>
-        <Text color="gray">Press Escape to return to dashboard.</Text>
-      </Box>
     </Box>
   );
 }

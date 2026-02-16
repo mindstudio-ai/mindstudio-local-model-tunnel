@@ -15,7 +15,7 @@ export function ConfigPage() {
   const envColor = info.current === 'prod' ? 'green' : 'yellow';
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={1} paddingX={1}>
       <Text bold color="white" underline>
         Configuration
       </Text>
@@ -44,7 +44,7 @@ export function ConfigPage() {
       </Box>
 
       <Box flexDirection="column" marginTop={1}>
-        <Text bold color="white">
+        <Text bold underline color="white">
           Provider URLs
         </Text>
         <Box>

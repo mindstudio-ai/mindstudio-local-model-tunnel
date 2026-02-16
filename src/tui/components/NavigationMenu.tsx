@@ -27,6 +27,15 @@ export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
   };
 
   useInput((input, key) => {
+    if (input === 'q' || key.escape) {
+      const backItem = items.find((i) => i.id === 'back');
+      if (backItem) {
+        onSelect('back');
+      } else if (input === 'q') {
+        onSelect('quit');
+      }
+      return;
+    }
     if (key.upArrow) {
       setSelectedIndex((prev) => findNextEnabled(prev, -1));
     } else if (key.downArrow) {
@@ -38,8 +47,6 @@ export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
       }
     }
   });
-
-  const selectedItem = items[selectedIndex];
 
   // Fixed height: header + marginBottom + items + marginTop + hint + 2 border lines
   const menuHeight = items.length + 7;
@@ -80,7 +87,9 @@ export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
 
       <Box marginTop={1} height={1}>
         <Text color="gray" dimColor wrap="truncate-end">
-          {'Up/Down Navigate \u2022 Enter Select \u2022 q Quit'}
+          {items.some((i) => i.id === 'back')
+            ? 'Up/Down Navigate \u2022 Enter Select \u2022 q/Esc Back'
+            : 'Up/Down Navigate \u2022 Enter Select \u2022 q Quit'}
         </Text>
       </Box>
     </Box>

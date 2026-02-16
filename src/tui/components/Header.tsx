@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { ConnectionStatus, Page } from '../types.js';
+import { getConnectionDisplay } from '../helpers.js';
 import { LogoString } from '../../helpers.js';
 
 interface HeaderProps {
@@ -12,7 +13,7 @@ interface HeaderProps {
 
 const PAGE_LABELS: Record<Page, string> = {
   dashboard: '',
-  models: 'Models',
+  models: 'Manage Models',
   config: 'Config',
   auth: 'Auth',
   register: 'Register',
@@ -24,25 +25,8 @@ export function Header({
   activeRequests,
   page,
 }: HeaderProps) {
-  const connectionColor =
-    connection === 'connected'
-      ? 'green'
-      : connection === 'connecting'
-        ? 'yellow'
-        : connection === 'not_authenticated'
-          ? 'yellow'
-          : 'red';
-
-  const connectionText =
-    connection === 'connected'
-      ? 'Connected'
-      : connection === 'connecting'
-        ? 'Connecting...'
-        : connection === 'not_authenticated'
-          ? 'Not Authenticated'
-          : connection === 'disconnected'
-            ? 'Disconnected'
-            : 'Error';
+  const { color: connectionColor, text: connectionText } =
+    getConnectionDisplay(connection);
 
   const breadcrumb = page ? PAGE_LABELS[page] : '';
 

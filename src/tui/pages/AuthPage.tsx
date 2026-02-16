@@ -16,7 +16,7 @@ export function AuthPage({ onComplete }: AuthPageProps) {
     return () => cancel();
   }, []);
 
-  // Auto-return to dashboard on success after a delay
+  // Auto-return on success after a delay
   useEffect(() => {
     if (status === 'success') {
       const timer = setTimeout(onComplete, 1500);
@@ -26,38 +26,51 @@ export function AuthPage({ onComplete }: AuthPageProps) {
 
   if (status === 'idle') {
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Text color="gray">Starting authentication...</Text>
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Text bold color="white" underline>
+          Authentication
+        </Text>
+        <Box marginTop={1}>
+          <Text color="gray">Starting authentication...</Text>
+        </Box>
       </Box>
     );
   }
 
   if (status === 'success') {
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Box>
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Text bold color="white" underline>
+          Authentication
+        </Text>
+        <Box marginTop={1}>
           <Text color="green">✓ Authenticated successfully!</Text>
         </Box>
-        <Text color="gray">Returning to dashboard...</Text>
+        <Text color="gray">Returning...</Text>
       </Box>
     );
   }
 
   if (status === 'expired' || status === 'timeout') {
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Text color="red">
-          {status === 'expired'
-            ? 'Authorization expired. Press Escape to go back and try again.'
-            : 'Authorization timed out. Press Escape to go back and try again.'}
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Text bold color="white" underline>
+          Authentication
         </Text>
+        <Box marginTop={1}>
+          <Text color="red">
+            {status === 'expired'
+              ? 'Authorization expired. Go back and try again.'
+              : 'Authorization timed out. Go back and try again.'}
+          </Text>
+        </Box>
       </Box>
     );
   }
 
   // Waiting state
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={1} paddingX={1}>
       <Text bold color="white" underline>
         Authentication
       </Text>

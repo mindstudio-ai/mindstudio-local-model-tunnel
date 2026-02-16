@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import { RequestLog, NavigationMenu } from '../components/index.js';
 import type { MenuItem } from '../components/index.js';
 import type {
@@ -7,6 +7,7 @@ import type {
   RequestLogEntry,
   ConnectionStatus,
 } from '../types.js';
+import { getConnectionDisplay } from '../helpers.js';
 import { LogoString } from '../../helpers.js';
 
 interface DashboardPageProps {
@@ -16,68 +17,36 @@ interface DashboardPageProps {
   connectionStatus: ConnectionStatus;
   environment: 'prod' | 'local';
   connectionError: string | null;
+  modelCount: number;
   onNavigate: (id: string) => void;
 }
 
 export function DashboardPage({
   providers,
   requests,
+  activeCount,
   connectionStatus,
   environment,
   connectionError,
+  modelCount,
   onNavigate,
 }: DashboardPageProps) {
-  const connectionColor =
-    connectionStatus === 'connected'
-      ? 'green'
-      : connectionStatus === 'connecting'
-        ? 'yellow'
-        : connectionStatus === 'not_authenticated'
-          ? 'yellow'
-          : 'red';
+  const { color: connectionColor, text: connectionText } =
+    getConnectionDisplay(connectionStatus);
 
-  const connectionText =
-    connectionStatus === 'connected'
-      ? 'Connected'
-      : connectionStatus === 'connecting'
-        ? 'Connecting...'
-        : connectionStatus === 'not_authenticated'
-          ? 'Not Authenticated'
-          : connectionStatus === 'disconnected'
-            ? 'Disconnected'
-            : 'Error';
-
-  const envBadge = environment === 'prod' ? 'PROD' : 'LOCAL';
-  const envColor = environment === 'prod' ? 'green' : 'yellow';
+  const { stdout } = useStdout();
 
   const menuItems = useMemo((): MenuItem[] => {
-    const isConnected = connectionStatus === 'connected';
-    const isAuthenticated = connectionStatus !== 'not_authenticated';
-
     return [
       {
         id: 'models',
-        label: 'View Models',
-        description: 'View available local models',
+        label: 'Manage Models',
+        description: 'Discover and manage local models',
       },
       {
         id: 'config',
         label: 'Configuration',
         description: 'View current configuration',
-      },
-      {
-        id: 'auth',
-        label: isConnected ? 'Re-authenticate' : 'Authenticate',
-        description: isConnected
-          ? 'Re-authenticate with MindStudio'
-          : 'Authenticate with MindStudio',
-      },
-      {
-        id: 'register',
-        label: 'Register Models',
-        description: 'Register local models with MindStudio',
-        disabled: !isAuthenticated,
-        disabledReason: !isAuthenticated ? 'Authenticate first' : undefined,
       },
       {
         id: 'setup',
@@ -95,7 +64,16 @@ export function DashboardPage({
         description: 'Quit the application',
       },
     ];
-  }, [connectionStatus]);
+  }, []);
+
+  // Compute maxVisible for request log based on terminal height
+  // Header box ~= 8 lines (border + padding + content), menu ~= items + 7, margin = 1
+  const menuHeight = menuItems.length + 7;
+  const headerHeight = 8 + providers.length + (providers.length > 0 && !providers.some((p) => p.running) ? 3 : 0);
+  const termHeight = stdout?.rows ?? 24;
+  const availableForLog = termHeight - 4 - headerHeight - menuHeight - 1;
+  // Reserve 3 lines for the request log header + margin, rest for entries
+  const maxVisible = Math.max(3, availableForLog - 3);
 
   return (
     <Box flexDirection="column" flexGrow={1}>
@@ -122,9 +100,10 @@ export function DashboardPage({
           {connectionError && (
             <Text color="red">{connectionError}</Text>
           )}
+          <Text color="gray">{modelCount} models available</Text>
           <Box marginTop={1} flexDirection="column">
-            <Text bold color="white">
-              PROVIDERS
+            <Text bold underline color="white">
+              Providers
             </Text>
             {providers.length === 0 ? (
               <Text color="gray">Loading...</Text>
@@ -164,9 +143,7 @@ export function DashboardPage({
       </Box>
 
       {/* Middle: Request log */}
-      <Box marginTop={1}>
-        <RequestLog requests={requests} />
-      </Box>
+      <RequestLog requests={requests} maxVisible={maxVisible} />
 
       {/* Bottom: Navigation menu pane */}
       <NavigationMenu items={menuItems} onSelect={onNavigate} />

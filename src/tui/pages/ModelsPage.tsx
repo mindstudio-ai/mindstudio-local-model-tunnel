@@ -1,84 +1,112 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import Spinner from 'ink-spinner';
 import type { LocalModel } from '../../providers/types.js';
 
 interface ModelsPageProps {
   models: LocalModel[];
   registeredNames: Set<string>;
+  loading?: boolean;
 }
 
-function getCapabilityColor(capability: string): string {
+function getCapabilityBadge(capability: string): { label: string; color: string } {
   switch (capability) {
     case 'text':
-      return 'green';
+      return { label: 'text', color: 'green' };
     case 'image':
-      return 'magenta';
+      return { label: 'image', color: 'magenta' };
     case 'video':
-      return 'blue';
+      return { label: 'video', color: 'blue' };
     default:
-      return 'gray';
+      return { label: capability, color: 'gray' };
   }
 }
 
-export function ModelsPage({ models, registeredNames }: ModelsPageProps) {
-  const textModels = models.filter((m) => m.capability === 'text');
-  const imageModels = models.filter((m) => m.capability === 'image');
-  const videoModels = models.filter((m) => m.capability === 'video');
+export function ModelsPage({ models, registeredNames, loading }: ModelsPageProps) {
+  if (loading) {
+    return (
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Text bold color="white" underline>
+          Manage Models
+        </Text>
+        <Box marginTop={1}>
+          <Text color="cyan">
+            <Spinner type="dots" />
+          </Text>
+          <Text> Discovering local models...</Text>
+        </Box>
+      </Box>
+    );
+  }
 
   if (models.length === 0) {
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Text color="yellow">No models found.</Text>
-        <Text color="gray">
-          Download models using your provider (e.g., ollama pull llama3.2)
+      <Box flexDirection="column" marginTop={1} paddingX={1}>
+        <Text bold color="white" underline>
+          Manage Models
         </Text>
+        <Box marginTop={1} flexDirection="column">
+          <Text color="yellow">No models found.</Text>
+          <Text color="gray">
+            Download models using your provider (e.g., ollama pull llama3.2)
+          </Text>
+        </Box>
       </Box>
     );
   }
 
-  const renderModelGroup = (
-    title: string,
-    groupModels: LocalModel[],
-    color: string,
-  ) => {
-    if (groupModels.length === 0) return null;
-
-    return (
-      <Box flexDirection="column" marginBottom={1}>
-        <Text bold color={color}>
-          {title} ({groupModels.length})
-        </Text>
-        {groupModels.map((model) => {
-          const isRegistered = registeredNames.has(model.name);
-          const dotColor = isRegistered ? color : 'yellow';
-          const suffix = isRegistered ? '' : ' (not registered)';
-
-          return (
-            <Box key={model.name}>
-              <Text color={dotColor}>{isRegistered ? '●' : '○'}</Text>
-              <Text> {model.name} </Text>
-              <Text color="gray">[{model.provider}]</Text>
-              {!isRegistered && <Text color="gray">{suffix}</Text>}
-            </Box>
-          );
-        })}
-      </Box>
-    );
-  };
+  const registered = models.filter((m) => registeredNames.has(m.name));
+  const unregistered = models.filter((m) => !registeredNames.has(m.name));
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={1} paddingX={1}>
       <Text bold color="white" underline>
-        Local Models
+        Manage Models
       </Text>
-      <Box marginTop={1} flexDirection="column">
-        {renderModelGroup('Text Models', textModels, 'green')}
-        {renderModelGroup('Image Models', imageModels, 'magenta')}
-        {renderModelGroup('Video Models', videoModels, 'blue')}
-      </Box>
-      <Text color="gray">
-        {'● = registered with MindStudio, ○ = not registered'}
-      </Text>
+
+      {registered.length > 0 && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold color="green">
+            Registered ({registered.length})
+          </Text>
+          {registered.map((model) => {
+            const badge = getCapabilityBadge(model.capability);
+            return (
+              <Box key={model.name}>
+                <Text color="green">●</Text>
+                <Text> {model.name} </Text>
+                <Text color="gray">[{model.provider}] </Text>
+                <Text color={badge.color}>{badge.label}</Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
+      {unregistered.length > 0 && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold color="yellow">
+            Not Registered ({unregistered.length})
+          </Text>
+          {unregistered.map((model) => {
+            const badge = getCapabilityBadge(model.capability);
+            return (
+              <Box key={model.name}>
+                <Text color="yellow">○</Text>
+                <Text> {model.name} </Text>
+                <Text color="gray">[{model.provider}] </Text>
+                <Text color={badge.color}>{badge.label}</Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
+      {unregistered.length === 0 && registered.length > 0 && (
+        <Box marginTop={1}>
+          <Text color="green">All models registered with MindStudio.</Text>
+        </Box>
+      )}
     </Box>
   );
 }
