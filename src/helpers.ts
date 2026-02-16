@@ -57,6 +57,12 @@ export const displayModels = (models: LocalModel[]): void => {
   console.log('');
 };
 
+export const MODEL_TYPE_MAP = {
+  text: 'llm_chat',
+  image: 'image_generation',
+  video: 'video_generation',
+} as const;
+
 export const LogoString = `
         .=+-.     :++.
         *@@@@@+  :%@@@@%:

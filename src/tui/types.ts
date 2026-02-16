@@ -3,8 +3,11 @@ import type { Provider, LocalModel } from '../providers/types.js';
 export type ConnectionStatus =
   | 'connecting'
   | 'connected'
+  | 'not_authenticated'
   | 'disconnected'
   | 'error';
+
+export type Page = 'dashboard' | 'models' | 'config' | 'auth' | 'register';
 
 export interface ProviderStatus {
   provider: Provider;

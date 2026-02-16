@@ -1,8 +1,5 @@
-import React from 'react';
-import { render } from 'ink';
 import chalk from 'chalk';
 import ora from 'ora';
-import { HomeScreen } from './HomeScreen.js';
 import {
   getConfigPath,
   getApiKey,
@@ -19,8 +16,6 @@ import {
   discoverAllModels,
 } from '../../providers/index.js';
 import { displayModels, LogoString, clearTerminal } from '../../helpers.js';
-
-export { HomeScreen } from './HomeScreen.js';
 
 function envBadge(): string {
   const env = getEnvironment();
@@ -193,18 +188,4 @@ export async function showModelsScreen(): Promise<void> {
   }
 
   console.log('');
-}
-
-export async function showHomeScreen(): Promise<string | null> {
-  clearTerminal();
-  let nextCommand: string | null = null;
-  const { waitUntilExit } = render(
-    React.createElement(HomeScreen, {
-      onNavigate: (command: string) => {
-        nextCommand = command;
-      },
-    }),
-  );
-  await waitUntilExit();
-  return nextCommand;
 }

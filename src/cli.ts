@@ -33,8 +33,8 @@ import { TunnelRunner } from './runner.js';
 import {
   displayModels,
   sleep,
-  waitForEnter,
   clearTerminal,
+  MODEL_TYPE_MAP,
 } from './helpers.js';
 
 const program = new Command();
@@ -90,12 +90,6 @@ program
       process.exit(1);
     }
   });
-
-const MODEL_TYPE_MAP = {
-  text: 'llm_chat',
-  image: 'image_generation',
-  video: 'video_generation',
-} as const;
 
 /**
  * Shared auth flow: request device auth, open browser, poll for completion.
@@ -438,7 +432,7 @@ program
     }
   });
 
-// Default action when no command is provided - show home screen
+// Default action when no command is provided - launch unified TUI
 async function runDefaultAction() {
   const args = process.argv.slice(2);
   // Check if a command was provided (excluding global options like --env)
@@ -447,90 +441,17 @@ async function runDefaultAction() {
   );
 
   if (!hasCommand) {
-    const { showHomeScreen } = await import('./tui/screens/index.js');
-
-    // Loop to handle navigation
     while (true) {
-      const nextCommand = await showHomeScreen();
-
-      if (!nextCommand) {
-        // User exited without selecting a command
-        process.exit(0);
+      const { startTUI } = await import('./tui/index.js');
+      const result = await startTUI();
+      if (result === 'setup') {
+        const { startQuickstart } = await import('./quickstart/index.js');
+        await startQuickstart();
+        clearTerminal();
+        continue;
       }
-
-      // Handle the selected command
-      clearTerminal();
-      switch (nextCommand) {
-        case 'start': {
-          const { startTUI } = await import('./tui/index.js');
-          await startTUI();
-          break;
-        }
-        case 'setup': {
-          const { startQuickstart } = await import('./quickstart/index.js');
-          await startQuickstart();
-          clearTerminal();
-          continue; // Return to home screen after setup
-        }
-        case 'auth': {
-          await performAuth();
-          await waitForEnter();
-          clearTerminal();
-          continue;
-        }
-        case 'register': {
-          const apiKey = getApiKey();
-          if (!apiKey) {
-            console.log(
-              chalk.red('Not authenticated. Please authenticate first.'),
-            );
-          } else {
-            try {
-              await performRegister();
-            } catch (error) {
-              console.log(
-                chalk.red(
-                  `Failed: ${error instanceof Error ? error.message : String(error)}`,
-                ),
-              );
-            }
-          }
-          await waitForEnter();
-          clearTerminal();
-          continue;
-        }
-        case 'models': {
-          const { showModelsScreen } = await import('./tui/screens/index.js');
-          await showModelsScreen();
-          clearTerminal();
-          continue; // Return to home screen after models
-        }
-        case 'config': {
-          const { showConfigScreen } = await import('./tui/screens/index.js');
-          await showConfigScreen();
-          await waitForEnter();
-          clearTerminal();
-          continue; // Return to home screen after config
-        }
-        case 'logout': {
-          clearApiKey();
-          console.log(
-            chalk.green(
-              '\nLogged out successfully. All credentials cleared.\n',
-            ),
-          );
-          await waitForEnter();
-          clearTerminal();
-          continue; // Return to home screen after logout
-        }
-        default:
-          process.exit(0);
-      }
-
-      // If we reach here (from start), exit the loop
       break;
     }
-
     process.exit(0);
   }
 }

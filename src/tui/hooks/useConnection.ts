@@ -21,8 +21,7 @@ export function useConnection(): UseConnectionResult {
 
     const apiKey = getApiKey();
     if (!apiKey) {
-      setStatus('error');
-      setError('Not authenticated. Run: mindstudio-local auth');
+      setStatus('not_authenticated');
       return;
     }
 
@@ -31,8 +30,7 @@ export function useConnection(): UseConnectionResult {
       if (isValid) {
         setStatus('connected');
       } else {
-        setStatus('error');
-        setError('Invalid API key. Run: mindstudio-local auth');
+        setStatus('not_authenticated');
       }
     } catch (err) {
       setStatus('error');

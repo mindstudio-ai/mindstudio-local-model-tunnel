@@ -1,115 +1,165 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
-import {
-  Header,
-  ProvidersPanel,
-  ModelsPanel,
-  RequestLog,
-  StatusBar,
-} from './components/index.js';
+import { Header, StatusBar } from './components/index.js';
 import {
   useConnection,
   useProviders,
   useModels,
   useRequests,
+  useRegisteredModels,
 } from './hooks/index.js';
+import {
+  DashboardPage,
+  ModelsPage,
+  ConfigPage,
+  AuthPage,
+  RegisterPage,
+} from './pages/index.js';
 import { TunnelRunner } from '../runner.js';
+import type { Page, ConnectionStatus } from './types.js';
+
+interface Shortcut {
+  key: string;
+  label: string;
+}
+
+function shortcutsForPage(
+  page: Page,
+  connectionStatus: ConnectionStatus,
+): Shortcut[] {
+  if (page === 'auth' || page === 'register') {
+    return [
+      { key: 'Esc', label: 'Back' },
+      { key: 'q', label: 'Quit' },
+    ];
+  }
+
+  if (page !== 'dashboard') {
+    return [
+      { key: 'Esc', label: 'Dashboard' },
+      { key: 'q', label: 'Quit' },
+    ];
+  }
+
+  // Dashboard shortcuts
+  const shortcuts: Shortcut[] = [
+    { key: 'm', label: 'Models' },
+    { key: 'c', label: 'Config' },
+  ];
+
+  if (connectionStatus === 'not_authenticated') {
+    shortcuts.push({ key: 'a', label: 'Auth' });
+  } else if (connectionStatus === 'connected') {
+    shortcuts.push({ key: 'a', label: 'Re-auth' });
+    shortcuts.push({ key: 'g', label: 'Register' });
+  }
+
+  shortcuts.push({ key: 's', label: 'Setup' });
+  shortcuts.push({ key: 'r', label: 'Refresh' });
+  shortcuts.push({ key: 'q', label: 'Quit' });
+
+  return shortcuts;
+}
 
 interface AppProps {
   runner: TunnelRunner;
+  onExit?: (reason: 'quit' | 'setup') => void;
 }
 
-export function App({ runner }: AppProps) {
+export function App({ runner, onExit }: AppProps) {
   const { exit } = useApp();
   const {
     status: connectionStatus,
     environment,
     error: connectionError,
+    retry: retryConnection,
   } = useConnection();
   const { providers, refresh: refreshProviders } = useProviders();
   const { models, refresh: refreshModels } = useModels();
   const { requests, activeCount } = useRequests();
-  const [lastKey, setLastKey] = useState<string>('');
+  const { registeredNames, refresh: refreshRegistered } =
+    useRegisteredModels(connectionStatus);
+  const [page, setPage] = useState<Page>('dashboard');
 
-  // Start the runner when connected
+  // Start runner when connected with models
   useEffect(() => {
     if (connectionStatus === 'connected' && models.length > 0) {
       runner.start(models.map((m) => m.name));
     }
-
-    return () => {
-      runner.stop();
-    };
   }, [connectionStatus, models, runner]);
+
+  // Stop only on unmount
+  useEffect(() => () => runner.stop(), [runner]);
 
   // Refresh everything
   const refreshAll = useCallback(async () => {
-    await Promise.all([refreshProviders(), refreshModels()]);
-  }, [refreshProviders, refreshModels]);
+    await Promise.all([
+      refreshProviders(),
+      refreshModels(),
+      refreshRegistered(),
+    ]);
+  }, [refreshProviders, refreshModels, refreshRegistered]);
+
+  const handleAuthComplete = useCallback(() => {
+    retryConnection();
+    refreshRegistered();
+    setPage('dashboard');
+  }, [retryConnection, refreshRegistered]);
+
+  const handleRegisterComplete = useCallback(() => {
+    refreshRegistered();
+    setPage('dashboard');
+  }, [refreshRegistered]);
+
+  const handleQuit = useCallback(() => {
+    runner.stop();
+    onExit?.('quit');
+    exit();
+  }, [runner, onExit, exit]);
+
+  const handleSetup = useCallback(() => {
+    runner.stop();
+    onExit?.('setup');
+    exit();
+  }, [runner, onExit, exit]);
 
   // Keyboard shortcuts
   useInput((input, key) => {
-    // Debug: show what key was pressed
-    setLastKey(input || (key.escape ? 'ESC' : '?'));
+    const lowerInput = input.toLowerCase();
 
-    // Quit on 'q' or Escape
-    if (input.toLowerCase() === 'q' || key.escape) {
-      runner.stop();
-      exit();
+    // Quit from any page
+    if (lowerInput === 'q') {
+      handleQuit();
+      return;
     }
-    // Refresh on 'r'
-    if (input.toLowerCase() === 'r') {
-      refreshAll();
+
+    // Escape: go back from subpages to dashboard
+    if (key.escape) {
+      if (page !== 'dashboard') {
+        setPage('dashboard');
+      } else {
+        handleQuit();
+      }
+      return;
+    }
+
+    // Dashboard-only shortcuts
+    if (page === 'dashboard') {
+      if (lowerInput === 'm') {
+        setPage('models');
+      } else if (lowerInput === 'c') {
+        setPage('config');
+      } else if (lowerInput === 'a') {
+        setPage('auth');
+      } else if (lowerInput === 'g' && connectionStatus === 'connected') {
+        setPage('register');
+      } else if (lowerInput === 's') {
+        handleSetup();
+      } else if (lowerInput === 'r') {
+        refreshAll();
+      }
     }
   });
-
-  // Show error state
-  if (connectionStatus === 'error') {
-    return (
-      <Box flexDirection="column" padding={1}>
-        <Text color="red" bold>
-          Connection Error
-        </Text>
-        <Text color="red">{connectionError}</Text>
-        <Box marginTop={1}>
-          <Text color="gray">Press </Text>
-          <Text color="cyan" bold>
-            q
-          </Text>
-          <Text color="gray"> to exit</Text>
-        </Box>
-      </Box>
-    );
-  }
-
-  // Check for no running providers
-  const hasRunningProvider = providers.some((p) => p.running);
-
-  if (
-    connectionStatus === 'connected' &&
-    providers.length > 0 &&
-    !hasRunningProvider
-  ) {
-    return (
-      <Box flexDirection="column" padding={1}>
-        <Header
-          connection={connectionStatus}
-          environment={environment}
-          activeRequests={activeCount}
-        />
-        <Box flexDirection="column" marginTop={1}>
-          <Text color="yellow" bold>
-            No providers running
-          </Text>
-          <Text color="gray">Start one of the following:</Text>
-          <Text color="white"> Ollama: ollama serve</Text>
-          <Text color="white"> LM Studio: Start the local server</Text>
-          <Text color="white"> Stable Diffusion: Start AUTOMATIC1111</Text>
-        </Box>
-        <StatusBar />
-      </Box>
-    );
-  }
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -117,28 +167,33 @@ export function App({ runner }: AppProps) {
         connection={connectionStatus}
         environment={environment}
         activeRequests={activeCount}
+        page={page}
       />
 
-      {/* Main content area */}
-      <Box flexDirection="row" marginTop={1}>
-        {/* Left column: Providers */}
-        <Box width="40%">
-          <ProvidersPanel providers={providers} />
+      {connectionError && page === 'dashboard' && (
+        <Box marginBottom={1}>
+          <Text color="red">{connectionError}</Text>
         </Box>
+      )}
 
-        {/* Right column: Models */}
-        <Box width="60%" marginLeft={1}>
-          <ModelsPanel models={models} />
-        </Box>
-      </Box>
+      {page === 'dashboard' && (
+        <DashboardPage
+          providers={providers}
+          models={models}
+          requests={requests}
+          activeCount={activeCount}
+        />
+      )}
+      {page === 'models' && (
+        <ModelsPage models={models} registeredNames={registeredNames} />
+      )}
+      {page === 'config' && <ConfigPage />}
+      {page === 'auth' && <AuthPage onComplete={handleAuthComplete} />}
+      {page === 'register' && (
+        <RegisterPage onComplete={handleRegisterComplete} />
+      )}
 
-      {/* Request log */}
-      <Box marginTop={1}>
-        <RequestLog requests={requests} />
-      </Box>
-
-      {/* Status bar */}
-      <StatusBar />
+      <StatusBar shortcuts={shortcutsForPage(page, connectionStatus)} />
     </Box>
   );
 }
