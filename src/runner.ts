@@ -20,20 +20,7 @@ import {
   LocalModelRequest,
   disconnectHeartbeat,
 } from './api.js';
-import { displayModels } from './helpers.js';
-
-const LogoString = `
-       @@@@@@@       @@@@@@@
-      @@@@@@@@@@   @@@@@@@@@@
-     @@@@@@@@@@@  @@@@@@@@@@@
-    @@@@@@@@@@@@ @@@@@@@@@@@@  @
-   @@@@@@@@@@@@ @@@@@@@@@@@@  @@@
-  @@@@@@@@@@@@ @@@@@@@@@@@@  @@@@@
- @@@@@@@@@@@@ @@@@@@@@@@@@ @@@@@@@@
-@@@@@@@@@@@@ @@@@@@@@@@@@ @@@@@@@@@@
-@@@@@@@@@@@  @@@@@@@@@@@  @@@@@@@@@@
-@@@@@@@@@@   @@@@@@@@@@   @@@@@@@@@@
- @@@@@@@       @@@@@@@      @@@@@@@ `;
+import { displayModels, LogoString } from './helpers.js';
 
 export class LocalModelRunner {
   private isRunning = false;

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "ts-node src/cli.ts",
+    "dev": "tsc && node dist/cli.js",
     "start": "node dist/cli.js",
     "prepublishOnly": "npm run build",
     "local-update": "npm run build && npm link"
