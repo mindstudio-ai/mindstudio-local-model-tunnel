@@ -1,11 +1,10 @@
 import React, { useMemo } from 'react';
-import { Box, Text, useStdout } from 'ink';
+import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { Header, NavigationMenu } from '../components/index.js';
 import type { MenuItem } from '../components/index.js';
 import type { ConnectionStatus } from '../types.js';
 import { useSetupProviders } from '../hooks/useSetupProviders.js';
-import type { ProviderInfo } from '../../quickstart/detect.js';
 
 interface SetupPageProps {
   connectionStatus: ConnectionStatus;
@@ -22,10 +21,7 @@ export function SetupPage({
   onExternalAction,
   onBack,
 }: SetupPageProps) {
-  const { providers, loading, sdModelExists, comfyModelStatus, refresh } =
-    useSetupProviders();
-  const { stdout } = useStdout();
-  const termHeight = (stdout?.rows ?? 24) - 4;
+  const { providers, loading, modelActions, refresh } = useSetupProviders();
 
   const menuItems = useMemo((): MenuItem[] => {
     if (loading || providers.length === 0) return [
@@ -34,64 +30,76 @@ export function SetupPage({
 
     const items: MenuItem[] = [];
 
-    const ollama = providers.find((p) => p.id === 'ollama');
-    const lmstudio = providers.find((p) => p.id === 'lmstudio');
-    const sd = providers.find((p) => p.id === 'stable-diffusion');
-    const comfyui = providers.find((p) => p.id === 'comfyui');
+    const statusText = (s: { installed: boolean; running: boolean }) =>
+      s.running ? 'Running' : s.installed ? 'Installed (not running)' : 'Not installed';
+    const statusIcon = (s: { installed: boolean; running: boolean }) =>
+      s.running ? '\u25CF' : s.installed ? '\u25CB' : '\u2717';
+    const statusColor = (s: { installed: boolean; running: boolean }) =>
+      s.running ? 'green' : s.installed ? 'yellow' : 'gray';
 
-    // --- Text Generation ---
-    const hasTextItems =
-      (ollama && (!ollama.installed || ollama.running)) ||
-      (lmstudio && !lmstudio.installed);
-
-    if (hasTextItems) {
-      items.push({
-        id: 'sep-text',
-        label: 'Text Generation',
-        description: '',
-        isSeparator: true,
-      });
-    }
+    const ollama = providers.find((p) => p.provider.name === 'ollama');
+    const lmstudio = providers.find((p) => p.provider.name === 'lmstudio');
+    const sd = providers.find((p) => p.provider.name === 'stable-diffusion');
+    const comfyui = providers.find((p) => p.provider.name === 'comfyui');
 
     if (ollama) {
-      if (!ollama.installed) {
+      items.push({
+        id: 'sep-ollama',
+        label: `${statusIcon(ollama.status)} ${ollama.provider.displayName} - ${statusText(ollama.status)}`,
+        description: '',
+        isSeparator: true,
+        color: statusColor(ollama.status),
+      });
+      if (!ollama.status.installed) {
         items.push({
-          id: 'install-ollama',
-          label: ollama.installable
+          id: 'install:ollama',
+          label: ollama.status.installable
             ? 'Install Ollama (automatic)'
             : 'Download Ollama (opens browser)',
           description: 'Install Ollama for text generation',
         });
-      } else if (ollama.running) {
+      } else if (!ollama.status.running) {
         items.push({
-          id: 'stop-ollama',
+          id: 'start:ollama',
+          label: 'Start Ollama server',
+          description: 'Start the Ollama server',
+        });
+      } else {
+        items.push({
+          id: 'stop:ollama',
           label: 'Stop Ollama server',
           description: 'Stop the running Ollama server',
         });
       }
     }
 
-    if (lmstudio && !lmstudio.installed) {
+    if (lmstudio) {
       items.push({
-        id: 'install-lmstudio',
-        label: 'Download LM Studio (opens browser)',
-        description: 'Download LM Studio app',
-      });
-    }
-
-    // --- Image Generation ---
-    const hasImageItems = sd != null;
-    if (hasImageItems) {
-      items.push({
-        id: 'sep-image',
-        label: 'Image Generation',
+        id: 'sep-lmstudio',
+        label: `${statusIcon(lmstudio.status)} ${lmstudio.provider.displayName} - ${statusText(lmstudio.status)}`,
         description: '',
         isSeparator: true,
+        color: statusColor(lmstudio.status),
       });
+      if (!lmstudio.status.installed) {
+        items.push({
+          id: 'install:lmstudio',
+          label: 'Download LM Studio (opens browser)',
+          description: 'Download LM Studio app',
+        });
+      }
     }
 
     if (sd) {
-      if (sd.warning) {
+      items.push({
+        id: 'sep-sd',
+        label: `${statusIcon(sd.status)} ${sd.provider.displayName} - ${statusText(sd.status)}`,
+        description: '',
+        isSeparator: true,
+        color: statusColor(sd.status),
+      });
+
+      if (sd.status.warning) {
         items.push({
           id: 'fix-python',
           label: 'Install Python 3.13 (required for Forge Neo)',
@@ -99,83 +107,84 @@ export function SetupPage({
         });
       }
 
-      if (!sd.installed) {
-        if (sd.installable) {
+      if (!sd.status.installed) {
+        if (sd.status.installable) {
           items.push({
-            id: 'install-sd',
+            id: 'install:stable-diffusion',
             label: 'Install Stable Diffusion Forge Neo',
             description: 'Clone and set up SD Forge Neo',
           });
         }
-      } else if (!sd.running) {
+      } else if (!sd.status.running) {
         items.push({
-          id: 'start-sd',
+          id: 'start:stable-diffusion',
           label: 'Start Stable Diffusion server',
           description: 'Start the SD Forge Neo server',
         });
       } else {
         items.push({
-          id: 'stop-sd',
+          id: 'stop:stable-diffusion',
           label: 'Stop Stable Diffusion server',
           description: 'Stop the running SD server',
         });
       }
 
-      if (sd.installed && !sdModelExists) {
-        items.push({
-          id: 'download-sd-model',
-          label: 'Download default SDXL model (~6.5 GB)',
-          description: 'Download sd_xl_base_1.0 from Hugging Face',
-        });
+      // SD model download actions
+      const sdActions = modelActions.get('stable-diffusion') || [];
+      for (const action of sdActions) {
+        if (!action.installed && sd.status.installed) {
+          items.push({
+            id: `download:stable-diffusion:${action.id}`,
+            label: `Download default SDXL model (${action.sizeLabel})`,
+            description: 'Download sd_xl_base_1.0 from Hugging Face',
+          });
+        }
       }
     }
 
-    // --- Video Generation ---
-    const hasVideoItems = comfyui != null;
-    if (hasVideoItems) {
+    if (comfyui) {
       items.push({
-        id: 'sep-video',
-        label: 'Video Generation',
+        id: 'sep-comfyui',
+        label: `${statusIcon(comfyui.status)} ${comfyui.provider.displayName} - ${statusText(comfyui.status)}`,
         description: '',
         isSeparator: true,
+        color: statusColor(comfyui.status),
       });
-    }
-
-    if (comfyui) {
-      if (!comfyui.installed) {
-        if (comfyui.installable) {
+      if (!comfyui.status.installed) {
+        if (comfyui.status.installable) {
           items.push({
-            id: 'install-comfyui',
+            id: 'install:comfyui',
             label: 'Install ComfyUI',
             description: 'Clone and set up ComfyUI for video generation',
           });
         }
-      } else if (!comfyui.running) {
+      } else if (!comfyui.status.running) {
         items.push({
-          id: 'start-comfyui',
+          id: 'start:comfyui',
           label: 'Start ComfyUI server',
           description: 'Start the ComfyUI server',
         });
       } else {
-        for (const model of comfyModelStatus) {
-          if (!model.installed) {
+        // ComfyUI model download actions
+        const comfyActions = modelActions.get('comfyui') || [];
+        for (const action of comfyActions) {
+          if (!action.installed) {
             items.push({
-              id: `download-comfyui-model:${model.id}`,
-              label: `Download ${model.label} (${model.totalSize})`,
-              description: `Download ${model.label} model files`,
+              id: `download:comfyui:${action.id}`,
+              label: `Download ${action.label} (${action.sizeLabel})`,
+              description: `Download ${action.label} model files`,
             });
           }
         }
 
         items.push({
-          id: 'stop-comfyui',
+          id: 'stop:comfyui',
           label: 'Stop ComfyUI server',
           description: 'Stop the running ComfyUI server',
         });
       }
     }
 
-    // --- General ---
     items.push({
       id: 'sep-general',
       label: '',
@@ -194,7 +203,7 @@ export function SetupPage({
     });
 
     return items;
-  }, [providers, loading, sdModelExists, comfyModelStatus]);
+  }, [providers, loading, modelActions]);
 
   const handleSelect = (id: string) => {
     if (id === 'back') {
@@ -209,15 +218,8 @@ export function SetupPage({
     onExternalAction(id);
   };
 
-  // Provider status groups
-  const providerGroups: Array<{ label: string; ids: string[] }> = [
-    { label: 'Text', ids: ['ollama', 'lmstudio'] },
-    { label: 'Image', ids: ['stable-diffusion'] },
-    { label: 'Video', ids: ['comfyui'] },
-  ];
-
   return (
-    <Box flexDirection="column" height={termHeight}>
+    <Box flexDirection="column">
       <Header
         connection={connectionStatus}
         environment={environment}
@@ -225,72 +227,16 @@ export function SetupPage({
         page="setup"
       />
 
-      {/* Provider Status */}
-      <Box flexDirection="column" marginTop={1} paddingX={1}>
-        <Text bold color="white" underline>
-          Provider Status
-        </Text>
-        {loading ? (
-          <Box marginTop={1}>
-            <Text color="cyan">
-              <Spinner type="dots" />
-            </Text>
-            <Text> Detecting providers...</Text>
-          </Box>
-        ) : (
-          providerGroups.map((group) => {
-            const groupProviders = providers.filter((p) =>
-              group.ids.includes(p.id),
-            );
-            if (groupProviders.length === 0) return null;
-            return (
-              <Box key={group.label} marginTop={1} flexDirection="column">
-                <Text color="gray" dimColor>
-                  {group.label}
-                </Text>
-                {groupProviders.map((provider: ProviderInfo) => (
-                  <Box key={provider.id} flexDirection="column">
-                    <Box>
-                      <Text
-                        color={
-                          provider.installed
-                            ? provider.running
-                              ? 'green'
-                              : 'yellow'
-                            : 'red'
-                        }
-                      >
-                        {provider.installed
-                          ? provider.running
-                            ? '\u25CF'
-                            : '\u25CB'
-                          : '\u2717'}
-                      </Text>
-                      <Text> {provider.name} - </Text>
-                      <Text color="gray">
-                        {provider.running
-                          ? 'Running'
-                          : provider.installed
-                            ? 'Installed (not running)'
-                            : 'Not installed'}
-                      </Text>
-                    </Box>
-                    {provider.warning && (
-                      <Box>
-                        <Text color="yellow"> \u26A0 {provider.warning}</Text>
-                      </Box>
-                    )}
-                  </Box>
-                ))}
-              </Box>
-            );
-          })
-        )}
-      </Box>
+      {loading && (
+        <Box marginTop={1} paddingX={1}>
+          <Text color="cyan">
+            <Spinner type="dots" />
+          </Text>
+          <Text> Detecting providers...</Text>
+        </Box>
+      )}
 
-      <Box flexGrow={1} />
-
-      <NavigationMenu items={menuItems} onSelect={handleSelect} />
+      <NavigationMenu items={menuItems} onSelect={handleSelect} title="Manage Providers" />
     </Box>
   );
 }

@@ -1,37 +1,48 @@
 import { useState, useEffect, useCallback } from 'react';
-import { detectAllProviders, type ProviderInfo } from '../../quickstart/detect.js';
-import { hasDefaultSdModel, getComfyUIModelStatus } from '../../quickstart/installers.js';
+import {
+  allProviders,
+  detectAllProviderStatuses,
+  type Provider,
+  type ProviderSetupStatus,
+  type ModelAction,
+} from '../../providers/index.js';
 
-interface ComfyModelStatus {
-  id: string;
-  label: string;
-  installed: boolean;
-  totalSize: string;
+interface ProviderWithStatus {
+  provider: Provider;
+  status: ProviderSetupStatus;
 }
 
 interface UseSetupProvidersResult {
-  providers: ProviderInfo[];
+  providers: ProviderWithStatus[];
   loading: boolean;
-  sdModelExists: boolean;
-  comfyModelStatus: ComfyModelStatus[];
+  modelActions: Map<string, ModelAction[]>;
   refresh: () => Promise<void>;
 }
 
 export function useSetupProviders(): UseSetupProvidersResult {
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [providers, setProviders] = useState<ProviderWithStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sdModelExists, setSdModelExists] = useState(false);
-  const [comfyModelStatus, setComfyModelStatus] = useState<ComfyModelStatus[]>([]);
+  const [modelActions, setModelActions] = useState<Map<string, ModelAction[]>>(
+    new Map(),
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [detected, modelExists] = await Promise.all([
-      detectAllProviders(),
-      hasDefaultSdModel(),
-    ]);
-    setProviders(detected);
-    setSdModelExists(modelExists);
-    setComfyModelStatus(getComfyUIModelStatus());
+    const statuses = await detectAllProviderStatuses();
+    setProviders(statuses);
+
+    // Gather model actions from all providers that support it
+    const actionsMap = new Map<string, ModelAction[]>();
+    await Promise.all(
+      allProviders.map(async (provider) => {
+        if (provider.getModelActions) {
+          const actions = await provider.getModelActions();
+          actionsMap.set(provider.name, actions);
+        }
+      }),
+    );
+    setModelActions(actionsMap);
+
     setLoading(false);
   }, []);
 
@@ -39,5 +50,5 @@ export function useSetupProviders(): UseSetupProvidersResult {
     refresh();
   }, [refresh]);
 
-  return { providers, loading, sdModelExists, comfyModelStatus, refresh };
+  return { providers, loading, modelActions, refresh };
 }

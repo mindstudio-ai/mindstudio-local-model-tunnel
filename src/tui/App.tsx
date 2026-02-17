@@ -149,7 +149,7 @@ export function App({ runner, initialPage, onExit }: AppProps) {
   const termHeight = (stdout?.rows ?? 24) - 4;
 
   return (
-    <Box flexDirection="column" height={termHeight}>
+    <Box flexDirection="column" height={termHeight} overflow="hidden">
       {page === 'onboarding' ? (
         <OnboardingPage
           onComplete={handleOnboardingComplete}
@@ -184,10 +184,12 @@ export function App({ runner, initialPage, onExit }: AppProps) {
 
           {page === 'settings' && (
             <SettingsPage
+              connectionStatus={connectionStatus}
+              environment={environment}
               models={models}
               registeredNames={registeredNames}
               modelsLoading={modelsLoading}
-              runningProviders={new Set(providers.filter(p => p.running).map(p => p.provider.name))}
+              providers={providers}
             />
           )}
           {page === 'auth' && <AuthPage onComplete={handleAuthComplete} />}

@@ -13,10 +13,10 @@ interface HeaderProps {
 
 const PAGE_LABELS: Record<Page, string> = {
   dashboard: '',
-  settings: 'Settings',
+  settings: 'Configuration',
   auth: 'Auth',
   register: 'Register',
-  setup: 'Setup Providers',
+  setup: 'Manage Providers',
   onboarding: 'Welcome',
 };
 

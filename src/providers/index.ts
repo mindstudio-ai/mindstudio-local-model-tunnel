@@ -9,6 +9,7 @@ import type {
   VideoProvider,
   LocalModel,
   ProviderType,
+  ProviderSetupStatus,
   ModelCapability,
 } from './types.js';
 import { isTextProvider, isImageProvider, isVideoProvider } from './types.js';
@@ -20,7 +21,7 @@ export { StableDiffusionProvider } from './stable-diffusion.js';
 export { ComfyUIProvider } from './comfyui.js';
 
 // Registry of all available providers
-const allProviders: Provider[] = [
+export const allProviders: Provider[] = [
   new OllamaProvider(),
   new LMStudioProvider(),
   new StableDiffusionProvider(),
@@ -148,6 +149,20 @@ export async function discoverModelsByCapability(
   );
 
   return modelArrays.flat();
+}
+
+/**
+ * Detect installation/running status for all providers
+ */
+export async function detectAllProviderStatuses(): Promise<
+  Array<{ provider: Provider; status: ProviderSetupStatus }>
+> {
+  return Promise.all(
+    allProviders.map(async (provider) => ({
+      provider,
+      status: await provider.detect(),
+    })),
+  );
 }
 
 /**

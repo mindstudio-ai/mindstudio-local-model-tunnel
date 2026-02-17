@@ -168,6 +168,33 @@ export interface VideoGenerationProgress {
 }
 
 // ============================================
+// Lifecycle Types
+// ============================================
+
+export type LifecycleProgress = {
+  stage: string;
+  message: string;
+  complete?: boolean;
+  error?: string;
+};
+export type LifecycleProgressCallback = (progress: LifecycleProgress) => void;
+
+export interface ProviderSetupStatus {
+  installed: boolean;
+  running: boolean;
+  installable: boolean;
+  warning?: string;
+}
+
+export interface ModelAction {
+  id: string;
+  label: string;
+  installed: boolean;
+  sizeLabel?: string;
+  requiresTerminal?: boolean;
+}
+
+// ============================================
 // Provider Interfaces
 // ============================================
 
@@ -177,6 +204,7 @@ export interface VideoGenerationProgress {
 export interface BaseProvider {
   readonly name: ProviderType;
   readonly displayName: string;
+  readonly description: string;
   readonly capability: ModelCapability;
 
   /**
@@ -188,6 +216,42 @@ export interface BaseProvider {
    * Discover all available models from this provider
    */
   discoverModels(): Promise<LocalModel[]>;
+
+  /**
+   * Detect installation and running status
+   */
+  detect(): Promise<ProviderSetupStatus>;
+
+  /**
+   * Install the provider (optional - not all providers support auto-install)
+   */
+  install?(onProgress: LifecycleProgressCallback, installPath?: string): Promise<boolean>;
+
+  /**
+   * Start the provider server
+   */
+  start?(onProgress: LifecycleProgressCallback): Promise<boolean>;
+
+  /**
+   * Stop the provider server
+   */
+  stop?(onProgress: LifecycleProgressCallback): Promise<boolean>;
+
+  /** Whether start requires terminal takeover (stdio: 'inherit') */
+  readonly requiresTerminalForStart?: boolean;
+
+  /** Whether stop requires terminal takeover (e.g. sudo prompts) */
+  readonly requiresTerminalForStop?: boolean;
+
+  /**
+   * Get available model download actions
+   */
+  getModelActions?(): Promise<ModelAction[]>;
+
+  /**
+   * Download a model by action ID
+   */
+  downloadModel?(actionId: string, onProgress: LifecycleProgressCallback): Promise<boolean>;
 }
 
 /**

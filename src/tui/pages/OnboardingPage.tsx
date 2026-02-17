@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Box, Text, useStdout } from 'ink';
+import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { NavigationMenu } from '../components/index.js';
 import type { MenuItem } from '../components/index.js';
@@ -42,9 +42,6 @@ function ProgressIndicator({ currentStep }: { currentStep: WizardStep }) {
 }
 
 export function OnboardingPage({ onComplete }: OnboardingPageProps) {
-  const { stdout } = useStdout();
-  const termHeight = (stdout?.rows ?? 24) - 4;
-
   const [wizardStep, setWizardStep] = useState<WizardStep>(() => {
     if (getApiKey()) return 'auth';
     return 'welcome';
@@ -77,20 +74,14 @@ export function OnboardingPage({ onComplete }: OnboardingPageProps) {
     }
   }, [onComplete]);
 
-  const handleSkip = useCallback(() => {
-    onComplete();
-  }, [onComplete]);
-
   // --- Welcome Step ---
   const welcomeMenuItems = useMemo((): MenuItem[] => [
     { id: 'get-started', label: 'Get Started', description: 'Begin setup wizard' },
-    { id: 'skip', label: 'Skip', description: 'Go straight to dashboard' },
   ], []);
 
   const handleWelcomeSelect = useCallback((id: string) => {
     if (id === 'get-started') handleGetStarted();
-    else if (id === 'skip' || id === 'quit') handleSkip();
-  }, [handleGetStarted, handleSkip]);
+  }, [handleGetStarted]);
 
   // --- Auth Step ---
   const authMenuItems = useMemo((): MenuItem[] => {
@@ -98,7 +89,6 @@ export function OnboardingPage({ onComplete }: OnboardingPageProps) {
     if (authStatus === 'expired' || authStatus === 'timeout') {
       items.push({ id: 'retry', label: 'Try Again', description: 'Restart authentication' });
     }
-    items.push({ id: 'skip', label: 'Skip', description: 'Continue without authenticating' });
     return items;
   }, [authStatus]);
 
@@ -106,14 +96,11 @@ export function OnboardingPage({ onComplete }: OnboardingPageProps) {
     if (id === 'retry') {
       cancelAuth();
       startAuth();
-    } else if (id === 'skip' || id === 'quit') {
-      cancelAuth();
-      onComplete();
     }
-  }, [cancelAuth, startAuth, onComplete]);
+  }, [cancelAuth, startAuth]);
 
   return (
-    <Box flexDirection="column" height={termHeight}>
+    <Box flexDirection="column" flexGrow={1}>
       {/* Progress Indicator */}
       <Box borderStyle="round" borderColor="cyan" paddingX={1} paddingY={1} width="100%">
         <Box>

@@ -1,3 +1,7 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import open from 'open';
 import { getLMStudioBaseUrl } from '../config.js';
 import type {
   TextProvider,
@@ -5,6 +9,8 @@ import type {
   ChatMessage,
   ChatOptions,
   ChatResponse,
+  ProviderSetupStatus,
+  LifecycleProgressCallback,
 } from './types.js';
 
 interface LMStudioModel {
@@ -20,6 +26,7 @@ interface LMStudioModelsResponse {
 export class LMStudioProvider implements TextProvider {
   readonly name = 'lmstudio' as const;
   readonly displayName = 'LM Studio';
+  readonly description = 'Text generation (GUI app)';
   readonly capability = 'text' as const;
 
   private getBaseUrl(): string {
@@ -56,6 +63,62 @@ export class LMStudioProvider implements TextProvider {
     } catch {
       return [];
     }
+  }
+
+  async detect(): Promise<ProviderSetupStatus> {
+    let installed = false;
+
+    const possiblePaths = {
+      darwin: ['/Applications/LM Studio.app'],
+      linux: [
+        path.join(os.homedir(), '.local/share/LM Studio'),
+        '/opt/lm-studio',
+      ],
+      win32: [
+        path.join(process.env.LOCALAPPDATA || '', 'LM Studio'),
+        path.join(process.env.PROGRAMFILES || '', 'LM Studio'),
+      ],
+    };
+
+    const paths =
+      possiblePaths[process.platform as keyof typeof possiblePaths] || [];
+    for (const p of paths) {
+      if (fs.existsSync(p)) {
+        installed = true;
+        break;
+      }
+    }
+
+    let running = false;
+    try {
+      const response = await fetch('http://localhost:1234/v1/models', {
+        signal: AbortSignal.timeout(1000),
+      });
+      running = response.ok;
+      if (running) installed = true;
+    } catch {
+      running = false;
+    }
+
+    return {
+      installed,
+      running,
+      installable: false, // GUI app - can only open download page
+    };
+  }
+
+  async install(onProgress: LifecycleProgressCallback): Promise<boolean> {
+    onProgress({
+      stage: 'browser',
+      message: 'Opening LM Studio download page...',
+    });
+    await open('https://lmstudio.ai/download');
+    onProgress({
+      stage: 'manual',
+      message: 'Please install LM Studio and enable the local server',
+      complete: true,
+    });
+    return true;
   }
 
   async *chat(
@@ -104,7 +167,6 @@ export class LMStudioProvider implements TextProvider {
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Process SSE lines
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
@@ -115,7 +177,7 @@ export class LMStudioProvider implements TextProvider {
             continue;
           }
 
-          const data = trimmed.slice(6); // Remove "data: " prefix
+          const data = trimmed.slice(6);
 
           if (data === '[DONE]') {
             yield { content: '', done: true };

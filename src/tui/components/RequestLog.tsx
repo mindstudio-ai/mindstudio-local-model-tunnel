@@ -123,7 +123,7 @@ export function RequestLog({ requests, maxVisible = 8 }: RequestLogProps) {
 
       {requests.length === 0 ? (
         <Box flexGrow={1} alignItems="center" justifyContent="center">
-          <Text color="gray">No generation requests yet</Text>
+          <Text color="gray">Tunnel is live — requests will appear here when models are used in MindStudio</Text>
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={1}>

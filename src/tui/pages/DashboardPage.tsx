@@ -40,13 +40,13 @@ export function DashboardPage({
     return [
       {
         id: 'settings',
-        label: 'Settings',
-        description: 'Models, configuration, and account',
+        label: 'View Configuration',
+        description: 'View tunnel config, providers, and models',
       },
       {
         id: 'setup',
-        label: 'Setup Providers',
-        description: 'Run provider setup wizard',
+        label: 'Manage Providers',
+        description: 'Manage local AI providers',
       },
       {
         id: 'quit',
@@ -144,7 +144,7 @@ export function DashboardPage({
           <Text bold color="yellow">No providers are running</Text>
           <Box marginTop={1} flexDirection="column">
             <Text>Set up a local AI provider to get started.</Text>
-            <Text color="gray" dimColor>Select "Setup Providers" below to install and configure a provider like Ollama.</Text>
+            <Text color="gray" dimColor>Select "Manage Providers" below to install and configure a provider like Ollama.</Text>
           </Box>
         </Box>
       ) : (

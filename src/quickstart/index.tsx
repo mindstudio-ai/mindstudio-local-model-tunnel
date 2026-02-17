@@ -27,6 +27,3 @@ export async function startQuickstart(): Promise<void> {
     await executeSetupAction(externalAction);
   }
 }
-
-export { detectAllProviders, checkPrerequisites } from './detect.js';
-export type { ProviderInfo } from './detect.js';

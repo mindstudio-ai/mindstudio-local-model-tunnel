@@ -8,14 +8,16 @@ export interface MenuItem {
   disabled?: boolean;
   disabledReason?: string;
   isSeparator?: boolean;
+  color?: string;
 }
 
 interface NavigationMenuProps {
   items: MenuItem[];
   onSelect: (id: string) => void;
+  title?: string;
 }
 
-export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
+export function NavigationMenu({ items, onSelect, title }: NavigationMenuProps) {
   const getDefaultIndex = () => {
     const backIdx = items.findIndex((i) => i.id === 'back');
     if (backIdx >= 0) return backIdx;
@@ -66,16 +68,18 @@ export function NavigationMenu({ items, onSelect }: NavigationMenuProps) {
   return (
     <Box flexDirection="column" paddingX={1} marginBottom={1} borderStyle="single" borderTop borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray">
       <Box marginTop={1}>
-        <Text color="gray" dimColor>Actions</Text>
+        <Text color="gray" dimColor>{title ?? 'Actions'}</Text>
       </Box>
       <Box flexDirection="column">
         {items.map((item, index) => {
           if (item.isSeparator) {
             return (
               <Box key={item.id} marginTop={index > 0 ? 1 : 0}>
-                <Text bold color="gray" wrap="truncate-end">
-                  {item.label}
-                </Text>
+                {item.label ? (
+                  <Text bold color={item.color ?? 'gray'} wrap="truncate-end">
+                    {item.label}
+                  </Text>
+                ) : null}
               </Box>
             );
           }

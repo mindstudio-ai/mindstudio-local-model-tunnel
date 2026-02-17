@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import type { LocalModel } from '../../providers/types.js';
+import type { ConnectionStatus, ProviderStatus } from '../types.js';
 import {
   getConfigPath,
   getEnvironmentInfo,
@@ -10,64 +11,86 @@ import {
   getStableDiffusionBaseUrl,
   getComfyUIBaseUrl,
 } from '../../config.js';
+import { getConnectionDisplay } from '../helpers.js';
+import { useSetupProviders } from '../hooks/useSetupProviders.js';
 
 interface SettingsPageProps {
+  connectionStatus: ConnectionStatus;
+  environment: 'prod' | 'local';
   models: LocalModel[];
   registeredNames: Set<string>;
   modelsLoading?: boolean;
-  runningProviders?: Set<string>;
+  providers: ProviderStatus[];
 }
 
-const PROVIDER_URLS: Array<{ id: string; label: string; getUrl: () => string }> = [
-  { id: 'ollama', label: 'Ollama:            ', getUrl: getOllamaBaseUrl },
-  { id: 'lmstudio', label: 'LM Studio:         ', getUrl: getLMStudioBaseUrl },
-  { id: 'stable-diffusion', label: 'Stable Diffusion:  ', getUrl: getStableDiffusionBaseUrl },
-  { id: 'comfyui', label: 'ComfyUI:           ', getUrl: getComfyUIBaseUrl },
-];
+const PROVIDER_URL_GETTERS: Record<string, () => string> = {
+  ollama: getOllamaBaseUrl,
+  lmstudio: getLMStudioBaseUrl,
+  'stable-diffusion': getStableDiffusionBaseUrl,
+  comfyui: getComfyUIBaseUrl,
+};
 
-function getCapabilityBadge(capability: string): { label: string; color: string } {
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  ollama: 'Ollama',
+  lmstudio: 'LM Studio',
+  'stable-diffusion': 'Stable Diffusion',
+  comfyui: 'ComfyUI',
+};
+
+function getCapabilityLabel(capability: string): { label: string; color: string } {
   switch (capability) {
     case 'text':
-      return { label: 'text', color: 'green' };
+      return { label: 'Text Generation', color: 'gray' };
     case 'image':
-      return { label: 'image', color: 'magenta' };
+      return { label: 'Image Generation', color: 'magenta' };
     case 'video':
-      return { label: 'video', color: 'blue' };
+      return { label: 'Video Generation', color: 'cyan' };
     default:
       return { label: capability, color: 'gray' };
   }
 }
 
-export function SettingsPage({ models, registeredNames, modelsLoading, runningProviders }: SettingsPageProps) {
+export function SettingsPage({
+  connectionStatus,
+  models,
+  registeredNames,
+  modelsLoading,
+}: SettingsPageProps) {
   const info = getEnvironmentInfo();
-  const envBadge = info.current === 'prod' ? 'PROD' : 'LOCAL';
-  const envColor = info.current === 'prod' ? 'green' : 'yellow';
+  const { color: connColor, text: connText } = getConnectionDisplay(connectionStatus);
+  const { providers: setupProviders, loading: setupLoading } = useSetupProviders();
 
-  const visibleProviders = runningProviders
-    ? PROVIDER_URLS.filter((p) => runningProviders.has(p.id))
-    : PROVIDER_URLS;
+  // Find registered models not currently available from any running provider
+  const allModelNames = new Set(models.map((m) => m.name));
+  const unavailableRegistered = [...registeredNames].filter((name) => !allModelNames.has(name));
 
-  const registered = models.filter((m) => registeredNames.has(m.name));
-  const unregistered = models.filter((m) => !registeredNames.has(m.name));
+  // Provider column widths
+  const provNameWidth = Math.max(
+    ...setupProviders.map((p) => p.provider.displayName.length),
+    8,
+  );
+  const provStatusWidth = 'Local Server Running'.length;
+
 
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>
-      {/* Configuration section */}
+      {/* Tunnel Configuration */}
       <Text bold color="white" underline>
-        Configuration
+        Tunnel Configuration
       </Text>
-
       <Box flexDirection="column" marginTop={1}>
         <Box>
           <Text color="gray">{'Config file:     '}</Text>
           <Text color="white">{getConfigPath()}</Text>
         </Box>
-        <Box>
-          <Text color="gray">{'Environment:     '}</Text>
-          <Text color={envColor} bold>
-            {envBadge}
-          </Text>
-        </Box>
+        {info.current !== 'prod' && (
+          <Box>
+            <Text color="gray">{'Environment:     '}</Text>
+            <Text color="yellow" bold>
+              LOCAL
+            </Text>
+          </Box>
+        )}
         <Box>
           <Text color="gray">{'API URL:         '}</Text>
           <Text color="white">{info.apiBaseUrl}</Text>
@@ -78,90 +101,104 @@ export function SettingsPage({ models, registeredNames, modelsLoading, runningPr
             {info.hasApiKey ? 'Set' : 'Not set'}
           </Text>
         </Box>
+        <Box>
+          <Text color="gray">{'Connection:      '}</Text>
+          <Text color={connColor}>{connText}</Text>
+        </Box>
       </Box>
 
-      {visibleProviders.length > 0 && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold underline color="white">
-            Provider URLs
+      {/* Providers */}
+      <Box marginTop={1}>
+        <Text bold color="white" underline>
+          Providers
+        </Text>
+      </Box>
+
+      {setupLoading ? (
+        <Box marginTop={1}>
+          <Text color="cyan">
+            <Spinner type="dots" />
           </Text>
-          {visibleProviders.map((p) => (
-            <Box key={p.id}>
-              <Text color="gray">{p.label}</Text>
-              <Text color="white">{p.getUrl()}</Text>
-            </Box>
-          ))}
+          <Text> Detecting providers...</Text>
+        </Box>
+      ) : (
+        <Box flexDirection="column" marginTop={1}>
+          {setupProviders.map(({ provider, status }) => {
+            const url = PROVIDER_URL_GETTERS[provider.name]?.() ?? '';
+            const notInstalled = !status.installed;
+            const statusColor = status.running ? 'green' : status.installed ? 'yellow' : 'gray';
+            const statusText = status.running
+              ? 'Local Server Running'
+              : status.installed
+                ? 'Installed (not running)'
+                : 'Not installed';
+
+            return (
+              <Box key={provider.name}>
+                <Text color={notInstalled ? 'gray' : 'white'}>{provider.displayName.padEnd(provNameWidth + 2)}</Text>
+                <Text color={statusColor}>{statusText.padEnd(provStatusWidth + 2)}</Text>
+                {status.running && <Text color="gray">{url}</Text>}
+              </Box>
+            );
+          })}
         </Box>
       )}
 
-      {/* Models section */}
-      <Box flexDirection="column" marginTop={1}>
+      {/* Models */}
+      <Box marginTop={1}>
         <Text bold color="white" underline>
           Models
         </Text>
-
-        {modelsLoading ? (
-          <Box marginTop={1}>
-            <Text color="cyan">
-              <Spinner type="dots" />
-            </Text>
-            <Text> Discovering local models...</Text>
-          </Box>
-        ) : models.length === 0 ? (
-          <Box marginTop={1} flexDirection="column">
-            <Text color="yellow">No models found.</Text>
-            <Text color="gray">
-              Download models using your provider (e.g., ollama pull llama3.2)
-            </Text>
-          </Box>
-        ) : (
-          <>
-            {registered.length > 0 && (
-              <Box flexDirection="column" marginTop={1}>
-                <Text bold color="green">
-                  Registered ({registered.length})
-                </Text>
-                {registered.map((model) => {
-                  const badge = getCapabilityBadge(model.capability);
-                  return (
-                    <Box key={model.name}>
-                      <Text color="green">●</Text>
-                      <Text> {model.name} </Text>
-                      <Text color="gray">[{model.provider}] </Text>
-                      <Text color={badge.color}>{badge.label}</Text>
-                    </Box>
-                  );
-                })}
-              </Box>
-            )}
-
-            {unregistered.length > 0 && (
-              <Box flexDirection="column" marginTop={1}>
-                <Text bold color="yellow">
-                  Not Registered ({unregistered.length})
-                </Text>
-                {unregistered.map((model) => {
-                  const badge = getCapabilityBadge(model.capability);
-                  return (
-                    <Box key={model.name}>
-                      <Text color="yellow">○</Text>
-                      <Text> {model.name} </Text>
-                      <Text color="gray">[{model.provider}] </Text>
-                      <Text color={badge.color}>{badge.label}</Text>
-                    </Box>
-                  );
-                })}
-              </Box>
-            )}
-
-            {unregistered.length === 0 && registered.length > 0 && (
-              <Box marginTop={1}>
-                <Text color="green">All models registered with MindStudio.</Text>
-              </Box>
-            )}
-          </>
-        )}
       </Box>
+
+      {modelsLoading ? (
+        <Box marginTop={1}>
+          <Text color="cyan">
+            <Spinner type="dots" />
+          </Text>
+          <Text> Discovering models...</Text>
+        </Box>
+      ) : models.length === 0 && unavailableRegistered.length === 0 ? (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="yellow">No models found.</Text>
+          <Text color="gray">
+            Download models using your provider (e.g., ollama pull llama3.2)
+          </Text>
+        </Box>
+      ) : (
+        <Box flexDirection="column" marginTop={1}>
+          {models.map((model) => {
+            const cap = getCapabilityLabel(model.capability);
+            const isRegistered = registeredNames.has(model.name);
+            const displayProvider = PROVIDER_DISPLAY_NAMES[model.provider] ?? model.provider;
+            return (
+              <Box key={model.name}>
+                <Text color={isRegistered ? 'green' : 'gray'}>{isRegistered ? '\u25CF' : '\u25CB'}</Text>
+                <Text color="white">{` ${model.name}`}</Text>
+                <Text color="gray">{' - '}</Text>
+                <Text color="gray">{displayProvider}</Text>
+                <Text color="gray">{' - '}</Text>
+                <Text color={cap.color}>{cap.label}</Text>
+              </Box>
+            );
+          })}
+
+          {unavailableRegistered.length > 0 && (
+            <Box flexDirection="column" marginTop={1}>
+              <Text color="gray">
+                Registered but not currently available:
+              </Text>
+              {unavailableRegistered.map((name) => (
+                <Box key={name}>
+                  <Text color="gray">{'\u25CB'}</Text>
+                  <Text color="gray">{` ${name}`}</Text>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+        </Box>
+      )}
     </Box>
   );
 }

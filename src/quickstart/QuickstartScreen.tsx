@@ -4,21 +4,16 @@ import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
 import * as path from 'path';
 import * as os from 'os';
-import { detectAllProviders, type ProviderInfo } from './detect.js';
 import {
-  installOllama,
-  installLMStudio,
-  installStableDiffusion,
-  installComfyUI,
-  installComfyUICustomNodes,
-  pullOllamaModel,
-  startOllama,
-  hasDefaultSdModel,
-  getComfyUIModelStatus,
-  getPythonVersion,
-  isPythonVersionOk,
-  type InstallProgress,
-} from './installers.js';
+  allProviders,
+  detectAllProviderStatuses,
+  getProvider,
+  type Provider,
+  type ProviderSetupStatus,
+  type LifecycleProgress,
+  type ModelAction,
+} from '../providers/index.js';
+import { getPythonVersion, isPythonVersionOk } from '../providers/utils.js';
 import { LogoString } from '../helpers.js';
 
 type Screen =
@@ -40,6 +35,11 @@ interface MenuItem {
   category: MenuCategory;
 }
 
+interface ProviderWithStatus {
+  provider: Provider;
+  status: ProviderSetupStatus;
+}
+
 export interface QuickstartProps {
   onExternalAction?: (action: string) => void;
 }
@@ -47,10 +47,10 @@ export interface QuickstartProps {
 export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>('detecting');
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [providers, setProviders] = useState<ProviderWithStatus[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [installProgress, setInstallProgress] =
-    useState<InstallProgress | null>(null);
+    useState<LifecycleProgress | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
 
   // Track what action was completed for context-specific done screen
@@ -63,28 +63,31 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   // Model download state for Ollama
   const [modelName, setModelName] = useState('');
 
-  // Track if default SD model already exists
-  const [sdModelExists, setSdModelExists] = useState(false);
+  // Model actions state
+  const [sdModelActions, setSdModelActions] = useState<ModelAction[]>([]);
+  const [comfyModelActions, setComfyModelActions] = useState<ModelAction[]>([]);
 
   // ComfyUI state
   const defaultComfyPath = path.join(os.homedir(), 'ComfyUI');
   const [comfyInstallPath, setComfyInstallPath] = useState(defaultComfyPath);
-  const [comfyModelStatus, setComfyModelStatus] = useState<
-    Array<{ id: string; label: string; installed: boolean; totalSize: string }>
-  >([]);
 
   // Refresh provider detection and model status
   const refreshProviders = async () => {
-    const detected = await detectAllProviders();
-    setProviders(detected);
-    const modelExists = await hasDefaultSdModel();
-    setSdModelExists(modelExists);
-    setComfyModelStatus(getComfyUIModelStatus());
+    const statuses = await detectAllProviderStatuses();
+    setProviders(statuses);
+
+    // Gather model actions
+    for (const p of allProviders) {
+      if (p.getModelActions) {
+        const actions = await p.getModelActions();
+        if (p.name === 'stable-diffusion') setSdModelActions(actions);
+        if (p.name === 'comfyui') setComfyModelActions(actions);
+      }
+    }
   };
 
   // Navigate to a screen with a clean slate
   const navigateTo = (target: Screen) => {
-    // Clear screen + scrollback buffer + reset cursor position
     process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
     setInstallProgress(null);
     setLogs([]);
@@ -103,29 +106,30 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   // Build menu items based on detected providers
   const menuItems: MenuItem[] = [];
 
-  const ollama = providers.find((p) => p.id === 'ollama');
-  const lmstudio = providers.find((p) => p.id === 'lmstudio');
-  const sd = providers.find((p) => p.id === 'stable-diffusion');
+  const ollama = providers.find((p) => p.provider.name === 'ollama');
+  const lmstudio = providers.find((p) => p.provider.name === 'lmstudio');
+  const sd = providers.find((p) => p.provider.name === 'stable-diffusion');
 
   // --- Text providers (Ollama, LM Studio) ---
   if (ollama) {
-    if (!ollama.installed) {
+    const ollamaProvider = ollama.provider;
+
+    if (!ollama.status.installed) {
       menuItems.push({
         id: 'install-ollama',
         category: 'text',
-        label: ollama.installable
+        label: ollama.status.installable
           ? 'Install Ollama (automatic)'
           : 'Download Ollama (opens browser)',
         action: async () => {
-          if (ollama.installable) {
-            // Use external action so Ink exits and sudo prompt is visible
+          if (ollama.status.installable) {
             if (onExternalAction) {
-              onExternalAction('install-ollama');
+              onExternalAction('install:ollama');
             }
             exit();
           } else {
             navigateTo('installing');
-            await installOllama((progress) => {
+            await ollamaProvider.install!((progress) => {
               setInstallProgress(progress);
               if (progress.message) {
                 setLogs((prev) => [...prev.slice(-10), progress.message]);
@@ -136,14 +140,14 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
           }
         },
       });
-    } else if (!ollama.running) {
+    } else if (!ollama.status.running) {
       menuItems.push({
         id: 'start-ollama',
         category: 'text',
         label: 'Start Ollama server',
         action: async () => {
           navigateTo('installing');
-          await startOllama((progress) => {
+          await ollamaProvider.start!((progress) => {
             setInstallProgress(progress);
           });
           setCompletedAction('start-ollama');
@@ -151,7 +155,6 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
         },
       });
     } else {
-      // Ollama is installed and running - offer to download models and stop
       menuItems.push({
         id: 'download-model',
         category: 'text',
@@ -167,7 +170,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
         label: 'Stop Ollama server',
         action: async () => {
           if (onExternalAction) {
-            onExternalAction('stop-ollama');
+            onExternalAction('stop:ollama');
           }
           exit();
         },
@@ -175,14 +178,15 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
     }
   }
 
-  if (lmstudio && !lmstudio.installed) {
+  if (lmstudio && !lmstudio.status.installed) {
+    const lmstudioProvider = lmstudio.provider;
     menuItems.push({
       id: 'install-lmstudio',
       category: 'text',
       label: 'Download LM Studio (opens browser)',
       action: async () => {
         navigateTo('installing');
-        await installLMStudio((progress) => {
+        await lmstudioProvider.install!((progress) => {
           setInstallProgress(progress);
         });
         setCompletedAction('install-lmstudio');
@@ -193,7 +197,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
 
   // --- Image providers (Stable Diffusion) ---
   if (sd) {
-    if (sd.warning) {
+    if (sd.status.warning) {
       menuItems.push({
         id: 'fix-python',
         category: 'image',
@@ -207,19 +211,19 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       });
     }
 
-    if (!sd.installed) {
+    if (!sd.status.installed) {
       menuItems.push({
         id: 'install-sd',
         category: 'image',
-        label: sd.installable
+        label: sd.status.installable
           ? 'Install Stable Diffusion Forge Neo'
           : 'Stable Diffusion (requires git & python)',
-        disabled: !sd.installable,
+        disabled: !sd.status.installable,
         action: async () => {
           navigateTo('path-input');
         },
       });
-    } else if (!sd.running) {
+    } else if (!sd.status.running) {
       menuItems.push({
         id: 'start-sd',
         category: 'image',
@@ -249,7 +253,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
           }
 
           if (onExternalAction) {
-            onExternalAction('start-sd');
+            onExternalAction('start:stable-diffusion');
           }
           exit();
         },
@@ -261,32 +265,36 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
         label: 'Stop Stable Diffusion server',
         action: async () => {
           if (onExternalAction) {
-            onExternalAction('stop-sd');
+            onExternalAction('stop:stable-diffusion');
           }
           exit();
         },
       });
     }
 
-    if (sd.installed && !sdModelExists) {
-      menuItems.push({
-        id: 'download-sd-model',
-        category: 'image',
-        label: 'Download default SDXL model (~6.5 GB)',
-        action: async () => {
-          if (onExternalAction) {
-            onExternalAction('download-sd-model');
-          }
-          exit();
-        },
-      });
+    // SD model download actions
+    for (const action of sdModelActions) {
+      if (!action.installed && sd.status.installed) {
+        menuItems.push({
+          id: 'download-sd-model',
+          category: 'image',
+          label: `Download default SDXL model (${action.sizeLabel})`,
+          action: async () => {
+            if (onExternalAction) {
+              onExternalAction(`download:stable-diffusion:${action.id}`);
+            }
+            exit();
+          },
+        });
+      }
     }
   }
 
   // Function to start SD installation with the chosen path
   const startSdInstallation = async () => {
     navigateTo('installing');
-    await installStableDiffusion((progress) => {
+    const sdProvider = getProvider('stable-diffusion');
+    await sdProvider?.install?.((progress) => {
       setInstallProgress(progress);
       if (progress.message) {
         setLogs((prev) => [...prev.slice(-10), progress.message]);
@@ -300,7 +308,8 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   const startModelDownload = async () => {
     if (!modelName.trim()) return;
     navigateTo('installing');
-    await pullOllamaModel(modelName.trim(), (progress) => {
+    const ollamaProvider = getProvider('ollama');
+    await ollamaProvider?.downloadModel?.(modelName.trim(), (progress) => {
       setInstallProgress(progress);
       if (progress.message) {
         setLogs((prev) => [...prev.slice(-10), progress.message]);
@@ -311,16 +320,18 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   };
 
   // --- Video providers (ComfyUI) ---
-  const comfyui = providers.find((p) => p.id === 'comfyui');
+  const comfyui = providers.find((p) => p.provider.name === 'comfyui');
   if (comfyui) {
-    if (!comfyui.installed) {
+    const comfyProvider = comfyui.provider;
+
+    if (!comfyui.status.installed) {
       menuItems.push({
         id: 'install-comfyui',
         category: 'video',
-        label: comfyui.installable
+        label: comfyui.status.installable
           ? 'Install ComfyUI'
           : 'ComfyUI (requires git & python)',
-        disabled: !comfyui.installable,
+        disabled: !comfyui.status.installable,
         action: async () => {
           navigateTo('installing');
           setInstallProgress({
@@ -328,52 +339,39 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
             message: 'Installing ComfyUI...',
           });
 
-          const success = await installComfyUI(comfyInstallPath, (progress) => {
+          await comfyProvider.install!((progress) => {
             setInstallProgress(progress);
             if (progress.message) {
               setLogs((prev) => [...prev.slice(-10), progress.message]);
             }
-          });
-
-          if (success) {
-            setInstallProgress({
-              stage: 'start',
-              message: 'Installing LTX-Video custom nodes...',
-            });
-            await installComfyUICustomNodes((progress) => {
-              setInstallProgress(progress);
-              if (progress.message) {
-                setLogs((prev) => [...prev.slice(-10), progress.message]);
-              }
-            });
-          }
+          }, comfyInstallPath);
 
           setCompletedAction('install-comfyui');
           navigateTo('done');
         },
       });
-    } else if (!comfyui.running) {
+    } else if (!comfyui.status.running) {
       menuItems.push({
         id: 'start-comfyui',
         category: 'video',
         label: 'Start ComfyUI server',
         action: async () => {
           if (onExternalAction) {
-            onExternalAction('start-comfyui');
+            onExternalAction('start:comfyui');
           }
           exit();
         },
       });
     } else {
-      for (const model of comfyModelStatus) {
-        if (!model.installed) {
+      for (const action of comfyModelActions) {
+        if (!action.installed) {
           menuItems.push({
-            id: `download-comfyui-${model.id}`,
+            id: `download-comfyui-${action.id}`,
             category: 'video',
-            label: `Download ${model.label} (${model.totalSize})`,
+            label: `Download ${action.label} (${action.sizeLabel})`,
             action: async () => {
               if (onExternalAction) {
-                onExternalAction(`download-comfyui-model:${model.id}`);
+                onExternalAction(`download:comfyui:${action.id}`);
               }
               exit();
             },
@@ -387,7 +385,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
         label: 'Stop ComfyUI server',
         action: async () => {
           if (onExternalAction) {
-            onExternalAction('stop-comfyui');
+            onExternalAction('stop:comfyui');
           }
           exit();
         },
@@ -430,27 +428,22 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
         }
       }
     }
-    // Allow escape to go back from path input
     if (screen === 'path-input' && key.escape) {
       navigateTo('menu');
       return;
     }
-    // Allow escape to go back from model download
     if (screen === 'model-download' && key.escape) {
       navigateTo('menu');
       return;
     }
-    // Allow escape or Enter to go back from model guide
     if (screen === 'model-guide' && (key.escape || key.return)) {
       navigateTo('menu');
       return;
     }
-    // Allow Enter to exit from done screen (return to main menu)
     if (screen === 'done' && key.return) {
       exit();
       return;
     }
-    // Global quit (but not during input screens, done screen, or guide)
     if (
       screen !== 'path-input' &&
       screen !== 'model-download' &&
@@ -850,7 +843,6 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
             ].join('\n'),
           };
         case 'start-sd':
-          // If there was a pre-flight error (Python version), show it
           if (installProgress?.error) {
             return {
               title: installProgress.message,
@@ -928,10 +920,10 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
   }
 
   // Menu screen
-  const allInstalled = providers.every((p) => p.installed);
+  const allInstalled = providers.every((p) => p.status.installed);
   const allRunning = providers
-    .filter((p) => p.installed)
-    .every((p) => p.running);
+    .filter((p) => p.status.installed)
+    .every((p) => p.status.running);
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -952,12 +944,12 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
       >
         <Text bold>Provider Status</Text>
         {[
-          { label: 'Text', ids: ['ollama', 'lmstudio'] },
-          { label: 'Image', ids: ['stable-diffusion'] },
-          { label: 'Video', ids: ['comfyui'] },
+          { label: 'Text', names: ['ollama', 'lmstudio'] },
+          { label: 'Image', names: ['stable-diffusion'] },
+          { label: 'Video', names: ['comfyui'] },
         ].map((group) => {
           const groupProviders = providers.filter((p) =>
-            group.ids.includes(p.id),
+            group.names.includes(p.provider.name),
           );
           if (groupProviders.length === 0) return null;
           return (
@@ -965,36 +957,36 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
               <Text color="gray" dimColor>
                 {group.label}
               </Text>
-              {groupProviders.map((provider) => (
-                <Box key={provider.id} flexDirection="column">
+              {groupProviders.map(({ provider, status }) => (
+                <Box key={provider.name} flexDirection="column">
                   <Box>
                     <Text
                       color={
-                        provider.installed
-                          ? provider.running
+                        status.installed
+                          ? status.running
                             ? 'green'
                             : 'yellow'
                           : 'red'
                       }
                     >
-                      {provider.installed
-                        ? provider.running
+                      {status.installed
+                        ? status.running
                           ? '●'
                           : '○'
                         : '✗'}
                     </Text>
-                    <Text> {provider.name} - </Text>
+                    <Text> {provider.displayName} - </Text>
                     <Text color="gray">
-                      {provider.running
+                      {status.running
                         ? 'Running'
-                        : provider.installed
+                        : status.installed
                           ? 'Installed (not running)'
                           : 'Not installed'}
                     </Text>
                   </Box>
-                  {provider.warning && (
+                  {status.warning && (
                     <Box>
-                      <Text color="yellow"> ⚠ {provider.warning}</Text>
+                      <Text color="yellow"> ⚠ {status.warning}</Text>
                     </Box>
                   )}
                 </Box>
@@ -1044,12 +1036,10 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
             general: '',
           };
 
-          // Only show categories that have items
           const activeCategories = categoryOrder.filter((cat) =>
             menuItems.some((item) => item.category === cat),
           );
 
-          // Track the global index for selection
           let globalIndex = 0;
 
           return (
@@ -1102,7 +1092,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
         })()}
 
       {/* Add your own models tips */}
-      {(sd?.installed || comfyui?.installed) && (
+      {(sd?.status.installed || comfyui?.status.installed) && (
         <Box
           marginTop={1}
           flexDirection="column"
@@ -1113,7 +1103,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
           <Text bold color="gray">
             Add Your Own Models
           </Text>
-          {sd?.installed && (
+          {sd?.status.installed && (
             <Box marginTop={1} flexDirection="column">
               <Text color="gray">
                 Image models (.safetensors) from{' '}
@@ -1128,7 +1118,7 @@ export function QuickstartScreen({ onExternalAction }: QuickstartProps = {}) {
               </Text>
             </Box>
           )}
-          {comfyui?.installed && (
+          {comfyui?.status.installed && (
             <Box marginTop={1} flexDirection="column">
               <Text color="gray">
                 Video models (.safetensors) from{' '}
