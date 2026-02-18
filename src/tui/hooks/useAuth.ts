@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import open from 'open';
-import { requestDeviceAuth, pollDeviceAuth } from '../../api.js';
-import { setApiKey } from '../../config.js';
+import { requestDeviceAuth, pollDeviceAuth } from '../../api';
+import { setApiKey } from '../../config';
 
 type AuthStatus = 'idle' | 'waiting' | 'success' | 'expired' | 'timeout';
 

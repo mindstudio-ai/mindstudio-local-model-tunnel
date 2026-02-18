@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
-import { useAuth } from '../hooks/useAuth.js';
+import { useAuth } from '../hooks/useAuth';
 
 interface AuthPageProps {
   onComplete: () => void;
@@ -27,9 +27,6 @@ export function AuthPage({ onComplete }: AuthPageProps) {
   if (status === 'idle') {
     return (
       <Box flexDirection="column" marginTop={1} paddingX={1}>
-        <Text bold color="white" underline>
-          Authentication
-        </Text>
         <Box marginTop={1}>
           <Text color="gray">Starting authentication...</Text>
         </Box>
@@ -40,9 +37,6 @@ export function AuthPage({ onComplete }: AuthPageProps) {
   if (status === 'success') {
     return (
       <Box flexDirection="column" marginTop={1} paddingX={1}>
-        <Text bold color="white" underline>
-          Authentication
-        </Text>
         <Box marginTop={1}>
           <Text color="green">✓ Authenticated successfully!</Text>
         </Box>
@@ -54,9 +48,6 @@ export function AuthPage({ onComplete }: AuthPageProps) {
   if (status === 'expired' || status === 'timeout') {
     return (
       <Box flexDirection="column" marginTop={1} paddingX={1}>
-        <Text bold color="white" underline>
-          Authentication
-        </Text>
         <Box marginTop={1}>
           <Text color="red">
             {status === 'expired'
@@ -71,10 +62,6 @@ export function AuthPage({ onComplete }: AuthPageProps) {
   // Waiting state
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>
-      <Text bold color="white" underline>
-        Authentication
-      </Text>
-
       <Box marginTop={1}>
         <Text color="cyan">
           <Spinner type="dots" />

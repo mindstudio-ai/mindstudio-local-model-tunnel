@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
-import type { RequestLogEntry } from '../types.js';
+import type { RequestLogEntry } from '../types';
 
 interface RequestLogProps {
   requests: RequestLogEntry[];

@@ -1,17 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import open from 'open';
-import { getLMStudioBaseUrl } from '../config.js';
+import { config } from '../../config';
 import type {
-  TextProvider,
+  Provider,
   LocalModel,
   ChatMessage,
   ChatOptions,
   ChatResponse,
   ProviderSetupStatus,
-  LifecycleProgressCallback,
-} from './types.js';
+  ProviderInstructions,
+} from '../types';
 
 interface LMStudioModel {
   id: string;
@@ -23,14 +22,61 @@ interface LMStudioModelsResponse {
   data: LMStudioModel[];
 }
 
-export class LMStudioProvider implements TextProvider {
-  readonly name = 'lmstudio' as const;
+const instructions: ProviderInstructions = {
+  install: {
+    macos: [
+      {
+        text: 'Download LM Studio from https://lmstudio.ai and install the app.',
+      },
+    ],
+    linux: [
+      {
+        text: 'Download LM Studio from https://lmstudio.ai and install the app.',
+      },
+    ],
+    windows: [
+      {
+        text: 'Download LM Studio from https://lmstudio.ai and install the app.',
+      },
+    ],
+  },
+  start: {
+    macos: [
+      {
+        text: 'Open LM Studio, load a model, and enable the local server in the Developer tab.',
+      },
+    ],
+    linux: [
+      {
+        text: 'Open LM Studio, load a model, and enable the local server in the Developer tab.',
+      },
+    ],
+    windows: [
+      {
+        text: 'Open LM Studio, load a model, and enable the local server in the Developer tab.',
+      },
+    ],
+  },
+  stop: {
+    macos: [{ text: 'Quit the LM Studio app.' }],
+    linux: [{ text: 'Quit the LM Studio app.' }],
+    windows: [{ text: 'Quit the LM Studio app.' }],
+  },
+};
+
+class LMStudioProvider implements Provider {
+  readonly name = 'lmstudio';
   readonly displayName = 'LM Studio';
   readonly description = 'Text generation (GUI app)';
-  readonly capability = 'text' as const;
+  readonly capabilities = ['text'] as const;
+  readonly instructions = instructions;
+
+  get baseUrl(): string {
+    return config.get('lmstudioBaseUrl');
+  }
 
   private getBaseUrl(): string {
-    return getLMStudioBaseUrl();
+    return this.baseUrl;
   }
 
   async isRunning(): Promise<boolean> {
@@ -100,25 +146,7 @@ export class LMStudioProvider implements TextProvider {
       running = false;
     }
 
-    return {
-      installed,
-      running,
-      installable: false, // GUI app - can only open download page
-    };
-  }
-
-  async install(onProgress: LifecycleProgressCallback): Promise<boolean> {
-    onProgress({
-      stage: 'browser',
-      message: 'Opening LM Studio download page...',
-    });
-    await open('https://lmstudio.ai/download');
-    onProgress({
-      stage: 'manual',
-      message: 'Please install LM Studio and enable the local server',
-      complete: true,
-    });
-    return true;
+    return { installed, running };
   }
 
   async *chat(
@@ -209,3 +237,5 @@ export class LMStudioProvider implements TextProvider {
     }
   }
 }
+
+export default new LMStudioProvider();

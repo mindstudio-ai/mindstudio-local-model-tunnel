@@ -1,8 +1,8 @@
-export { useConnection } from './useConnection.js';
-export { useProviders } from './useProviders.js';
-export { useModels } from './useModels.js';
-export { useRequests } from './useRequests.js';
-export { useRegisteredModels } from './useRegisteredModels.js';
-export { useAuth } from './useAuth.js';
-export { useRegister } from './useRegister.js';
-export { useSetupProviders } from './useSetupProviders.js';
+export { useConnection } from './useConnection';
+export { useProviders } from './useProviders';
+export { useModels } from './useModels';
+export { useRequests } from './useRequests';
+export { useRegisteredModels } from './useRegisteredModels';
+export { useAuth } from './useAuth';
+export { useRegister } from './useRegister';
+export { useSetupProviders } from './useSetupProviders';

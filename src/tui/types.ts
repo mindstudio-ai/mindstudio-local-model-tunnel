@@ -1,4 +1,4 @@
-import type { Provider, LocalModel } from '../providers/types.js';
+import type { Provider, LocalModel } from '../providers/types';
 
 export type ConnectionStatus =
   | 'connecting'
@@ -7,7 +7,7 @@ export type ConnectionStatus =
   | 'disconnected'
   | 'error';
 
-export type Page = 'dashboard' | 'settings' | 'auth' | 'register' | 'setup' | 'onboarding';
+export type Page = 'dashboard' | 'auth' | 'register' | 'setup' | 'onboarding';
 
 export interface ProviderStatus {
   provider: Provider;

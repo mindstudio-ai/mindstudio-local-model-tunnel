@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getProviderStatuses } from '../../providers/index.js';
-import type { ProviderStatus } from '../types.js';
+import { getProviderStatuses } from '../../providers';
+import type { ProviderStatus } from '../types';
 
 interface UseProvidersResult {
   providers: ProviderStatus[];

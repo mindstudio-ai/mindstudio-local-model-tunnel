@@ -8,8 +8,8 @@
     "mindstudio-local": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc && node dist/cli.js",
+    "build": "tsup",
+    "dev": "tsup && node dist/cli.js",
     "start": "node dist/cli.js",
     "prepublishOnly": "npm run build",
     "local-update": "npm run build && npm link",
@@ -51,6 +51,7 @@
     "@types/react": "^19.2.10",
     "prettier": "^3.8.1",
     "ts-node": "^10.9.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.0.0"
   },
   "publishConfig": {

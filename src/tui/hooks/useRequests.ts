@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { requestEvents } from '../../events.js';
-import type { RequestLogEntry } from '../types.js';
+import { requestEvents } from '../../events';
+import type { RequestLogEntry } from '../types';
 
 interface UseRequestsResult {
   requests: RequestLogEntry[];

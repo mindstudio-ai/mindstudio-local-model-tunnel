@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getRegisteredModels } from '../../api.js';
-import type { ConnectionStatus } from '../types.js';
+import { getRegisteredModels } from '../../api';
+import type { ConnectionStatus } from '../types';
 
 interface UseRegisteredModelsResult {
   registeredNames: Set<string>;

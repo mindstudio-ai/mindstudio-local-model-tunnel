@@ -1,4 +1,6 @@
 import Conf from 'conf';
+import os from 'node:os';
+import path from 'node:path';
 
 export type Environment = 'prod' | 'local';
 
@@ -21,8 +23,10 @@ interface ConfigSchema {
   };
 }
 
-const config = new Conf<ConfigSchema>({
+export const config = new Conf<ConfigSchema>({
   projectName: 'mindstudio-local',
+  cwd: path.join(os.homedir(), '.mindstudio-local-tunnel'),
+  configName: 'config',
   defaults: {
     environment: 'prod',
     ollamaBaseUrl: 'http://localhost:11434',
@@ -81,60 +85,6 @@ export function getApiBaseUrl(): string {
 
 export function setApiBaseUrl(url: string): void {
   setEnvConfig('apiBaseUrl', url);
-}
-
-// Ollama (shared across environments)
-export function getOllamaBaseUrl(): string {
-  return config.get('ollamaBaseUrl');
-}
-
-export function setOllamaBaseUrl(url: string): void {
-  config.set('ollamaBaseUrl', url);
-}
-
-// LM Studio (shared across environments)
-export function getLMStudioBaseUrl(): string {
-  return config.get('lmstudioBaseUrl');
-}
-
-export function setLMStudioBaseUrl(url: string): void {
-  config.set('lmstudioBaseUrl', url);
-}
-
-// Stable Diffusion / AUTOMATIC1111 (shared across environments)
-export function getStableDiffusionBaseUrl(): string {
-  return config.get('stableDiffusionBaseUrl');
-}
-
-export function setStableDiffusionBaseUrl(url: string): void {
-  config.set('stableDiffusionBaseUrl', url);
-}
-
-// Stable Diffusion install path
-export function getStableDiffusionInstallPath(): string | undefined {
-  return config.get('stableDiffusionInstallPath');
-}
-
-export function setStableDiffusionInstallPath(path: string): void {
-  config.set('stableDiffusionInstallPath', path);
-}
-
-// ComfyUI (shared across environments)
-export function getComfyUIBaseUrl(): string {
-  return config.get('comfyuiBaseUrl');
-}
-
-export function setComfyUIBaseUrl(url: string): void {
-  config.set('comfyuiBaseUrl', url);
-}
-
-// ComfyUI install path
-export function getComfyUIInstallPath(): string | undefined {
-  return config.get('comfyuiInstallPath');
-}
-
-export function setComfyUIInstallPath(path: string): void {
-  config.set('comfyuiInstallPath', path);
 }
 
 export function getConfigPath(): string {

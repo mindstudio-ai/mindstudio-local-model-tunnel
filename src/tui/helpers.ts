@@ -1,9 +1,9 @@
-import type { ConnectionStatus } from './types.js';
+import type { ConnectionStatus } from './types';
 
 export function getConnectionDisplay(status: ConnectionStatus) {
   switch (status) {
     case 'connected':
-      return { color: 'green', text: 'Connected' };
+      return { color: 'green', text: 'Connected to Cloud' };
     case 'connecting':
       return { color: 'yellow', text: 'Connecting...' };
     case 'not_authenticated':

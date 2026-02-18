@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
-import { NavigationMenu } from '../components/index.js';
-import type { MenuItem } from '../components/index.js';
-import { useAuth } from '../hooks/useAuth.js';
-import { getApiKey } from '../../config.js';
-import { LogoString } from '../../helpers.js';
+import { NavigationMenu } from '../components';
+import type { MenuItem } from '../components';
+import { useAuth } from '../hooks/useAuth';
+import { getApiKey } from '../../config';
+import { LogoString } from '../../helpers';
 
 type WizardStep = 'welcome' | 'auth';
 

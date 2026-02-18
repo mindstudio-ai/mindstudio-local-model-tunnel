@@ -1,38 +1,36 @@
-import { OllamaProvider } from './ollama.js';
-import { LMStudioProvider } from './lmstudio.js';
-import { StableDiffusionProvider } from './stable-diffusion.js';
-import { ComfyUIProvider } from './comfyui.js';
+import ollama from './ollama';
+import lmstudio from './lmstudio';
+import stableDiffusion from './stable-diffusion';
+import comfyui from './comfyui';
 import type {
   Provider,
-  TextProvider,
-  ImageProvider,
-  VideoProvider,
   LocalModel,
-  ProviderType,
   ProviderSetupStatus,
   ModelCapability,
-} from './types.js';
-import { isTextProvider, isImageProvider, isVideoProvider } from './types.js';
+} from './types';
 
-export * from './types.js';
-export { OllamaProvider } from './ollama.js';
-export { LMStudioProvider } from './lmstudio.js';
-export { StableDiffusionProvider } from './stable-diffusion.js';
-export { ComfyUIProvider } from './comfyui.js';
+export * from './types';
 
 // Registry of all available providers
 export const allProviders: Provider[] = [
-  new OllamaProvider(),
-  new LMStudioProvider(),
-  new StableDiffusionProvider(),
-  new ComfyUIProvider(),
+  ollama,
+  lmstudio,
+  stableDiffusion,
+  comfyui,
 ];
 
 /**
  * Get a provider instance by name
  */
-export function getProvider(name: ProviderType): Provider | undefined {
+export function getProvider(name: string): Provider | undefined {
   return allProviders.find((p) => p.name === name);
+}
+
+/**
+ * Get all providers that support a given capability
+ */
+export function getProvidersByCapability(cap: ModelCapability): Provider[] {
+  return allProviders.filter((p) => p.capabilities.includes(cap));
 }
 
 /**
@@ -85,63 +83,14 @@ export async function getProviderStatuses(): Promise<
 }
 
 /**
- * Get all text providers
- */
-export function getTextProviders(): TextProvider[] {
-  return allProviders.filter(isTextProvider);
-}
-
-/**
- * Get all image providers
- */
-export function getImageProviders(): ImageProvider[] {
-  return allProviders.filter(isImageProvider);
-}
-
-/**
- * Get a text provider by name
- */
-export function getTextProvider(name: ProviderType): TextProvider | undefined {
-  const provider = allProviders.find((p) => p.name === name);
-  return provider && isTextProvider(provider) ? provider : undefined;
-}
-
-/**
- * Get an image provider by name
- */
-export function getImageProvider(
-  name: ProviderType,
-): ImageProvider | undefined {
-  const provider = allProviders.find((p) => p.name === name);
-  return provider && isImageProvider(provider) ? provider : undefined;
-}
-
-/**
- * Get all video providers
- */
-export function getVideoProviders(): VideoProvider[] {
-  return allProviders.filter(isVideoProvider);
-}
-
-/**
- * Get a video provider by name
- */
-export function getVideoProvider(
-  name: ProviderType,
-): VideoProvider | undefined {
-  const provider = allProviders.find((p) => p.name === name);
-  return provider && isVideoProvider(provider) ? provider : undefined;
-}
-
-/**
  * Discover models filtered by capability
  */
 export async function discoverModelsByCapability(
   capability: ModelCapability,
 ): Promise<LocalModel[]> {
   const runningProviders = await discoverRunningProviders();
-  const filteredProviders = runningProviders.filter(
-    (p) => p.capability === capability,
+  const filteredProviders = runningProviders.filter((p) =>
+    p.capabilities.includes(capability),
   );
 
   const modelArrays = await Promise.all(
@@ -167,7 +116,7 @@ export async function detectAllProviderStatuses(): Promise<
 
 /**
  * Discover all models with their parameter schemas
- * For image providers, fetches available parameters dynamically
+ * For providers with getParameterSchemas, fetches available parameters dynamically
  */
 export async function discoverAllModelsWithParameters(): Promise<LocalModel[]> {
   const runningProviders = await discoverRunningProviders();
@@ -176,8 +125,7 @@ export async function discoverAllModelsWithParameters(): Promise<LocalModel[]> {
     runningProviders.map(async (provider) => {
       const models = await provider.discoverModels();
 
-      // For image/video providers, fetch parameter schemas
-      if (isImageProvider(provider) || isVideoProvider(provider)) {
+      if (typeof provider.getParameterSchemas === 'function') {
         const parameters = await provider.getParameterSchemas();
         return models.map((model) => ({
           ...model,

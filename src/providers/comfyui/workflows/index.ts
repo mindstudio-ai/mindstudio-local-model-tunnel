@@ -6,12 +6,12 @@ import {
   buildLtxVideoWorkflow,
   LTX_VIDEO_OUTPUT_NODE,
   LTX_VIDEO_DEFAULTS,
-} from './ltx-video.js';
+} from './ltx-video';
 import {
   buildWan21Workflow,
   WAN21_OUTPUT_NODE,
   WAN21_DEFAULTS,
-} from './wan2.1.js';
+} from './wan2.1';
 
 export type ModelFamily = 'ltx-video' | 'wan2.1';
 
@@ -143,5 +143,5 @@ export function getSupportedFamilies(): WorkflowConfig[] {
   return MODEL_REGISTRY.map((entry) => entry.config);
 }
 
-export { buildLtxVideoWorkflow } from './ltx-video.js';
-export { buildWan21Workflow } from './wan2.1.js';
+export { buildLtxVideoWorkflow } from './ltx-video';
+export { buildWan21Workflow } from './wan2.1';

@@ -1,12 +1,12 @@
 // Main exports for programmatic use
-export { TunnelRunner } from './runner.js';
+export { TunnelRunner } from './runner';
 export {
   requestEvents,
   type RequestStartEvent,
   type RequestProgressEvent,
   type RequestCompleteEvent,
-} from './events.js';
-export { sleep, waitForEnter, clearTerminal, LogoString } from './helpers.js';
+} from './events';
+export { sleep, waitForEnter, clearTerminal, LogoString } from './helpers';
 export {
   // Discovery functions
   discoverAllModels,
@@ -15,41 +15,29 @@ export {
   discoverRunningProviders,
   getProvider,
   getProviderStatuses,
+  getProvidersByCapability,
   isAnyProviderRunning,
-  // Provider-specific getters
-  getTextProvider,
-  getTextProviders,
-  getImageProvider,
-  getImageProviders,
   // Type guards
   isTextProvider,
   isImageProvider,
   isVideoProvider,
-  // Provider-specific getters (video)
-  getVideoProvider,
-  getVideoProviders,
-  // Provider classes
-  OllamaProvider,
-  LMStudioProvider,
-  StableDiffusionProvider,
-  ComfyUIProvider,
   // Types
   type Provider,
-  type TextProvider,
-  type ImageProvider,
-  type VideoProvider,
-  type VideoProviderType,
   type LocalModel,
-  type ProviderType,
-  type TextProviderType,
-  type ImageProviderType,
   type ModelCapability,
+  type ProviderSetupStatus,
+  type InstructionStep,
+  type InstructionSet,
+  type ProviderInstructions,
   type ChatMessage,
   type ChatOptions,
   type ChatResponse,
   type ImageGenerationOptions,
   type ImageGenerationResult,
   type ImageGenerationProgress,
+  type VideoGenerationOptions,
+  type VideoGenerationResult,
+  type VideoGenerationProgress,
   // Parameter schema types
   type ParameterSchema,
   type SelectParameterSchema,
@@ -58,23 +46,17 @@ export {
   type BooleanParameterSchema,
   type SelectOption,
   type NumberOptions,
-} from './providers/index.js';
+} from './providers';
 export {
   getApiKey,
   setApiKey,
   clearApiKey,
   getApiBaseUrl,
   setApiBaseUrl,
-  getOllamaBaseUrl,
-  setOllamaBaseUrl,
-  getLMStudioBaseUrl,
-  setLMStudioBaseUrl,
-  getStableDiffusionBaseUrl,
-  setStableDiffusionBaseUrl,
   getEnvironment,
   setEnvironment,
   type Environment,
-} from './config.js';
+} from './config';
 export {
   verifyApiKey,
   pollForRequest,
@@ -87,4 +69,4 @@ export {
   type RequestResult,
   type RegisterModelOptions,
   type ModelTypeMindStudio,
-} from './api.js';
+} from './api';

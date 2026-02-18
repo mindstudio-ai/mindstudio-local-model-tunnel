@@ -5,17 +5,14 @@ import {
   submitResult,
   disconnectHeartbeat,
   type LocalModelRequest,
-} from './api.js';
+} from './api';
 import {
   getProvider,
-  isTextProvider,
-  isImageProvider,
-  isVideoProvider,
   discoverAllModels,
   type Provider,
   type LocalModel,
-} from './providers/index.js';
-import { requestEvents } from './events.js';
+} from './providers';
+import { requestEvents } from './events';
 
 /**
  * TunnelRunner handles the polling and request processing loop.
@@ -130,7 +127,7 @@ export class TunnelRunner {
     provider: Provider,
     startTime: number,
   ): Promise<void> {
-    if (!isTextProvider(provider)) {
+    if (!provider.chat) {
       throw new Error(`Provider does not support text generation`);
     }
 
@@ -181,7 +178,7 @@ export class TunnelRunner {
     provider: Provider,
     startTime: number,
   ): Promise<void> {
-    if (!isImageProvider(provider)) {
+    if (!provider.generateImage) {
       throw new Error(`Provider does not support image generation`);
     }
 
@@ -249,7 +246,7 @@ export class TunnelRunner {
     provider: Provider,
     startTime: number,
   ): Promise<void> {
-    if (!isVideoProvider(provider)) {
+    if (!provider.generateVideo) {
       throw new Error(`Provider does not support video generation`);
     }
 

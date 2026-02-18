@@ -1,14 +1,26 @@
-// Provider types - text, image, and video generation
-export type TextProviderType = 'ollama' | 'lmstudio';
-export type ImageProviderType = 'stable-diffusion';
-export type VideoProviderType = 'comfyui';
-export type ProviderType =
-  | TextProviderType
-  | ImageProviderType
-  | VideoProviderType;
-
 // Model capability types
 export type ModelCapability = 'text' | 'image' | 'video';
+
+// ============================================
+// Instruction Types
+// ============================================
+
+export interface InstructionStep {
+  text: string;
+  command?: string;
+}
+
+export interface InstructionSet {
+  macos?: InstructionStep[];
+  linux?: InstructionStep[];
+  windows?: InstructionStep[];
+}
+
+export interface ProviderInstructions {
+  install: InstructionSet;
+  start: InstructionSet;
+  stop?: InstructionSet;
+}
 
 // ============================================
 // Parameter Schema Types (for UI configuration)
@@ -66,7 +78,7 @@ export type ParameterSchema =
 
 export interface LocalModel {
   name: string;
-  provider: ProviderType;
+  provider: string;
   capability: ModelCapability;
   size?: number;
   parameterSize?: string;
@@ -168,126 +180,44 @@ export interface VideoGenerationProgress {
 }
 
 // ============================================
-// Lifecycle Types
+// Provider Status
 // ============================================
-
-export type LifecycleProgress = {
-  stage: string;
-  message: string;
-  complete?: boolean;
-  error?: string;
-};
-export type LifecycleProgressCallback = (progress: LifecycleProgress) => void;
 
 export interface ProviderSetupStatus {
   installed: boolean;
   running: boolean;
-  installable: boolean;
   warning?: string;
 }
 
-export interface ModelAction {
-  id: string;
-  label: string;
-  installed: boolean;
-  sizeLabel?: string;
-  requiresTerminal?: boolean;
-}
-
 // ============================================
-// Provider Interfaces
+// Provider Interface
 // ============================================
 
-/**
- * Base provider interface - all providers implement this
- */
-export interface BaseProvider {
-  readonly name: ProviderType;
+export interface Provider {
+  readonly name: string;
   readonly displayName: string;
   readonly description: string;
-  readonly capability: ModelCapability;
+  readonly baseUrl: string;
+  readonly capabilities: readonly ModelCapability[];
+  readonly instructions: ProviderInstructions;
 
-  /**
-   * Check if the provider's backend is running and accessible
-   */
   isRunning(): Promise<boolean>;
-
-  /**
-   * Discover all available models from this provider
-   */
+  detect(): Promise<ProviderSetupStatus>;
   discoverModels(): Promise<LocalModel[]>;
 
-  /**
-   * Detect installation and running status
-   */
-  detect(): Promise<ProviderSetupStatus>;
-
-  /**
-   * Install the provider (optional - not all providers support auto-install)
-   */
-  install?(onProgress: LifecycleProgressCallback, installPath?: string): Promise<boolean>;
-
-  /**
-   * Start the provider server
-   */
-  start?(onProgress: LifecycleProgressCallback): Promise<boolean>;
-
-  /**
-   * Stop the provider server
-   */
-  stop?(onProgress: LifecycleProgressCallback): Promise<boolean>;
-
-  /** Whether start requires terminal takeover (stdio: 'inherit') */
-  readonly requiresTerminalForStart?: boolean;
-
-  /** Whether stop requires terminal takeover (e.g. sudo prompts) */
-  readonly requiresTerminalForStop?: boolean;
-
-  /**
-   * Get available model download actions
-   */
-  getModelActions?(): Promise<ModelAction[]>;
-
-  /**
-   * Download a model by action ID
-   */
-  downloadModel?(actionId: string, onProgress: LifecycleProgressCallback): Promise<boolean>;
-}
-
-/**
- * Text generation provider (LLMs)
- */
-export interface TextProvider extends BaseProvider {
-  readonly capability: 'text';
-
-  /**
-   * Stream a chat completion
-   */
-  chat(
+  // Optional generation methods — present based on capabilities
+  chat?(
     model: string,
     messages: ChatMessage[],
     options?: ChatOptions,
   ): AsyncGenerator<ChatResponse>;
-}
 
-/**
- * Image generation provider
- */
-export interface ImageProvider extends BaseProvider {
-  readonly capability: 'image';
-
-  /**
-   * Generate an image from a prompt
-   */
-  generateImage(
+  generateImage?(
     model: string,
     prompt: string,
     options?: ImageGenerationOptions,
   ): Promise<ImageGenerationResult>;
 
-  /**
-   * Generate an image with progress callback (optional)
-   */
   generateImageWithProgress?(
     model: string,
     prompt: string,
@@ -295,57 +225,28 @@ export interface ImageProvider extends BaseProvider {
     onProgress?: (progress: ImageGenerationProgress) => void,
   ): Promise<ImageGenerationResult>;
 
-  /**
-   * Get parameter schemas for UI configuration
-   * Dynamically discovers available options from the backend
-   */
-  getParameterSchemas(): Promise<ParameterSchema[]>;
-}
-
-/**
- * Video generation provider
- */
-export interface VideoProvider extends BaseProvider {
-  readonly capability: 'video';
-
-  /**
-   * Generate a video from a prompt
-   */
-  generateVideo(
+  generateVideo?(
     model: string,
     prompt: string,
     options?: VideoGenerationOptions,
     onProgress?: (progress: VideoGenerationProgress) => void,
   ): Promise<VideoGenerationResult>;
 
-  /**
-   * Get parameter schemas for UI configuration
-   */
-  getParameterSchemas(): Promise<ParameterSchema[]>;
+  getParameterSchemas?(): Promise<ParameterSchema[]>;
 }
 
-/**
- * Union type for all providers
- */
-export type Provider = TextProvider | ImageProvider | VideoProvider;
+// ============================================
+// Type Guards (method-existence based)
+// ============================================
 
-/**
- * Type guard for text providers
- */
-export function isTextProvider(provider: Provider): provider is TextProvider {
-  return provider.capability === 'text';
+export function isTextProvider(p: Provider): boolean {
+  return typeof p.chat === 'function';
 }
 
-/**
- * Type guard for image providers
- */
-export function isImageProvider(provider: Provider): provider is ImageProvider {
-  return provider.capability === 'image';
+export function isImageProvider(p: Provider): boolean {
+  return typeof p.generateImage === 'function';
 }
 
-/**
- * Type guard for video providers
- */
-export function isVideoProvider(provider: Provider): provider is VideoProvider {
-  return provider.capability === 'video';
+export function isVideoProvider(p: Provider): boolean {
+  return typeof p.generateVideo === 'function';
 }

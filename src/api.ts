@@ -1,4 +1,4 @@
-import { getApiKey, getApiBaseUrl } from './config.js';
+import { getApiKey, getApiBaseUrl } from './config';
 
 export interface LocalModelRequest {
   id: string;

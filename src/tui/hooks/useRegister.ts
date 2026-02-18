@@ -2,12 +2,12 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   getRegisteredModels,
   registerLocalModel,
-} from '../../api.js';
+} from '../../api';
 import {
   discoverAllModelsWithParameters,
-} from '../../providers/index.js';
-import { MODEL_TYPE_MAP } from '../../helpers.js';
-import type { LocalModel } from '../../providers/types.js';
+} from '../../providers';
+import { MODEL_TYPE_MAP } from '../../helpers';
+import type { LocalModel } from '../../providers/types';
 
 type RegisterStatus =
   | 'idle'

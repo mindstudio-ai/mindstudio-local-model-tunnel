@@ -1,33 +1,31 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { Box, useApp, useStdout } from 'ink';
-import { Header, NavigationMenu } from './components/index.js';
-import type { MenuItem } from './components/index.js';
+import { Header, NavigationMenu } from './components';
+import type { MenuItem } from './components';
 import {
   useConnection,
   useProviders,
   useModels,
   useRequests,
   useRegisteredModels,
-} from './hooks/index.js';
+} from './hooks';
 import {
   DashboardPage,
-  SettingsPage,
   AuthPage,
   RegisterPage,
   SetupPage,
   OnboardingPage,
-} from './pages/index.js';
-import { TunnelRunner } from '../runner.js';
-import { getApiKey } from '../config.js';
-import type { Page } from './types.js';
+} from './pages';
+import { TunnelRunner } from '../runner';
+import { getApiKey, getConfigPath } from '../config';
+import { getVersion } from '../helpers';
+import type { Page } from './types';
 
 interface AppProps {
   runner: TunnelRunner;
-  initialPage?: Page;
-  onExit?: (reason: string) => void;
 }
 
-export function App({ runner, initialPage, onExit }: AppProps) {
+export function App({ runner }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const {
@@ -41,8 +39,8 @@ export function App({ runner, initialPage, onExit }: AppProps) {
   const { requests, activeCount } = useRequests();
   const { registeredNames, refresh: refreshRegistered } =
     useRegisteredModels(connectionStatus);
-  const shouldOnboard = !initialPage && getApiKey() === undefined;
-  const [page, setPage] = useState<Page>(initialPage ?? (shouldOnboard ? 'onboarding' : 'dashboard'));
+  const shouldOnboard = getApiKey() === undefined;
+  const [page, setPage] = useState<Page>(shouldOnboard ? 'onboarding' : 'dashboard');
 
   // Start runner when connected with models
   useEffect(() => {
@@ -66,26 +64,19 @@ export function App({ runner, initialPage, onExit }: AppProps) {
   const handleAuthComplete = useCallback(() => {
     retryConnection();
     refreshRegistered();
-    setPage('settings');
+    setPage('dashboard');
   }, [retryConnection, refreshRegistered]);
 
   const handleRegisterComplete = useCallback(() => {
     refreshRegistered();
     refreshModels();
-    setPage('settings');
+    setPage('dashboard');
   }, [refreshRegistered, refreshModels]);
 
   const handleQuit = useCallback(() => {
     runner.stop();
-    onExit?.('quit');
     exit();
-  }, [runner, onExit, exit]);
-
-  const handleExternalSetupAction = useCallback((action: string) => {
-    runner.stop();
-    onExit?.('setup:' + action);
-    exit();
-  }, [runner, onExit, exit]);
+  }, [runner, exit]);
 
   const handleOnboardingComplete = useCallback(() => {
     retryConnection();
@@ -96,11 +87,6 @@ export function App({ runner, initialPage, onExit }: AppProps) {
   const handleNavigate = useCallback(
     (id: string) => {
       switch (id) {
-        case 'settings':
-          setPage('settings');
-          refreshModels();
-          refreshRegistered();
-          break;
         case 'auth':
           setPage('auth');
           break;
@@ -110,30 +96,20 @@ export function App({ runner, initialPage, onExit }: AppProps) {
         case 'setup':
           setPage('setup');
           break;
+        case 'refresh':
+          refreshAll();
+          break;
         case 'quit':
           handleQuit();
           break;
       }
     },
-    [refreshModels, refreshRegistered, handleQuit],
+    [refreshModels, refreshRegistered, refreshAll, handleQuit],
   );
 
-  const commonMenuItems: MenuItem[] = [
+  const subpageMenuItems: MenuItem[] = [
     { id: 'back', label: 'Back', description: 'Return to dashboard' },
   ];
-
-  const getSubpageMenuItems = useCallback((): MenuItem[] => {
-    switch (page) {
-      case 'settings':
-        return [
-          { id: 'register', label: 'Register Models', description: 'Register models with MindStudio' },
-          { id: 'auth', label: 'Re-authenticate', description: 'Re-authenticate with MindStudio' },
-          ...commonMenuItems,
-        ];
-      default:
-        return commonMenuItems;
-    }
-  }, [page]);
 
   const handleSubpageNavigate = useCallback(
     (id: string) => {
@@ -154,25 +130,6 @@ export function App({ runner, initialPage, onExit }: AppProps) {
         <OnboardingPage
           onComplete={handleOnboardingComplete}
         />
-      ) : page === 'dashboard' ? (
-        <DashboardPage
-          providers={providers}
-          requests={requests}
-          activeCount={activeCount}
-          connectionStatus={connectionStatus}
-          environment={environment}
-          connectionError={connectionError}
-          modelCount={models.length}
-          onNavigate={handleNavigate}
-        />
-      ) : page === 'setup' ? (
-        <SetupPage
-          connectionStatus={connectionStatus}
-          environment={environment}
-          activeRequests={activeCount}
-          onExternalAction={handleExternalSetupAction}
-          onBack={() => setPage('dashboard')}
-        />
       ) : (
         <>
           <Header
@@ -180,16 +137,24 @@ export function App({ runner, initialPage, onExit }: AppProps) {
             environment={environment}
             activeRequests={activeCount}
             page={page}
+            version={getVersion()}
+            configPath={getConfigPath()}
+            connectionError={connectionError}
           />
 
-          {page === 'settings' && (
-            <SettingsPage
-              connectionStatus={connectionStatus}
-              environment={environment}
+          {page === 'dashboard' && (
+            <DashboardPage
+              providers={providers}
+              requests={requests}
               models={models}
               registeredNames={registeredNames}
               modelsLoading={modelsLoading}
-              providers={providers}
+              onNavigate={handleNavigate}
+            />
+          )}
+          {page === 'setup' && (
+            <SetupPage
+              onBack={() => setPage('dashboard')}
             />
           )}
           {page === 'auth' && <AuthPage onComplete={handleAuthComplete} />}
@@ -197,9 +162,11 @@ export function App({ runner, initialPage, onExit }: AppProps) {
             <RegisterPage onComplete={handleRegisterComplete} />
           )}
 
-          <Box flexGrow={1} />
+          {page !== 'dashboard' && page !== 'setup' && <Box flexGrow={1} />}
 
-          <NavigationMenu items={getSubpageMenuItems()} onSelect={handleSubpageNavigate} />
+          {page !== 'dashboard' && page !== 'setup' && (
+            <NavigationMenu items={subpageMenuItems} onSelect={handleSubpageNavigate} />
+          )}
         </>
       )}
     </Box>

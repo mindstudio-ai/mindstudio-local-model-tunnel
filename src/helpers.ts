@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { createRequire } from 'node:module';
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,6 +30,13 @@ export const MODEL_TYPE_MAP = {
   image: 'image_generation',
   video: 'video_generation',
 } as const;
+
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json') as { version: string };
+
+export function getVersion(): string {
+  return pkg.version;
+}
 
 export const LogoString = `
         .=+-.     :++.

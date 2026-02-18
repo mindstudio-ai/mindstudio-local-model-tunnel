@@ -1,26 +1,18 @@
 import React from 'react';
 import { render } from 'ink';
-import { App } from './App.js';
-import { TunnelRunner } from '../runner.js';
-import type { Page } from './types.js';
+import { App } from './App';
+import { TunnelRunner } from '../runner';
 
-export async function startTUI(options?: { initialPage?: Page }): Promise<string> {
+export async function startTUI(): Promise<void> {
   // Clear the screen
   console.clear();
 
   // Create the runner instance
   const runner = new TunnelRunner();
-  let exitReason = 'quit';
 
   // Render the TUI with stdin configured for keyboard input
   const { waitUntilExit } = render(
-    <App
-      runner={runner}
-      initialPage={options?.initialPage}
-      onExit={(reason) => {
-        exitReason = reason;
-      }}
-    />,
+    <App runner={runner} />,
     {
       exitOnCtrlC: true,
       incrementalRendering: true,
@@ -32,6 +24,4 @@ export async function startTUI(options?: { initialPage?: Page }): Promise<string
 
   // Ensure clean shutdown
   runner.stop();
-
-  return exitReason;
 }

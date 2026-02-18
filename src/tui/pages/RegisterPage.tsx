@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
-import { useRegister } from '../hooks/useRegister.js';
+import { useRegister } from '../hooks/useRegister';
 
 interface RegisterPageProps {
   onComplete: () => void;
@@ -26,9 +26,6 @@ export function RegisterPage({ onComplete }: RegisterPageProps) {
   if (status === 'idle') {
     return (
       <Box flexDirection="column" marginTop={1} paddingX={1}>
-        <Text bold color="white" underline>
-          Register Models
-        </Text>
         <Box marginTop={1}>
           <Text color="gray">Starting model registration...</Text>
         </Box>
@@ -39,9 +36,6 @@ export function RegisterPage({ onComplete }: RegisterPageProps) {
   if (status === 'error') {
     return (
       <Box flexDirection="column" marginTop={1} paddingX={1}>
-        <Text bold color="white" underline>
-          Register Models
-        </Text>
         <Box marginTop={1}>
           <Text color="red">Registration failed: {error}</Text>
         </Box>
@@ -52,9 +46,6 @@ export function RegisterPage({ onComplete }: RegisterPageProps) {
   if (status === 'discovering') {
     return (
       <Box flexDirection="column" marginTop={1} paddingX={1}>
-        <Text bold color="white" underline>
-          Register Models
-        </Text>
         <Box marginTop={1}>
           <Text color="cyan">
             <Spinner type="dots" />
@@ -68,9 +59,6 @@ export function RegisterPage({ onComplete }: RegisterPageProps) {
   if (status === 'registering') {
     return (
       <Box flexDirection="column" marginTop={1} paddingX={1}>
-        <Text bold color="white" underline>
-          Register Models
-        </Text>
         <Box marginTop={1}>
           <Text color="cyan">
             <Spinner type="dots" />
@@ -90,10 +78,6 @@ export function RegisterPage({ onComplete }: RegisterPageProps) {
 
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>
-      <Text bold color="white" underline>
-        Register Models
-      </Text>
-
       {newModels.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
           <Text color="green">

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { verifyApiKey } from '../../api.js';
-import { getApiKey, getEnvironment } from '../../config.js';
-import type { ConnectionStatus } from '../types.js';
+import { verifyApiKey } from '../../api';
+import { getApiKey, getEnvironment } from '../../config';
+import type { ConnectionStatus } from '../types';
 
 interface UseConnectionResult {
   status: ConnectionStatus;
