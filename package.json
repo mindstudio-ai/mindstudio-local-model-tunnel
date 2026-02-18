@@ -49,6 +49,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/marked-terminal": "^6.1.1",
     "@types/node": "^20.0.0",
     "@types/react": "^19.2.10",
     "prettier": "^3.8.1",

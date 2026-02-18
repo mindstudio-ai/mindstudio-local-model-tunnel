@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import Spinner from 'ink-spinner';
-import { MarkdownText } from '../components/MarkdownText';
+import { renderMarkdown } from '../components/MarkdownText';
 import { useSetupProviders } from '../hooks/useSetupProviders';
 import type { Provider } from '../../providers/types';
 
@@ -18,12 +18,17 @@ function ProviderDetailView({
 }) {
   const [scrollOffset, setScrollOffset] = useState(0);
   const { stdout } = useStdout();
-  const footerHeight = 7;
-  const viewHeight = (stdout?.rows ?? 24) - footerHeight;
+  const termHeight = (stdout?.rows ?? 24) - 4; // matches App's height calc
+  const headerHeight = 14; // border(2) + padding(2) + logo(9) + 1
+  const footerLines = 6; // border-top(1) + margin(1) + "Actions"(1) + "Back"(1) + margin(1) + hint(1)
+  const contentPadding = 2; // paddingY={1}
+  const viewHeight = termHeight - headerHeight - footerLines - contentPadding;
+  const contentWidth = (stdout?.columns ?? 80) - 4; // 2 padding + 1 scrollbar + 1 margin
 
   const renderedLines = useMemo(() => {
-    return provider.readme.split('\n');
-  }, [provider.readme]);
+    const rendered = renderMarkdown(provider.readme, contentWidth);
+    return rendered.split('\n');
+  }, [provider.readme, contentWidth]);
 
   const maxScroll = Math.max(0, renderedLines.length - viewHeight);
 
@@ -64,12 +69,12 @@ function ProviderDetailView({
       <Box height={viewHeight}>
         <Box
           flexDirection="column"
-          paddingX={2}
+          paddingX={1}
           paddingY={1}
           flexGrow={1}
           overflow="hidden"
         >
-          <MarkdownText content={visibleContent} />
+          <Text>{visibleContent}</Text>
         </Box>
         {scrollbar && (
           <Box flexDirection="column">

@@ -1,142 +1,58 @@
 # MindStudio Local Model Tunnel
 
-Run local models with MindStudio.
-
-Providers supported so far:
-
-- **Text Generation**
-  - [Ollama](https://ollama.ai)
-  - [LM Studio](https://lmstudio.ai/)
-
-- **Image Generation**
-  - [Stable Diffusion Forge Neo](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo)
-
-## Prerequisites
-
-- Node.js 18+
-
-## Installation
-
-```bash
-npm install -g @mindstudio-ai/local-model-tunnel
-```
+Use your own locally-running AI models in MindStudio. The tunnel connects local providers like Ollama, LM Studio, Stable Diffusion, and ComfyUI to MindStudio Cloud so you can use your own hardware for text, image, and video generation.
 
 ## Quick Start
 
-```bash
-# Launch the interactive menu
+You'll need [Node.js 18+](https://nodejs.org) installed.
+
+```
+npm install -g @mindstudio-ai/local-model-tunnel
 mindstudio-local
 ```
 
-This opens an interactive home screen where you can:
+The app will walk you through connecting your MindStudio account and detecting any local providers you have running.
 
-- **Setup** - Install and configure local AI providers (Ollama, LM Studio, Stable Diffusion)
-- **Authenticate** - Log in to MindStudio
-- **Register Models** - Register your local models with MindStudio
-- **Start Tunnel** - Launch the local model tunnel
-- **View Models** - See available local models
-- **Configuration** - View current settings
+## Supported Providers
 
-### Manual Commands
+| Provider | Capability | Website |
+|----------|-----------|---------|
+| [Ollama](https://ollama.com) | Text generation | ollama.com |
+| [LM Studio](https://lmstudio.ai) | Text generation | lmstudio.ai |
+| [Stable Diffusion WebUI](https://github.com/AUTOMATIC1111/stable-diffusion-webui) | Image generation | github.com |
+| [ComfyUI](https://www.comfy.org) | Video generation | comfy.org |
 
-If you prefer command-line usage:
-
-```bash
-# Run the setup wizard
-mindstudio-local setup
-
-# Authenticate with MindStudio
-mindstudio-local auth
-
-# Register your local models
-mindstudio-local register
-
-# Start the tunnel
-mindstudio-local start
-```
-
-## Setup Wizard
-
-The setup wizard (`mindstudio-local setup`) helps you install and configure providers:
-
-**Ollama:**
-
-- Auto-install Ollama (Linux/macOS)
-- Start/stop Ollama server
-- Download models from [ollama.com/library](https://ollama.com/library)
-
-**LM Studio:**
-
-- Opens download page in browser
-- Guides you through enabling the local server
-
-**Stable Diffusion Forge:**
-
-- Clones the repository to your chosen location
-- Provides setup instructions
-- Tip: Download models from [civitai.com](https://civitai.com) (filter by "SDXL 1.0")
-
-## Provider Setup (Manual)
-
-### Ollama
-
-1. Download [Ollama](https://ollama.com/download)
-2. Pull a model: `ollama pull llama3.2` (see [all models](https://ollama.com/library))
-3. Start the server: `ollama serve`
-
-### LM Studio
-
-1. Download [LM Studio](https://lmstudio.ai/download)
-2. Download a model through the app
-3. Enable the [Local Server](https://lmstudio.ai/docs/developer/core/server#running-the-server)
-
-### Stable Diffusion (Forge Neo)
-
-**First-time setup:**
-
-```bash
-git clone --branch neo https://github.com/Haoming02/sd-webui-forge-classic.git sd-webui-forge-neo
-cd sd-webui-forge-neo
-python launch.py --api
-```
-
-**Subsequent runs:**
-
-```bash
-cd sd-webui-forge-neo
-python launch.py --api
-```
-
-## Commands
-
-| Command      | Description                               |
-| ------------ | ----------------------------------------- |
-| _(none)_     | Open interactive home screen              |
-| `setup`      | Interactive setup wizard for providers    |
-| `auth`       | Authenticate with MindStudio via browser  |
-| `register`   | Register all local models with MindStudio |
-| `start`      | Start the local model tunnel              |
-| `models`     | List available local models               |
-| `status`     | Check connection status                   |
-| `config`     | Show current configuration                |
-| `set-config` | Set configuration                         |
-| `logout`     | Remove stored credentials                 |
-
-## Configuration Options
-
-```bash
-# Use custom provider URLs
-mindstudio-local set-config --ollama-url http://localhost:11434
-mindstudio-local set-config --lmstudio-url http://localhost:1234/v1
-mindstudio-local set-config --sd-url http://127.0.0.1:7860
-```
+Don't have any of these installed yet? No problem -- select **Manage Providers** in the app for step-by-step setup guides for each one.
 
 ## How It Works
 
-1. Authenticates with your MindStudio account
-2. Discovers your local models
-3. Polls MindStudio for inference requests
-4. Routes requests to local server and streams responses back
+1. You start a local provider (e.g. `ollama serve`)
+2. The tunnel detects it and discovers your models
+3. You sync your models to MindStudio Cloud
+4. When a MindStudio app uses one of your models, the request is routed to your local machine and the response is streamed back
+
+The tunnel stays running and handles requests as they come in. You can see live request logs and status in the dashboard.
+
+## Example: Getting Started with Ollama
+
+The fastest way to get running with text generation:
+
+```
+# Install Ollama (macOS/Linux)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Download a model
+ollama pull llama3.2
+
+# Start the tunnel
+mindstudio-local
+```
+
+Select **Sync Models** in the dashboard to register your models with MindStudio, and you're ready to go.
+
+## Want a New Provider?
+
+If there's a local AI tool you'd like to use with MindStudio, [open an issue](https://github.com/mindstudio-ai/mindstudio-local-model-tunnel/issues) to request it. Or if you're feeling adventurous, add it yourself -- each provider is a self-contained directory under `src/providers/` and the `CLAUDE.md` file has a full guide for adding one. PRs welcome!
 
 ## License
 
