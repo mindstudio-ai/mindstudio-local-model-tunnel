@@ -11,12 +11,8 @@ interface EnvironmentConfig {
 
 interface ConfigSchema {
   environment: Environment;
-  ollamaBaseUrl: string;
-  lmstudioBaseUrl: string;
-  stableDiffusionBaseUrl: string;
-  stableDiffusionInstallPath?: string;
-  comfyuiBaseUrl: string;
-  comfyuiInstallPath?: string;
+  providerBaseUrls: Record<string, string>;
+  providerInstallPaths: Record<string, string>;
   environments: {
     prod: EnvironmentConfig;
     local: EnvironmentConfig;
@@ -29,10 +25,8 @@ export const config = new Conf<ConfigSchema>({
   configName: 'config',
   defaults: {
     environment: 'prod',
-    ollamaBaseUrl: 'http://localhost:11434',
-    lmstudioBaseUrl: 'http://localhost:1234/v1',
-    stableDiffusionBaseUrl: 'http://127.0.0.1:7860',
-    comfyuiBaseUrl: 'http://127.0.0.1:8188',
+    providerBaseUrls: {},
+    providerInstallPaths: {},
     environments: {
       prod: {
         apiBaseUrl: 'https://api.mindstudio.ai',
@@ -89,6 +83,17 @@ export function setApiBaseUrl(url: string): void {
 
 export function getConfigPath(): string {
   return config.path;
+}
+
+// Provider helpers
+export function getProviderBaseUrl(name: string, defaultUrl: string): string {
+  const urls = config.get('providerBaseUrls');
+  return urls[name] ?? defaultUrl;
+}
+
+export function getProviderInstallPath(name: string): string | undefined {
+  const paths = config.get('providerInstallPaths');
+  return paths[name];
 }
 
 // Get all environment info for display

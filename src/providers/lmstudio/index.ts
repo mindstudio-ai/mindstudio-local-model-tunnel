@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { config } from '../../config';
+import { getProviderBaseUrl } from '../../config';
+import readme from './readme.md';
 import type {
   Provider,
   LocalModel,
@@ -9,7 +10,6 @@ import type {
   ChatOptions,
   ChatResponse,
   ProviderSetupStatus,
-  ProviderInstructions,
 } from '../types';
 
 interface LMStudioModel {
@@ -22,57 +22,16 @@ interface LMStudioModelsResponse {
   data: LMStudioModel[];
 }
 
-const instructions: ProviderInstructions = {
-  install: {
-    macos: [
-      {
-        text: 'Download LM Studio from https://lmstudio.ai and install the app.',
-      },
-    ],
-    linux: [
-      {
-        text: 'Download LM Studio from https://lmstudio.ai and install the app.',
-      },
-    ],
-    windows: [
-      {
-        text: 'Download LM Studio from https://lmstudio.ai and install the app.',
-      },
-    ],
-  },
-  start: {
-    macos: [
-      {
-        text: 'Open LM Studio, load a model, and enable the local server in the Developer tab.',
-      },
-    ],
-    linux: [
-      {
-        text: 'Open LM Studio, load a model, and enable the local server in the Developer tab.',
-      },
-    ],
-    windows: [
-      {
-        text: 'Open LM Studio, load a model, and enable the local server in the Developer tab.',
-      },
-    ],
-  },
-  stop: {
-    macos: [{ text: 'Quit the LM Studio app.' }],
-    linux: [{ text: 'Quit the LM Studio app.' }],
-    windows: [{ text: 'Quit the LM Studio app.' }],
-  },
-};
-
 class LMStudioProvider implements Provider {
   readonly name = 'lmstudio';
   readonly displayName = 'LM Studio';
   readonly description = 'Text generation (GUI app)';
   readonly capabilities = ['text'] as const;
-  readonly instructions = instructions;
+  readonly readme = readme;
+  readonly defaultBaseUrl = 'http://localhost:1234/v1';
 
   get baseUrl(): string {
-    return config.get('lmstudioBaseUrl');
+    return getProviderBaseUrl(this.name, this.defaultBaseUrl);
   }
 
   private getBaseUrl(): string {

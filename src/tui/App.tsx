@@ -42,6 +42,13 @@ export function App({ runner }: AppProps) {
   const shouldOnboard = getApiKey() === undefined;
   const [page, setPage] = useState<Page>(shouldOnboard ? 'onboarding' : 'dashboard');
 
+  // Refresh everything when returning to dashboard
+  useEffect(() => {
+    if (page === 'dashboard') {
+      refreshAll();
+    }
+  }, [page]);
+
   // Start runner when connected with models
   useEffect(() => {
     if (connectionStatus === 'connected' && models.length > 0) {

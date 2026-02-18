@@ -9,6 +9,7 @@ export default defineConfig({
   sourcemap: true,
   dts: true,
   clean: true,
+  loader: { '.md': 'text' },
   // Keep dependencies external (installed via npm)
   external: [/^[^./]/],
 });

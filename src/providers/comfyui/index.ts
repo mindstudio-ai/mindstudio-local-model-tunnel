@@ -1,8 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { config } from '../../config';
+import { getProviderBaseUrl, getProviderInstallPath } from '../../config';
 import { getWorkflowForModel, isKnownVideoModel } from './workflows';
+import readme from './readme.md';
 import type {
   Provider,
   LocalModel,
@@ -11,77 +12,7 @@ import type {
   VideoGenerationProgress,
   ParameterSchema,
   ProviderSetupStatus,
-  ProviderInstructions,
 } from '../types';
-
-const instructions: ProviderInstructions = {
-  install: {
-    macos: [
-      {
-        text: 'Clone the ComfyUI repository:',
-        command:
-          'git clone https://github.com/comfyanonymous/ComfyUI.git ~/ComfyUI',
-      },
-      {
-        text: 'Create a virtual environment and install dependencies:',
-        command:
-          'cd ~/ComfyUI && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt',
-      },
-    ],
-    linux: [
-      {
-        text: 'Clone the ComfyUI repository:',
-        command:
-          'git clone https://github.com/comfyanonymous/ComfyUI.git ~/ComfyUI',
-      },
-      {
-        text: 'Create a virtual environment and install dependencies:',
-        command:
-          'cd ~/ComfyUI && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt',
-      },
-    ],
-    windows: [
-      {
-        text: 'Clone the ComfyUI repository:',
-        command:
-          'git clone https://github.com/comfyanonymous/ComfyUI.git %USERPROFILE%\\ComfyUI',
-      },
-      {
-        text: 'Create a virtual environment and install dependencies:',
-        command:
-          'cd %USERPROFILE%\\ComfyUI && python -m venv venv && venv\\Scripts\\activate && pip install -r requirements.txt',
-      },
-    ],
-  },
-  start: {
-    macos: [
-      {
-        text: 'Start the ComfyUI server:',
-        command:
-          'cd ~/ComfyUI && source venv/bin/activate && python main.py --listen',
-      },
-    ],
-    linux: [
-      {
-        text: 'Start the ComfyUI server:',
-        command:
-          'cd ~/ComfyUI && source venv/bin/activate && python main.py --listen',
-      },
-    ],
-    windows: [
-      {
-        text: 'Start the ComfyUI server:',
-        command:
-          'cd %USERPROFILE%\\ComfyUI && venv\\Scripts\\activate && python main.py --listen',
-      },
-    ],
-  },
-  stop: {
-    macos: [{ text: 'Press Ctrl+C in the terminal running the server.' }],
-    linux: [{ text: 'Press Ctrl+C in the terminal running the server.' }],
-    windows: [{ text: 'Press Ctrl+C in the terminal running the server.' }],
-  },
-};
 
 /**
  * ComfyUI provider for video generation.
@@ -92,10 +23,11 @@ class ComfyUIProvider implements Provider {
   readonly displayName = 'ComfyUI';
   readonly description = 'Video generation (LTX-Video, Wan2.1)';
   readonly capabilities = ['video'] as const;
-  readonly instructions = instructions;
+  readonly readme = readme;
+  readonly defaultBaseUrl = 'http://127.0.0.1:8188';
 
   get baseUrl(): string {
-    return config.get('comfyuiBaseUrl');
+    return getProviderBaseUrl(this.name, this.defaultBaseUrl);
   }
 
   private getBaseUrl(): string {
@@ -115,7 +47,7 @@ class ComfyUIProvider implements Provider {
   }
 
   async detect(): Promise<ProviderSetupStatus> {
-    const savedPath = config.get('comfyuiInstallPath');
+    const savedPath = getProviderInstallPath(this.name);
 
     const possiblePaths = [
       ...(savedPath ? [savedPath] : []),
@@ -211,7 +143,7 @@ class ComfyUIProvider implements Provider {
     }
 
     if (models.length === 0) {
-      const installPath = config.get('comfyuiInstallPath');
+      const installPath = getProviderInstallPath(this.name);
       if (installPath) {
         const dirs = [
           path.join(installPath, 'models', 'checkpoints'),

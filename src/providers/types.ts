@@ -2,27 +2,6 @@
 export type ModelCapability = 'text' | 'image' | 'video';
 
 // ============================================
-// Instruction Types
-// ============================================
-
-export interface InstructionStep {
-  text: string;
-  command?: string;
-}
-
-export interface InstructionSet {
-  macos?: InstructionStep[];
-  linux?: InstructionStep[];
-  windows?: InstructionStep[];
-}
-
-export interface ProviderInstructions {
-  install: InstructionSet;
-  start: InstructionSet;
-  stop?: InstructionSet;
-}
-
-// ============================================
 // Parameter Schema Types (for UI configuration)
 // ============================================
 
@@ -197,9 +176,10 @@ export interface Provider {
   readonly name: string;
   readonly displayName: string;
   readonly description: string;
+  readonly defaultBaseUrl: string;
   readonly baseUrl: string;
   readonly capabilities: readonly ModelCapability[];
-  readonly instructions: ProviderInstructions;
+  readonly readme: string;
 
   isRunning(): Promise<boolean>;
   detect(): Promise<ProviderSetupStatus>;

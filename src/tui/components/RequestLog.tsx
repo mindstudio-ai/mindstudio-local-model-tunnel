@@ -6,6 +6,7 @@ import type { RequestLogEntry } from '../types';
 interface RequestLogProps {
   requests: RequestLogEntry[];
   maxVisible?: number;
+  hasModels?: boolean;
 }
 
 function formatTime(timestamp: number): string {
@@ -93,7 +94,7 @@ function RequestItem({ request }: { request: RequestLogEntry }) {
   );
 }
 
-export function RequestLog({ requests, maxVisible = 8 }: RequestLogProps) {
+export function RequestLog({ requests, maxVisible = 8, hasModels = true }: RequestLogProps) {
   // Get the most recent requests, with active ones always shown
   const activeRequests = requests.filter((r) => r.status === 'processing');
   const completedRequests = requests.filter((r) => r.status !== 'processing');
@@ -123,7 +124,10 @@ export function RequestLog({ requests, maxVisible = 8 }: RequestLogProps) {
 
       {requests.length === 0 ? (
         <Box flexGrow={1} alignItems="center" justifyContent="center">
-          <Text color="gray">Tunnel is live — requests will appear here when models are used in MindStudio</Text>
+          <Text color="gray">{hasModels
+            ? 'Tunnel is live — requests will appear here when models are used in MindStudio'
+            : 'Start a model to begin receiving generation requests.'
+          }</Text>
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={1}>

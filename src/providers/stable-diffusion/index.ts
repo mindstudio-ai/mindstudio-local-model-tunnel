@@ -1,8 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { config } from '../../config';
+import { getProviderBaseUrl, getProviderInstallPath } from '../../config';
 import { commandExists, getPythonVersion, isPythonVersionOk } from '../utils';
+import readme from './readme.md';
 import type {
   Provider,
   LocalModel,
@@ -11,7 +12,6 @@ import type {
   ImageGenerationProgress,
   ParameterSchema,
   ProviderSetupStatus,
-  ProviderInstructions,
 } from '../types';
 
 /**
@@ -63,58 +63,6 @@ interface SDSampler {
   options: Record<string, unknown>;
 }
 
-const instructions: ProviderInstructions = {
-  install: {
-    macos: [
-      {
-        text: 'Clone the Stable Diffusion Forge Neo repository:',
-        command:
-          'git clone --branch neo https://github.com/Haoming02/sd-webui-forge-classic.git ~/sd-webui-forge-neo',
-      },
-    ],
-    linux: [
-      {
-        text: 'Clone the Stable Diffusion Forge Neo repository:',
-        command:
-          'git clone --branch neo https://github.com/Haoming02/sd-webui-forge-classic.git ~/sd-webui-forge-neo',
-      },
-    ],
-    windows: [
-      {
-        text: 'Clone the Stable Diffusion Forge Neo repository:',
-        command:
-          'git clone --branch neo https://github.com/Haoming02/sd-webui-forge-classic.git %USERPROFILE%\\sd-webui-forge-neo',
-      },
-    ],
-  },
-  start: {
-    macos: [
-      {
-        text: 'Start the server (first run will install dependencies):',
-        command: 'cd ~/sd-webui-forge-neo && python3 launch.py --api',
-      },
-    ],
-    linux: [
-      {
-        text: 'Start the server (first run will install dependencies):',
-        command: 'cd ~/sd-webui-forge-neo && python3 launch.py --api',
-      },
-    ],
-    windows: [
-      {
-        text: 'Start the server (first run will install dependencies):',
-        command:
-          'cd %USERPROFILE%\\sd-webui-forge-neo && python launch.py --api',
-      },
-    ],
-  },
-  stop: {
-    macos: [{ text: 'Press Ctrl+C in the terminal running the server.' }],
-    linux: [{ text: 'Press Ctrl+C in the terminal running the server.' }],
-    windows: [{ text: 'Press Ctrl+C in the terminal running the server.' }],
-  },
-};
-
 /**
  * Stable Diffusion provider for AUTOMATIC1111 WebUI
  * Default URL: http://127.0.0.1:7860
@@ -124,10 +72,11 @@ class StableDiffusionProvider implements Provider {
   readonly displayName = 'Stable Diffusion Forge Neo';
   readonly description = 'Image generation';
   readonly capabilities = ['image'] as const;
-  readonly instructions = instructions;
+  readonly readme = readme;
+  readonly defaultBaseUrl = 'http://127.0.0.1:7860';
 
   get baseUrl(): string {
-    return config.get('stableDiffusionBaseUrl');
+    return getProviderBaseUrl(this.name, this.defaultBaseUrl);
   }
 
   private getBaseUrl(): string {
@@ -167,7 +116,7 @@ class StableDiffusionProvider implements Provider {
   }
 
   async detect(): Promise<ProviderSetupStatus> {
-    const savedPath = config.get('stableDiffusionInstallPath');
+    const savedPath = getProviderInstallPath(this.name);
 
     const possiblePaths = [
       ...(savedPath ? [savedPath] : []),

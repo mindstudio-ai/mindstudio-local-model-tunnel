@@ -85,14 +85,31 @@ export function DashboardPage({
   }, []);
 
   // Compute maxVisible for request log based on terminal height
-  const menuHeight = menuItems.length + 7;
-  const runningCount = providers.filter((p) => p.running).length;
-  const headerHeight =
-    8 +
-    (runningCount > 0 ? runningCount : 3);
-  const termHeight = stdout?.rows ?? 24;
-  const availableForLog = termHeight - 4 - headerHeight - menuHeight - 1;
-  const maxVisible = Math.max(3, availableForLog - 3);
+  const termHeight = (stdout?.rows ?? 24) - 4; // matches App's height calculation
+
+  // Header: border(2) + padding(2) + logo(~10 lines) = 14
+  const headerLines = 14;
+
+  // Providers section: marginTop(1) + title(1) + content gap(1) + content
+  const providerContentLines = setupLoading ? 1
+    : installedProviders.length === 0 ? 2
+    : installedProviders.length;
+  const providersLines = 3 + providerContentLines;
+
+  // Models section: marginTop(1) + title(1) + content gap(1) + content
+  const modelContentLines = modelsLoading ? 1
+    : (models.length === 0 && unavailableRegistered.length === 0) ? 2
+    : models.length + (unavailableRegistered.length > 0 ? 1 + unavailableRegistered.length : 0);
+  const modelsLines = 3 + modelContentLines;
+
+  // Request log overhead: marginTop(1) + title(1) + content gap(1)
+  const requestLogOverhead = 3;
+
+  // Menu: border-top(1) + marginTop(1) + title(1) + items + hint(1) + marginTop(1) + marginBottom(1)
+  const menuLines = menuItems.length + 6;
+
+  const usedLines = headerLines + providersLines + modelsLines + requestLogOverhead + menuLines;
+  const maxVisible = Math.max(3, termHeight - usedLines);
 
   return (
     <Box flexDirection="column" flexGrow={1}>
@@ -164,7 +181,7 @@ export function DashboardPage({
             })}
 
             {unavailableRegistered.length > 0 && (
-              <Box flexDirection="column" marginTop={1}>
+              <Box flexDirection="column" marginTop={models.length > 0 ? 1 : 0}>
                 <Text color="gray">Registered but not currently available:</Text>
                 {unavailableRegistered.map((name) => (
                   <Box key={name}>
@@ -178,26 +195,8 @@ export function DashboardPage({
         )}
       </Box>
 
-      {/* Request log or empty state */}
-      {!providers.some((p) => p.running) && providers.length > 0 ? (
-        <Box
-          flexDirection="column"
-          borderStyle="round"
-          borderColor="yellow"
-          paddingX={2}
-          paddingY={1}
-          marginTop={1}
-          flexGrow={1}
-        >
-          <Text bold color="yellow">No providers are running</Text>
-          <Box marginTop={1} flexDirection="column">
-            <Text>Set up a local AI provider to get started.</Text>
-            <Text color="gray" dimColor>Select "Manage Providers" below to install and configure a provider like Ollama.</Text>
-          </Box>
-        </Box>
-      ) : (
-        <RequestLog requests={requests} maxVisible={maxVisible} />
-      )}
+      {/* Request log */}
+      <RequestLog requests={requests} maxVisible={maxVisible} hasModels={models.length > 0} />
 
       {/* Bottom: Navigation menu pane */}
       <NavigationMenu items={menuItems} onSelect={onNavigate} />

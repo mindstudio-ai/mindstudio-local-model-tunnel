@@ -25,7 +25,7 @@ fi
 
 # 1. Wipe mindstudio-local config (Conf stores in ~/Library/Preferences on macOS)
 echo -e "\n${YELLOW}[1/5] Removing mindstudio-local config...${NC}"
-CONFIG_DIR="$HOME/Library/Preferences/mindstudio-local-nodejs"
+CONFIG_DIR="$HOME/.mindstudio-local-tunnel"
 if [ -d "$CONFIG_DIR" ]; then
   rm -rf "$CONFIG_DIR"
   echo -e "${GREEN}  Removed $CONFIG_DIR${NC}"

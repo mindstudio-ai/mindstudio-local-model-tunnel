@@ -1,6 +1,7 @@
 import { Ollama } from 'ollama';
-import { config } from '../../config';
+import { getProviderBaseUrl } from '../../config';
 import { commandExists } from '../utils';
+import readme from './readme.md';
 import type {
   Provider,
   LocalModel,
@@ -8,55 +9,18 @@ import type {
   ChatOptions,
   ChatResponse,
   ProviderSetupStatus,
-  ProviderInstructions,
 } from '../types';
-
-const instructions: ProviderInstructions = {
-  install: {
-    macos: [
-      {
-        text: 'Install Ollama:',
-        command: 'curl -fsSL https://ollama.com/install.sh | sh',
-      },
-    ],
-    linux: [
-      {
-        text: 'Install Ollama:',
-        command: 'curl -fsSL https://ollama.com/install.sh | sh',
-      },
-    ],
-    windows: [
-      {
-        text: 'Download Ollama from https://ollama.com/download and run the installer.',
-      },
-    ],
-  },
-  start: {
-    macos: [{ text: 'Start the Ollama server:', command: 'ollama serve' }],
-    linux: [{ text: 'Start the Ollama server:', command: 'ollama serve' }],
-    windows: [{ text: 'Start the Ollama server:', command: 'ollama serve' }],
-  },
-  stop: {
-    macos: [{ text: 'Stop the Ollama server:', command: 'pkill ollama' }],
-    linux: [{ text: 'Stop the Ollama server:', command: 'pkill ollama' }],
-    windows: [
-      {
-        text: 'Stop the Ollama server:',
-        command: 'taskkill /F /IM ollama.exe',
-      },
-    ],
-  },
-};
 
 class OllamaProvider implements Provider {
   readonly name = 'ollama';
   readonly displayName = 'Ollama';
   readonly description = 'Text generation (llama, mistral, etc.)';
   readonly capabilities = ['text'] as const;
-  readonly instructions = instructions;
+  readonly readme = readme;
+  readonly defaultBaseUrl = 'http://localhost:11434';
 
   get baseUrl(): string {
-    return config.get('ollamaBaseUrl');
+    return getProviderBaseUrl(this.name, this.defaultBaseUrl);
   }
 
   private createClient(): Ollama {
