@@ -120,7 +120,7 @@ function ProviderDetailView({
 }
 
 export function SetupPage({ onBack }: SetupPageProps) {
-  const { providers, loading, refresh } = useSetupProviders();
+  const { providers, loading } = useSetupProviders();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const running = useMemo(
     () => providers.filter((p) => p.status.running),
@@ -252,9 +252,6 @@ export function SetupPage({ onBack }: SetupPageProps) {
                           {isSelected ? '\u276F' : ' '} {'\u25CB'}{' '}
                           {provider.displayName}
                         </Text>
-                        {status.warning && (
-                          <Text color="yellow">{` (${status.warning})`}</Text>
-                        )}
                       </Box>
                       <Text color="gray" wrap="wrap">
                         {'   '}

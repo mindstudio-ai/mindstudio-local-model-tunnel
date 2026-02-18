@@ -29,7 +29,7 @@ export function App({ runner }: AppProps) {
     error: connectionError,
     retry: retryConnection,
   } = useConnection();
-  const { providers, refresh: refreshProviders } = useProviders();
+  const { refresh: refreshProviders } = useProviders();
   const {
     models,
     loading: modelsLoading,
@@ -129,14 +129,12 @@ export function App({ runner }: AppProps) {
           <Header
             connection={connectionStatus}
             environment={environment}
-            page={page}
             configPath={getConfigPath()}
             connectionError={connectionError}
           />
 
           {page === 'dashboard' && (
             <DashboardPage
-              providers={providers}
               requests={requests}
               models={models}
               registeredNames={registeredNames}

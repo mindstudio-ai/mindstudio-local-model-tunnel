@@ -1,33 +1,33 @@
-# Stable Diffusion Forge Neo
+# Stable Diffusion WebUI
 
-Forge Neo runs Stable Diffusion image generation models locally.
-Once the server is running with at least one model, MindStudio
-will detect it automatically.
+AUTOMATIC1111's Stable Diffusion WebUI runs image generation models
+locally. Once the server is running with at least one model,
+MindStudio will detect it automatically.
 
 **Default port:** 7860
-**GitHub:** https://github.com/Haoming02/sd-webui-forge-classic
+**GitHub:** https://github.com/AUTOMATIC1111/stable-diffusion-webui
 
 ## What You'll Need
 
-- **Python 3.13 or newer** -- Check by opening a terminal and
+- **Python 3.10 or newer** -- Check by opening a terminal and
   typing `python3 --version`. If you don't have it, download
   from https://www.python.org/downloads/
 
 - **Git** -- Check by typing `git --version`. If you don't
   have it, download from https://git-scm.com/downloads
 
-## Step 1: Install Forge Neo
+## Step 1: Install the WebUI
 
 Open a terminal and paste this command:
 
 ```
-git clone --branch neo https://github.com/Haoming02/sd-webui-forge-classic.git ~/sd-webui-forge-neo
+git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git ~/stable-diffusion-webui
 ```
 
 **Windows users**, use this instead:
 
 ```
-git clone --branch neo https://github.com/Haoming02/sd-webui-forge-classic.git %USERPROFILE%\sd-webui-forge-neo
+git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git %USERPROFILE%\stable-diffusion-webui
 ```
 
 ## Step 2: Download a Model
@@ -40,7 +40,7 @@ files have the `.safetensors` extension (typically 2-7 GB).
 3. Move the file into this folder:
 
 ```
-~/sd-webui-forge-neo/models/Stable-diffusion/
+~/stable-diffusion-webui/models/Stable-diffusion/
 ```
 
 Good starter models:
@@ -53,13 +53,13 @@ Good starter models:
 Open a terminal and run:
 
 ```
-cd ~/sd-webui-forge-neo && python3 launch.py --api
+cd ~/stable-diffusion-webui && ./webui.sh --api
 ```
 
 **Windows users:**
 
 ```
-cd %USERPROFILE%\sd-webui-forge-neo && python launch.py --api
+cd %USERPROFILE%\stable-diffusion-webui && webui-user.bat --api
 ```
 
 The first time you run this it will take several minutes to
@@ -74,7 +74,7 @@ the server is ready, go back to the tunnel and select
 
 ## Troubleshooting
 
-- **MindStudio says Forge Neo is "not running"** -- Make sure
+- **MindStudio says WebUI is "not running"** -- Make sure
   you included `--api` when launching. The terminal should show
   the server at `http://127.0.0.1:7860`.
 
@@ -83,14 +83,14 @@ the server is ready, go back to the tunnel and select
   folder, not inside a subfolder. Restart the server after adding
   new model files.
 
-- **"Python not found"** -- Python 3.13+ is required. Download
+- **"Python not found"** -- Python 3.10+ is required. Download
   from https://www.python.org/downloads/. On Windows, check
   "Add Python to PATH" during installation.
 
 - **Errors during first launch** -- Delete the `venv` folder
-  inside `sd-webui-forge-neo` and run the launch command again
+  inside `stable-diffusion-webui` and run the launch command again
   to reinstall dependencies from scratch.
 
 - **"CUDA out of memory"** -- Your GPU doesn't have enough
   memory. Add `--medvram` or `--lowvram` to the launch command:
-  `python3 launch.py --api --medvram`
+  `./webui.sh --api --medvram`

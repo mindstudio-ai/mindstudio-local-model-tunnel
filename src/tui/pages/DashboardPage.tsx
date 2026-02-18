@@ -25,7 +25,6 @@ function getCapabilityLabel(capability: string): {
 }
 
 interface DashboardPageProps {
-  providers: ProviderStatus[];
   requests: RequestLogEntry[];
   models: LocalModel[];
   registeredNames: Set<string>;
@@ -34,7 +33,6 @@ interface DashboardPageProps {
 }
 
 export function DashboardPage({
-  providers,
   requests,
   models,
   registeredNames,
@@ -42,12 +40,9 @@ export function DashboardPage({
   onNavigate,
 }: DashboardPageProps) {
   const { stdout } = useStdout();
-  const { providers: setupProviders, loading: setupLoading } =
-    useSetupProviders();
+  const { providers, loading: setupLoading } = useSetupProviders();
 
-  const installedProviders = setupProviders.filter(
-    ({ status }) => status.installed,
-  );
+  const installedProviders = providers.filter(({ status }) => status.installed);
 
   const provNameWidth = Math.max(
     ...installedProviders.map((p) => p.provider.displayName.length),
@@ -198,7 +193,7 @@ export function DashboardPage({
               const cap = getCapabilityLabel(model.capability);
               const isRegistered = registeredNames.has(model.name);
               const displayProvider =
-                setupProviders.find((p) => p.provider.name === model.provider)
+                providers.find((p) => p.provider.name === model.provider)
                   ?.provider.displayName ?? model.provider;
               return (
                 <Box key={model.name}>

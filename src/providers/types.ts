@@ -165,7 +165,6 @@ export interface VideoGenerationProgress {
 export interface ProviderSetupStatus {
   installed: boolean;
   running: boolean;
-  warning?: string;
 }
 
 // ============================================

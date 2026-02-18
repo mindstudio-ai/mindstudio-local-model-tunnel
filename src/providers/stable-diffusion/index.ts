@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { getProviderBaseUrl, getProviderInstallPath } from '../../config';
-import { commandExists, getPythonVersion, isPythonVersionOk } from '../utils';
 import readme from './readme.md';
 import type {
   Provider,
@@ -69,7 +68,7 @@ interface SDSampler {
  */
 class StableDiffusionProvider implements Provider {
   readonly name = 'stable-diffusion';
-  readonly displayName = 'Stable Diffusion Forge Neo';
+  readonly displayName = 'Stable Diffusion WebUI';
   readonly description = 'Generate images locally using Stable Diffusion checkpoints. Runs as a local web UI.';
   readonly capabilities = ['image'] as const;
   readonly readme = readme;
@@ -120,12 +119,9 @@ class StableDiffusionProvider implements Provider {
 
     const possiblePaths = [
       ...(savedPath ? [savedPath] : []),
-      path.join(os.homedir(), 'sd-webui-forge-neo'),
-      path.join(os.homedir(), 'sd-webui-forge-classic'),
-      path.join(os.homedir(), 'stable-diffusion-webui-forge'),
-      path.join(os.homedir(), 'sd-forge'),
-      path.join(os.homedir(), 'Projects', 'sd-webui-forge-neo'),
-      path.join(os.homedir(), 'Code', 'sd-webui-forge-neo'),
+      path.join(os.homedir(), 'stable-diffusion-webui'),
+      path.join(os.homedir(), 'Projects', 'stable-diffusion-webui'),
+      path.join(os.homedir(), 'Code', 'stable-diffusion-webui'),
     ];
 
     let installed = false;
@@ -151,22 +147,7 @@ class StableDiffusionProvider implements Provider {
       running = false;
     }
 
-    const hasPython =
-      (await commandExists('python3')) || (await commandExists('python'));
-
-    let warning: string | undefined;
-    if (hasPython && !running) {
-      try {
-        const pyInfo = await getPythonVersion();
-        if (pyInfo && !isPythonVersionOk(pyInfo)) {
-          warning = `Python ${pyInfo.version} detected, Forge Neo requires 3.13+`;
-        }
-      } catch {
-        // Ignore
-      }
-    }
-
-    return { installed, running, warning };
+    return { installed, running };
   }
 
   /**

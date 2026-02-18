@@ -1,23 +1,15 @@
 import React from 'react';
 import os from 'node:os';
 import { Box, Text } from 'ink';
-import type { ConnectionStatus, Page } from '../types';
+import type { ConnectionStatus } from '../types';
 import { createRequire } from 'node:module';
 
 interface HeaderProps {
   connection: ConnectionStatus;
   environment: 'prod' | 'local';
-  page?: Page;
   configPath: string;
   connectionError?: string | null;
 }
-
-const PAGE_LABELS: Record<Page, string> = {
-  dashboard: '',
-  register: 'Sync Models',
-  setup: 'Manage Providers',
-  onboarding: 'Welcome',
-};
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string };
@@ -50,15 +42,11 @@ const getConnectionDisplay = (status: ConnectionStatus) => {
 export function Header({
   connection,
   environment,
-  page,
   configPath,
   connectionError,
 }: HeaderProps) {
   const { color: connectionColor, text: connectionText } =
     getConnectionDisplay(connection);
-
-  const breadcrumb = page ? PAGE_LABELS[page] : '';
-  const displayPath = configPath.replace(os.homedir(), '~');
 
   return (
     <Box
@@ -86,19 +74,13 @@ export function Header({
               </Text>
             </>
           )}
-          {breadcrumb ? (
-            <>
-              <Text color="gray"> {'>'} </Text>
-              <Text color="white" bold>
-                {breadcrumb}
-              </Text>
-            </>
-          ) : null}
         </Box>
         <Text color="gray">v{pkg.version}</Text>
         <Text color={connectionColor}>● {connectionText}</Text>
         {connectionError && <Text color="red">{connectionError}</Text>}
-        <Text color="gray">Config: {displayPath}</Text>
+        <Text color="gray">
+          Config: {configPath.replace(os.homedir(), '~')}
+        </Text>
       </Box>
     </Box>
   );
