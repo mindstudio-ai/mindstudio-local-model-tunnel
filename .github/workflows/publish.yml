@@ -13,19 +13,20 @@ on:
           - minor
           - major
 
+permissions:
+  id-token: write
+  contents: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          registry-url: https://registry.npmjs.org
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
 
       - run: npm ci
       - run: npm run build
@@ -36,8 +37,7 @@ jobs:
           git config user.email "github-actions@github.com"
           npm version ${{ inputs.version }}
 
-      - name: Publish
-        run: npm publish --access public --provenance
+      - run: npm publish --access public
 
       - name: Push version commit and tag
         run: git push --follow-tags
