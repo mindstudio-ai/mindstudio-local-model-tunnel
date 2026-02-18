@@ -21,7 +21,7 @@ import type {
 class ComfyUIProvider implements Provider {
   readonly name = 'comfyui';
   readonly displayName = 'ComfyUI';
-  readonly description = 'Video generation (LTX-Video, Wan2.1)';
+  readonly description = 'Generate videos locally using node-based workflows. Supports LTX-Video and Wan2.1.';
   readonly capabilities = ['video'] as const;
   readonly readme = readme;
   readonly defaultBaseUrl = 'http://127.0.0.1:8188';

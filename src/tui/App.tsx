@@ -1,24 +1,19 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { Box, useApp, useStdout } from 'ink';
-import { Header, NavigationMenu } from './components';
-import type { MenuItem } from './components';
-import {
-  useConnection,
-  useProviders,
-  useModels,
-  useRequests,
-  useRegisteredModels,
-} from './hooks';
-import {
-  DashboardPage,
-  AuthPage,
-  RegisterPage,
-  SetupPage,
-  OnboardingPage,
-} from './pages';
+import { Header } from './components/Header';
+import { NavigationMenu } from './components/NavigationMenu';
+import type { MenuItem } from './components/NavigationMenu';
+import { useConnection } from './hooks/useConnection';
+import { useProviders } from './hooks/useProviders';
+import { useModels } from './hooks/useModels';
+import { useRequests } from './hooks/useRequests';
+import { useRegisteredModels } from './hooks/useRegisteredModels';
+import { DashboardPage } from './pages/DashboardPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { SetupPage } from './pages/SetupPage';
+import { OnboardingPage } from './pages/OnboardingPage';
 import { TunnelRunner } from '../runner';
 import { getApiKey, getConfigPath } from '../config';
-import { getVersion } from '../helpers';
 import type { Page } from './types';
 
 interface AppProps {
@@ -35,12 +30,18 @@ export function App({ runner }: AppProps) {
     retry: retryConnection,
   } = useConnection();
   const { providers, refresh: refreshProviders } = useProviders();
-  const { models, loading: modelsLoading, refresh: refreshModels } = useModels();
-  const { requests, activeCount } = useRequests();
+  const {
+    models,
+    loading: modelsLoading,
+    refresh: refreshModels,
+  } = useModels();
+  const { requests } = useRequests();
   const { registeredNames, refresh: refreshRegistered } =
     useRegisteredModels(connectionStatus);
   const shouldOnboard = getApiKey() === undefined;
-  const [page, setPage] = useState<Page>(shouldOnboard ? 'onboarding' : 'dashboard');
+  const [page, setPage] = useState<Page>(
+    shouldOnboard ? 'onboarding' : 'dashboard',
+  );
 
   // Refresh everything when returning to dashboard
   useEffect(() => {
@@ -68,18 +69,6 @@ export function App({ runner }: AppProps) {
     ]);
   }, [refreshProviders, refreshModels, refreshRegistered]);
 
-  const handleAuthComplete = useCallback(() => {
-    retryConnection();
-    refreshRegistered();
-    setPage('dashboard');
-  }, [retryConnection, refreshRegistered]);
-
-  const handleRegisterComplete = useCallback(() => {
-    refreshRegistered();
-    refreshModels();
-    setPage('dashboard');
-  }, [refreshRegistered, refreshModels]);
-
   const handleQuit = useCallback(() => {
     runner.stop();
     exit();
@@ -95,7 +84,7 @@ export function App({ runner }: AppProps) {
     (id: string) => {
       switch (id) {
         case 'auth':
-          setPage('auth');
+          setPage('onboarding');
           break;
         case 'register':
           setPage('register');
@@ -134,17 +123,13 @@ export function App({ runner }: AppProps) {
   return (
     <Box flexDirection="column" height={termHeight} overflow="hidden">
       {page === 'onboarding' ? (
-        <OnboardingPage
-          onComplete={handleOnboardingComplete}
-        />
+        <OnboardingPage onComplete={handleOnboardingComplete} />
       ) : (
         <>
           <Header
             connection={connectionStatus}
             environment={environment}
-            activeRequests={activeCount}
             page={page}
-            version={getVersion()}
             configPath={getConfigPath()}
             connectionError={connectionError}
           />
@@ -160,19 +145,17 @@ export function App({ runner }: AppProps) {
             />
           )}
           {page === 'setup' && (
-            <SetupPage
-              onBack={() => setPage('dashboard')}
-            />
+            <SetupPage onBack={() => setPage('dashboard')} />
           )}
-          {page === 'auth' && <AuthPage onComplete={handleAuthComplete} />}
-          {page === 'register' && (
-            <RegisterPage onComplete={handleRegisterComplete} />
-          )}
+          {page === 'register' && <RegisterPage />}
 
           {page !== 'dashboard' && page !== 'setup' && <Box flexGrow={1} />}
 
           {page !== 'dashboard' && page !== 'setup' && (
-            <NavigationMenu items={subpageMenuItems} onSelect={handleSubpageNavigate} />
+            <NavigationMenu
+              items={subpageMenuItems}
+              onSelect={handleSubpageNavigate}
+            />
           )}
         </>
       )}

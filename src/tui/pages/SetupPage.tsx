@@ -1,8 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import Spinner from 'ink-spinner';
-import { NavigationMenu, MarkdownText } from '../components';
-import type { MenuItem } from '../components';
+import { MarkdownText } from '../components/MarkdownText';
 import { useSetupProviders } from '../hooks/useSetupProviders';
 import type { Provider } from '../../providers/types';
 
@@ -46,24 +45,40 @@ function ProviderDetailView({
 
   const scrollbar = useMemo(() => {
     if (maxScroll === 0) return null;
-    const thumbSize = Math.max(1, Math.round((viewHeight / renderedLines.length) * viewHeight));
-    const thumbPos = Math.round((scrollOffset / maxScroll) * (viewHeight - thumbSize));
+    const thumbSize = Math.max(
+      1,
+      Math.round((viewHeight / renderedLines.length) * viewHeight),
+    );
+    const thumbPos = Math.round(
+      (scrollOffset / maxScroll) * (viewHeight - thumbSize),
+    );
 
-    return Array.from({ length: viewHeight }, (_, i) =>
-      i >= thumbPos && i < thumbPos + thumbSize,
+    return Array.from(
+      { length: viewHeight },
+      (_, i) => i >= thumbPos && i < thumbPos + thumbSize,
     );
   }, [scrollOffset, maxScroll, viewHeight, renderedLines.length]);
 
   return (
     <Box flexDirection="column">
       <Box height={viewHeight}>
-        <Box flexDirection="column" paddingX={2} paddingY={1} flexGrow={1} overflow="hidden">
+        <Box
+          flexDirection="column"
+          paddingX={2}
+          paddingY={1}
+          flexGrow={1}
+          overflow="hidden"
+        >
           <MarkdownText content={visibleContent} />
         </Box>
         {scrollbar && (
           <Box flexDirection="column">
             {scrollbar.map((isThumb, i) => (
-              <Text key={i} color={isThumb ? 'cyan' : 'gray'} dimColor={!isThumb}>
+              <Text
+                key={i}
+                color={isThumb ? 'cyan' : 'gray'}
+                dimColor={!isThumb}
+              >
                 {isThumb ? '\u2503' : '\u2502'}
               </Text>
             ))}
@@ -82,10 +97,14 @@ function ProviderDetailView({
         borderColor="gray"
       >
         <Box marginTop={1}>
-          <Text color="gray" dimColor>Actions</Text>
+          <Text color="gray" dimColor>
+            Actions
+          </Text>
         </Box>
         <Box>
-          <Text color="cyan" bold>{'\u276F'} Back</Text>
+          <Text color="cyan" bold>
+            {'\u276F'} Back
+          </Text>
           <Text color="gray"> - Return to providers</Text>
         </Box>
         <Box marginTop={1} height={1}>
@@ -103,104 +122,49 @@ function ProviderDetailView({
 export function SetupPage({ onBack }: SetupPageProps) {
   const { providers, loading, refresh } = useSetupProviders();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const running = useMemo(
+    () => providers.filter((p) => p.status.running),
+    [providers],
+  );
+  const installed = useMemo(
+    () => providers.filter((p) => p.status.installed && !p.status.running),
+    [providers],
+  );
+  const notInstalled = useMemo(
+    () => providers.filter((p) => !p.status.installed),
+    [providers],
+  );
+  const allProviders = useMemo(
+    () => [...running, ...installed, ...notInstalled],
+    [running, installed, notInstalled],
+  );
 
-  const menuItems = useMemo((): MenuItem[] => {
-    const running = providers.filter((p) => p.status.running);
-    const installed = providers.filter(
-      (p) => p.status.installed && !p.status.running,
-    );
-    const notInstalled = providers.filter((p) => !p.status.installed);
+  const totalItems = allProviders.length + 1; // +1 for Back
+  const backIndex = allProviders.length;
+  const [cursorIndex, setCursorIndex] = useState(backIndex);
 
-    const items: MenuItem[] = [];
+  useEffect(() => {
+    setCursorIndex(backIndex);
+  }, [backIndex]);
 
-    if (running.length > 0) {
-      items.push({
-        id: 'sep-running',
-        label: 'Running',
-        description: '',
-        isSeparator: true,
-        color: 'green',
-      });
-      for (const { provider, status } of running) {
-        items.push({
-          id: provider.name,
-          label: `\u25CF ${provider.displayName}`,
-          description: provider.description,
-          color: 'green',
-        });
-      }
-    }
-
-    if (installed.length > 0) {
-      items.push({
-        id: 'sep-installed',
-        label: 'Installed',
-        description: '',
-        isSeparator: true,
-        color: 'yellow',
-      });
-      for (const { provider, status } of installed) {
-        items.push({
-          id: provider.name,
-          label: `\u25CB ${provider.displayName}`,
-          description: `${provider.description}${status.warning ? ` (${status.warning})` : ''}`,
-          color: 'yellow',
-        });
-      }
-    }
-
-    if (notInstalled.length > 0) {
-      items.push({
-        id: 'sep-not-installed',
-        label: 'Not Installed',
-        description: '',
-        isSeparator: true,
-        color: 'gray',
-      });
-      for (const { provider } of notInstalled) {
-        items.push({
-          id: provider.name,
-          label: `\u2717 ${provider.displayName}`,
-          description: provider.description,
-        });
-      }
-    }
-
-    items.push({
-      id: 'sep-actions',
-      label: '',
-      description: '',
-      isSeparator: true,
-    });
-    items.push({
-      id: 'refresh',
-      label: 'Refresh',
-      description: 'Re-detect providers',
-    });
-    items.push({
-      id: 'back',
-      label: 'Back',
-      description: 'Return to dashboard',
-    });
-
-    return items;
-  }, [providers]);
-
-  const handleSelect = (id: string) => {
-    if (id === 'back') {
+  useInput((input, key) => {
+    if (selectedProvider) return;
+    if (input === 'q' || key.escape) {
       onBack();
       return;
     }
-    if (id === 'refresh') {
-      refresh();
-      return;
+    if (key.upArrow) {
+      setCursorIndex((prev) => Math.max(0, prev - 1));
+    } else if (key.downArrow) {
+      setCursorIndex((prev) => Math.min(totalItems - 1, prev + 1));
+    } else if (key.return) {
+      if (cursorIndex === backIndex) {
+        onBack();
+      } else if (allProviders[cursorIndex]) {
+        setSelectedProvider(allProviders[cursorIndex]!.provider.name);
+      }
     }
-    // Must be a provider name
-    const found = providers.find((p) => p.provider.name === id);
-    if (found) {
-      setSelectedProvider(id);
-    }
-  };
+  });
 
   if (selectedProvider) {
     const found = providers.find((p) => p.provider.name === selectedProvider);
@@ -215,21 +179,145 @@ export function SetupPage({ onBack }: SetupPageProps) {
   }
 
   return (
-    <Box flexDirection="column">
-      {loading && (
-        <Box marginTop={1} paddingX={1}>
-          <Text color="cyan">
-            <Spinner type="dots" />
-          </Text>
-          <Text> Detecting providers...</Text>
-        </Box>
-      )}
+    <Box flexDirection="column" flexGrow={1}>
+      <Box flexDirection="column" paddingX={1} marginTop={1}>
+        <Text bold color="white" underline>
+          Manage Providers
+        </Text>
+        <Text color="gray">Select a provider to view its setup guide.</Text>
 
-      <NavigationMenu
-        items={menuItems}
-        onSelect={handleSelect}
-        title="Manage Providers"
-      />
+        {loading ? (
+          <Box marginTop={1}>
+            <Text color="cyan">
+              <Spinner type="dots" />
+            </Text>
+            <Text> Detecting providers...</Text>
+          </Box>
+        ) : (
+          <Box flexDirection="column" marginTop={1}>
+            {running.length > 0 && (
+              <>
+                <Text bold color="green">
+                  Running
+                </Text>
+                {running.map(({ provider }, i) => {
+                  const index = i;
+                  const isSelected = index === cursorIndex;
+                  return (
+                    <Box
+                      key={provider.name}
+                      flexDirection="column"
+                      marginTop={i > 0 ? 1 : 0}
+                    >
+                      <Box>
+                        <Text
+                          color={isSelected ? 'cyan' : 'white'}
+                          bold={isSelected}
+                        >
+                          {isSelected ? '\u276F' : ' '} {'\u25CF'}{' '}
+                          {provider.displayName}
+                        </Text>
+                      </Box>
+                      <Text color="gray" wrap="wrap">
+                        {'   '}
+                        {provider.description}
+                      </Text>
+                    </Box>
+                  );
+                })}
+              </>
+            )}
+            {installed.length > 0 && (
+              <Box
+                flexDirection="column"
+                marginTop={running.length > 0 ? 1 : 0}
+              >
+                <Text bold color="yellow">
+                  Installed
+                </Text>
+                {installed.map(({ provider, status }, i) => {
+                  const index = running.length + i;
+                  const isSelected = index === cursorIndex;
+                  return (
+                    <Box
+                      key={provider.name}
+                      flexDirection="column"
+                      marginTop={i > 0 ? 1 : 0}
+                    >
+                      <Box>
+                        <Text
+                          color={isSelected ? 'cyan' : 'white'}
+                          bold={isSelected}
+                        >
+                          {isSelected ? '\u276F' : ' '} {'\u25CB'}{' '}
+                          {provider.displayName}
+                        </Text>
+                        {status.warning && (
+                          <Text color="yellow">{` (${status.warning})`}</Text>
+                        )}
+                      </Box>
+                      <Text color="gray" wrap="wrap">
+                        {'   '}
+                        {provider.description}
+                      </Text>
+                    </Box>
+                  );
+                })}
+              </Box>
+            )}
+            {notInstalled.length > 0 && (
+              <Box
+                flexDirection="column"
+                marginTop={running.length > 0 || installed.length > 0 ? 1 : 0}
+              >
+                <Text bold color="gray">
+                  Not Installed
+                </Text>
+                {notInstalled.map(({ provider }, i) => {
+                  const index = running.length + installed.length + i;
+                  const isSelected = index === cursorIndex;
+                  return (
+                    <Box
+                      key={provider.name}
+                      flexDirection="column"
+                      marginTop={i > 0 ? 1 : 0}
+                    >
+                      <Box>
+                        <Text
+                          color={isSelected ? 'cyan' : 'white'}
+                          bold={isSelected}
+                        >
+                          {isSelected ? '\u276F' : ' '} {provider.displayName}
+                        </Text>
+                      </Box>
+                      <Text color="gray" wrap="wrap">
+                        {'   '}
+                        {provider.description}
+                      </Text>
+                    </Box>
+                  );
+                })}
+              </Box>
+            )}
+
+            {/* Back option */}
+            <Box marginTop={1}>
+              <Text
+                color={cursorIndex === backIndex ? 'cyan' : 'white'}
+                bold={cursorIndex === backIndex}
+              >
+                {cursorIndex === backIndex ? '\u276F' : ' '} Back
+              </Text>
+            </Box>
+          </Box>
+        )}
+
+        <Box marginTop={1}>
+          <Text color="gray" dimColor>
+            Up/Down Navigate {'\u2022'} Enter Select {'\u2022'} q/Esc Back
+          </Text>
+        </Box>
+      </Box>
     </Box>
   );
 }

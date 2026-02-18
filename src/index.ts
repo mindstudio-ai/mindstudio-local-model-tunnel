@@ -6,7 +6,6 @@ export {
   type RequestProgressEvent,
   type RequestCompleteEvent,
 } from './events';
-export { sleep, waitForEnter, clearTerminal, LogoString } from './helpers';
 export {
   // Discovery functions
   discoverAllModels,

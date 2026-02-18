@@ -39,6 +39,20 @@ export function useRequests(maxHistory: number = 50): UseRequestsResult {
       setRequests((prev) => [...prev, entry].slice(-maxHistory));
     });
 
+    const unsubProgress = requestEvents.onProgress((event) => {
+      const existing = requestsRef.current.get(event.id);
+      if (existing && existing.status === 'processing' && event.content) {
+        const updated: RequestLogEntry = {
+          ...existing,
+          content: event.content,
+        };
+        requestsRef.current.set(event.id, updated);
+        setRequests((prev) =>
+          prev.map((r) => (r.id === event.id ? updated : r)),
+        );
+      }
+    });
+
     const unsubComplete = requestEvents.onComplete((event) => {
       const existing = requestsRef.current.get(event.id);
       if (existing) {
@@ -60,6 +74,7 @@ export function useRequests(maxHistory: number = 50): UseRequestsResult {
 
     return () => {
       unsubStart();
+      unsubProgress();
       unsubComplete();
     };
   }, [maxHistory]);

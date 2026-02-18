@@ -14,7 +14,7 @@ import type {
 class OllamaProvider implements Provider {
   readonly name = 'ollama';
   readonly displayName = 'Ollama';
-  readonly description = 'Text generation (llama, mistral, etc.)';
+  readonly description = 'Run open-source LLMs locally via CLI. Supports Llama, Mistral, Gemma, and more.';
   readonly capabilities = ['text'] as const;
   readonly readme = readme;
   readonly defaultBaseUrl = 'http://localhost:11434';

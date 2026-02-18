@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import Spinner from 'ink-spinner';
 import type { RequestLogEntry } from '../types';
 
@@ -24,34 +24,55 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function getRequestTypeIcon(type: string): string {
+function getRequestTypeLabel(type: string): { label: string; color: string } {
   switch (type) {
     case 'llm_chat':
-      return '💬';
+      return { label: 'text', color: 'gray' };
     case 'image_generation':
-      return '🎨';
+      return { label: 'image', color: 'magenta' };
     case 'video_generation':
-      return '🎬';
+      return { label: 'video', color: 'cyan' };
     default:
-      return '📦';
+      return { label: type, color: 'gray' };
   }
 }
 
-function RequestItem({ request }: { request: RequestLogEntry }) {
+function snippetLine(content: string, maxWidth: number): string {
+  // Collapse whitespace/newlines into single spaces
+  const flat = content.replace(/\s+/g, ' ').trim();
+  if (flat.length <= maxWidth) return flat;
+  return '\u2026' + flat.slice(-(maxWidth - 1));
+}
+
+function RequestItem({ request, width }: { request: RequestLogEntry; width: number }) {
   const time = formatTime(request.startTime);
-  const icon = getRequestTypeIcon(request.requestType);
+  const typeLabel = getRequestTypeLabel(request.requestType);
+  // indent for snippet: status(1) + space(1) + padding for alignment
+  const snippetIndent = '   ';
+  const snippetWidth = width - snippetIndent.length - 2; // 2 for paddingX
 
   if (request.status === 'processing') {
     const elapsed = Date.now() - request.startTime;
+    const snippet = request.content && request.requestType === 'llm_chat'
+      ? snippetLine(request.content, snippetWidth)
+      : null;
     return (
-      <Box>
-        <Text color="cyan">
-          <Spinner type="dots" />
-        </Text>
-        <Text color="gray"> {time} </Text>
-        <Text>{icon} </Text>
-        <Text color="cyan">{request.modelId}</Text>
-        <Text color="gray"> - Generating... ({formatDuration(elapsed)})</Text>
+      <Box flexDirection="column">
+        <Box>
+          <Text color="cyan">
+            <Spinner type="dots" />
+          </Text>
+          <Text color="gray">{' '}{time}  </Text>
+          <Text color="white">{request.modelId}</Text>
+          <Text color="gray">  </Text>
+          <Text color={typeLabel.color}>{typeLabel.label}</Text>
+          <Text color="gray">  {formatDuration(elapsed)}...</Text>
+        </Box>
+        {snippet && (
+          <Text color="gray" dimColor wrap="truncate-end">
+            {snippetIndent}{snippet}
+          </Text>
+        )}
       </Box>
     );
   }
@@ -60,49 +81,77 @@ function RequestItem({ request }: { request: RequestLogEntry }) {
     const duration = request.duration ? formatDuration(request.duration) : '';
     let resultInfo = '';
     if (request.result?.chars) {
-      resultInfo = ` (${request.result.chars} chars)`;
+      resultInfo = ` \u00B7 ${request.result.chars} chars`;
     } else if (request.result?.imageSize) {
-      resultInfo = ` (${Math.round(request.result.imageSize / 1024)}KB)`;
+      resultInfo = ` \u00B7 ${Math.round(request.result.imageSize / 1024)}KB`;
     } else if (request.result?.videoSize) {
-      resultInfo = ` (${Math.round(request.result.videoSize / 1024 / 1024)}MB)`;
+      resultInfo = ` \u00B7 ${Math.round(request.result.videoSize / 1024 / 1024)}MB`;
     }
 
+    const snippet = request.content && request.requestType === 'llm_chat'
+      ? snippetLine(request.content, snippetWidth)
+      : null;
+
     return (
-      <Box>
-        <Text color="green">✓</Text>
-        <Text color="gray"> {time} </Text>
-        <Text>{icon} </Text>
-        <Text color="white">{request.modelId}</Text>
-        <Text color="gray">
-          {' '}
-          - Completed in {duration}
-          {resultInfo}
-        </Text>
+      <Box flexDirection="column">
+        <Box>
+          <Text color="green">{'\u2713'}</Text>
+          <Text color="gray">{' '}{time}  </Text>
+          <Text color="white">{request.modelId}</Text>
+          <Text color="gray">  </Text>
+          <Text color={typeLabel.color}>{typeLabel.label}</Text>
+          <Text color="gray">  {duration}{resultInfo}</Text>
+        </Box>
+        {snippet && (
+          <Text color="gray" dimColor wrap="truncate-end">
+            {snippetIndent}{snippet}
+          </Text>
+        )}
       </Box>
     );
   }
 
   // Failed
   return (
-    <Box>
-      <Text color="red">✗</Text>
-      <Text color="gray"> {time} </Text>
-      <Text>{icon} </Text>
-      <Text color="white">{request.modelId}</Text>
-      <Text color="red"> - {request.error || 'Failed'}</Text>
+    <Box flexDirection="column">
+      <Box>
+        <Text color="red">{'\u25CF'}</Text>
+        <Text color="gray">{' '}{time}  </Text>
+        <Text color="white">{request.modelId}</Text>
+        <Text color="gray">  </Text>
+        <Text color={typeLabel.color}>{typeLabel.label}</Text>
+        <Text color="red">  {request.error || 'Failed'}</Text>
+      </Box>
     </Box>
   );
 }
 
 export function RequestLog({ requests, maxVisible = 8, hasModels = true }: RequestLogProps) {
+  const { stdout } = useStdout();
+  const width = stdout?.columns ?? 80;
+
   // Get the most recent requests, with active ones always shown
   const activeRequests = requests.filter((r) => r.status === 'processing');
   const completedRequests = requests.filter((r) => r.status !== 'processing');
 
-  // Show active requests + most recent completed, up to maxVisible total
-  const completedToShow = completedRequests.slice(
-    -(maxVisible - activeRequests.length),
-  );
+  // Text requests with content take 2 lines, others take 1
+  // Calculate how many items fit in maxVisible lines
+  const itemLines = (r: RequestLogEntry) =>
+    r.requestType === 'llm_chat' && r.content ? 2 : 1;
+
+  let completedToShow: RequestLogEntry[] = [];
+  let linesUsed = activeRequests.reduce((sum, r) => sum + itemLines(r), 0);
+  for (let i = completedRequests.length - 1; i >= 0 && linesUsed < maxVisible; i--) {
+    const r = completedRequests[i]!;
+    const lines = itemLines(r);
+    if (linesUsed + lines <= maxVisible) {
+      completedToShow.unshift(r);
+      linesUsed += lines;
+    } else {
+      break;
+    }
+  }
+
   const visibleRequests = [...completedToShow, ...activeRequests];
 
   return (
@@ -132,7 +181,7 @@ export function RequestLog({ requests, maxVisible = 8, hasModels = true }: Reque
       ) : (
         <Box flexDirection="column" marginTop={1}>
           {visibleRequests.map((request) => (
-            <RequestItem key={request.id} request={request} />
+            <RequestItem key={request.id} request={request} width={width} />
           ))}
         </Box>
       )}

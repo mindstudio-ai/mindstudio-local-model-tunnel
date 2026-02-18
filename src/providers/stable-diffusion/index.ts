@@ -70,7 +70,7 @@ interface SDSampler {
 class StableDiffusionProvider implements Provider {
   readonly name = 'stable-diffusion';
   readonly displayName = 'Stable Diffusion Forge Neo';
-  readonly description = 'Image generation';
+  readonly description = 'Generate images locally using Stable Diffusion checkpoints. Runs as a local web UI.';
   readonly capabilities = ['image'] as const;
   readonly readme = readme;
   readonly defaultBaseUrl = 'http://127.0.0.1:7860';

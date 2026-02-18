@@ -1,20 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import {
-  getRegisteredModels,
-  registerLocalModel,
-} from '../../api';
-import {
-  discoverAllModelsWithParameters,
-} from '../../providers';
-import { MODEL_TYPE_MAP } from '../../helpers';
-import type { LocalModel } from '../../providers/types';
+import { getRegisteredModels, registerLocalModel } from '../../api';
+import { discoverAllModelsWithParameters } from '../../providers';
 
-type RegisterStatus =
-  | 'idle'
-  | 'discovering'
-  | 'registering'
-  | 'done'
-  | 'error';
+type RegisterStatus = 'idle' | 'discovering' | 'registering' | 'done' | 'error';
 
 interface RegisterProgress {
   current: number;
@@ -36,6 +24,12 @@ interface UseRegisterResult {
   startRegister: () => void;
   cancel: () => void;
 }
+
+const MODEL_TYPE_MAP = {
+  text: 'llm_chat',
+  image: 'image_generation',
+  video: 'video_generation',
+} as const;
 
 export function useRegister(): UseRegisterResult {
   const [status, setStatus] = useState<RegisterStatus>('idle');
@@ -109,9 +103,7 @@ export function useRegister(): UseRegisterResult {
 
           const model = unregisteredModels[i]!;
           const modelType =
-            MODEL_TYPE_MAP[
-              model.capability as keyof typeof MODEL_TYPE_MAP
-            ];
+            MODEL_TYPE_MAP[model.capability as keyof typeof MODEL_TYPE_MAP];
 
           await registerLocalModel({
             modelName: model.name,

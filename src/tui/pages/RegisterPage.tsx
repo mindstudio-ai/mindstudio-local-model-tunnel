@@ -3,19 +3,9 @@ import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { useRegister } from '../hooks/useRegister';
 
-interface RegisterPageProps {
-  onComplete: () => void;
-}
-
-export function RegisterPage({ onComplete }: RegisterPageProps) {
-  const {
-    status,
-    progress,
-    registeredModels,
-    error,
-    startRegister,
-    cancel,
-  } = useRegister();
+export function RegisterPage() {
+  const { status, progress, registeredModels, error, startRegister, cancel } =
+    useRegister();
 
   // Start registration on mount
   useEffect(() => {
