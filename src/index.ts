@@ -6,14 +6,7 @@ export {
   type RequestProgressEvent,
   type RequestCompleteEvent,
 } from './events.js';
-export { attachSimpleListener, detachSimpleListener } from './simple-listener.js';
-export {
-  displayModels,
-  sleep,
-  waitForEnter,
-  clearTerminal,
-  LogoString,
-} from './helpers.js';
+export { sleep, waitForEnter, clearTerminal, LogoString } from './helpers.js';
 export {
   // Discovery functions
   discoverAllModels,

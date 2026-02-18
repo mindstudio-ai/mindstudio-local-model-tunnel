@@ -16,8 +16,6 @@ import {
   type LocalModel,
 } from './providers/index.js';
 import { requestEvents } from './events.js';
-import { displayModels, LogoString } from './helpers.js';
-import chalk from 'chalk';
 
 /**
  * TunnelRunner handles the polling and request processing loop.
@@ -44,43 +42,6 @@ export class TunnelRunner {
 
     // Start polling loop
     this.pollLoop();
-  }
-
-  /**
-   * Discover models, display them, register signal handlers, and start polling.
-   * Used by the simple (non-TUI) start path.
-   */
-  async startWithDiscovery(): Promise<void> {
-    if (this.isRunning) return;
-
-    console.log(chalk.white(LogoString));
-    console.log(chalk.blue('\nMindStudio Local Model Tunnel\n'));
-
-    const allModels = await discoverAllModels();
-
-    if (allModels.length === 0) {
-      console.log(chalk.yellow('No local models found.'));
-      console.log(chalk.white('   Make sure a provider is running:'));
-      console.log(chalk.white('   • Ollama: ollama serve'));
-      console.log(chalk.white('   • LM Studio: Start the local server'));
-      console.log(
-        chalk.white('   • Stable Diffusion: Start AUTOMATIC1111\n'),
-      );
-      return;
-    }
-
-    this.buildModelProviderMap(allModels);
-    displayModels(allModels);
-
-    this.models = allModels.map((m) => m.name);
-    this.isRunning = true;
-
-    // Handle graceful shutdown
-    const shutdown = () => this.stop();
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
-
-    await this.pollLoop();
   }
 
   stop(): void {
@@ -153,8 +114,7 @@ export class TunnelRunner {
           throw new Error(`Unsupported request type: ${request.requestType}`);
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown error';
+      const message = error instanceof Error ? error.message : 'Unknown error';
       await submitResult(request.id, false, undefined, message);
       requestEvents.emitComplete({
         id: request.id,
