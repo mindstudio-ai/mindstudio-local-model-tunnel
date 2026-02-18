@@ -8,11 +8,12 @@
     "mindstudio-local": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "ts-node src/cli.ts",
+    "build": "tsup",
+    "dev": "tsup && node dist/cli.js",
     "start": "node dist/cli.js",
     "prepublishOnly": "npm run build",
-    "local-update": "npm run build && npm link"
+    "local-update": "npm run build && npm link",
+    "clean:destructive": "bash scripts/clean-destructive.sh"
   },
   "keywords": [
     "mindstudio",
@@ -39,15 +40,21 @@
     "ink": "^6.6.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
     "ollama": "^0.5.0",
     "open": "^10.2.0",
     "ora": "^8.0.0",
     "react": "^19.2.4"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/marked-terminal": "^6.1.1",
     "@types/node": "^20.0.0",
     "@types/react": "^19.2.10",
+    "prettier": "^3.8.1",
     "ts-node": "^10.9.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.0.0"
   },
   "publishConfig": {

@@ -1,14 +1,5 @@
-// Provider types - text, image, and video generation
-export type TextProviderType = "ollama" | "lmstudio";
-export type ImageProviderType = "stable-diffusion";
-export type VideoProviderType = "comfyui";
-export type ProviderType =
-  | TextProviderType
-  | ImageProviderType
-  | VideoProviderType;
-
 // Model capability types
-export type ModelCapability = "text" | "image" | "video";
+export type ModelCapability = 'text' | 'image' | 'video';
 
 // ============================================
 // Parameter Schema Types (for UI configuration)
@@ -32,25 +23,25 @@ export interface BaseParameterSchema {
 }
 
 export interface SelectParameterSchema extends BaseParameterSchema {
-  type: "select";
+  type: 'select';
   defaultValue: string | number | boolean;
   selectOptions: SelectOption[];
 }
 
 export interface NumberParameterSchema extends BaseParameterSchema {
-  type: "number";
+  type: 'number';
   defaultValue?: number;
   numberOptions?: NumberOptions;
 }
 
 export interface TextParameterSchema extends BaseParameterSchema {
-  type: "text";
+  type: 'text';
   defaultValue?: string;
   placeholder?: string;
 }
 
 export interface BooleanParameterSchema extends BaseParameterSchema {
-  type: "boolean";
+  type: 'boolean';
   defaultValue?: boolean;
 }
 
@@ -66,7 +57,7 @@ export type ParameterSchema =
 
 export interface LocalModel {
   name: string;
-  provider: ProviderType;
+  provider: string;
   capability: ModelCapability;
   size?: number;
   parameterSize?: string;
@@ -80,7 +71,7 @@ export interface LocalModel {
 // ============================================
 
 export interface ChatMessage {
-  role: "user" | "assistant" | "system";
+  role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
@@ -168,120 +159,73 @@ export interface VideoGenerationProgress {
 }
 
 // ============================================
-// Provider Interfaces
+// Provider Status
 // ============================================
 
-/**
- * Base provider interface - all providers implement this
- */
-export interface BaseProvider {
-  readonly name: ProviderType;
-  readonly displayName: string;
-  readonly capability: ModelCapability;
-
-  /**
-   * Check if the provider's backend is running and accessible
-   */
-  isRunning(): Promise<boolean>;
-
-  /**
-   * Discover all available models from this provider
-   */
-  discoverModels(): Promise<LocalModel[]>;
+export interface ProviderSetupStatus {
+  installed: boolean;
+  running: boolean;
 }
 
-/**
- * Text generation provider (LLMs)
- */
-export interface TextProvider extends BaseProvider {
-  readonly capability: "text";
+// ============================================
+// Provider Interface
+// ============================================
 
-  /**
-   * Stream a chat completion
-   */
-  chat(
+export interface Provider {
+  readonly name: string;
+  readonly displayName: string;
+  readonly description: string;
+  readonly defaultBaseUrl: string;
+  readonly baseUrl: string;
+  readonly capabilities: readonly ModelCapability[];
+  readonly readme: string;
+
+  isRunning(): Promise<boolean>;
+  detect(): Promise<ProviderSetupStatus>;
+  discoverModels(): Promise<LocalModel[]>;
+
+  // Optional generation methods — present based on capabilities
+  chat?(
     model: string,
     messages: ChatMessage[],
-    options?: ChatOptions
+    options?: ChatOptions,
   ): AsyncGenerator<ChatResponse>;
-}
 
-/**
- * Image generation provider
- */
-export interface ImageProvider extends BaseProvider {
-  readonly capability: "image";
-
-  /**
-   * Generate an image from a prompt
-   */
-  generateImage(
+  generateImage?(
     model: string,
     prompt: string,
-    options?: ImageGenerationOptions
+    options?: ImageGenerationOptions,
   ): Promise<ImageGenerationResult>;
 
-  /**
-   * Generate an image with progress callback (optional)
-   */
   generateImageWithProgress?(
     model: string,
     prompt: string,
     options?: ImageGenerationOptions,
-    onProgress?: (progress: ImageGenerationProgress) => void
+    onProgress?: (progress: ImageGenerationProgress) => void,
   ): Promise<ImageGenerationResult>;
 
-  /**
-   * Get parameter schemas for UI configuration
-   * Dynamically discovers available options from the backend
-   */
-  getParameterSchemas(): Promise<ParameterSchema[]>;
-}
-
-/**
- * Video generation provider
- */
-export interface VideoProvider extends BaseProvider {
-  readonly capability: "video";
-
-  /**
-   * Generate a video from a prompt
-   */
-  generateVideo(
+  generateVideo?(
     model: string,
     prompt: string,
     options?: VideoGenerationOptions,
-    onProgress?: (progress: VideoGenerationProgress) => void
+    onProgress?: (progress: VideoGenerationProgress) => void,
   ): Promise<VideoGenerationResult>;
 
-  /**
-   * Get parameter schemas for UI configuration
-   */
-  getParameterSchemas(): Promise<ParameterSchema[]>;
+  getParameterSchemas?(): Promise<ParameterSchema[]>;
 }
 
-/**
- * Union type for all providers
- */
-export type Provider = TextProvider | ImageProvider | VideoProvider;
+// ============================================
+// Type Guards (method-existence based)
+// ============================================
 
-/**
- * Type guard for text providers
- */
-export function isTextProvider(provider: Provider): provider is TextProvider {
-  return provider.capability === "text";
+export function isTextProvider(p: Provider): boolean {
+  return typeof p.chat === 'function';
 }
 
-/**
- * Type guard for image providers
- */
-export function isImageProvider(provider: Provider): provider is ImageProvider {
-  return provider.capability === "image";
+export function isImageProvider(p: Provider): boolean {
+  return typeof p.generateImage === 'function';
 }
 
-/**
- * Type guard for video providers
- */
-export function isVideoProvider(provider: Provider): provider is VideoProvider {
-  return provider.capability === "video";
+export function isVideoProvider(p: Provider): boolean {
+  return typeof p.generateVideo === 'function';
 }

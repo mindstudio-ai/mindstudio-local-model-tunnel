@@ -1,19 +1,20 @@
-import React, { useEffect, useCallback, useState } from "react";
-import { Box, Text, useApp, useInput } from "ink";
-import {
-  Header,
-  ProvidersPanel,
-  ModelsPanel,
-  RequestLog,
-  StatusBar,
-} from "./components/index.js";
-import {
-  useConnection,
-  useProviders,
-  useModels,
-  useRequests,
-} from "./hooks/index.js";
-import { TunnelRunner } from "./TunnelRunner.js";
+import React, { useEffect, useCallback, useState } from 'react';
+import { Box, useApp, useStdout } from 'ink';
+import { Header } from './components/Header';
+import { NavigationMenu } from './components/NavigationMenu';
+import type { MenuItem } from './components/NavigationMenu';
+import { useConnection } from './hooks/useConnection';
+import { useProviders } from './hooks/useProviders';
+import { useModels } from './hooks/useModels';
+import { useRequests } from './hooks/useRequests';
+import { useRegisteredModels } from './hooks/useRegisteredModels';
+import { DashboardPage } from './pages/DashboardPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { SetupPage } from './pages/SetupPage';
+import { OnboardingPage } from './pages/OnboardingPage';
+import { TunnelRunner } from '../runner';
+import { getApiKey, getConfigPath } from '../config';
+import type { Page } from './types';
 
 interface AppProps {
   runner: TunnelRunner;
@@ -21,124 +22,141 @@ interface AppProps {
 
 export function App({ runner }: AppProps) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   const {
     status: connectionStatus,
     environment,
     error: connectionError,
+    retry: retryConnection,
   } = useConnection();
-  const { providers, refresh: refreshProviders } = useProviders();
-  const { models, refresh: refreshModels } = useModels();
-  const { requests, activeCount } = useRequests();
-  const [lastKey, setLastKey] = useState<string>("");
+  const { refresh: refreshProviders } = useProviders();
+  const {
+    models,
+    loading: modelsLoading,
+    refresh: refreshModels,
+  } = useModels();
+  const { requests } = useRequests();
+  const { registeredNames, refresh: refreshRegistered } =
+    useRegisteredModels(connectionStatus);
+  const shouldOnboard = getApiKey() === undefined;
+  const [page, setPage] = useState<Page>(
+    shouldOnboard ? 'onboarding' : 'dashboard',
+  );
 
-  // Start the runner when connected
+  // Refresh everything when returning to dashboard
   useEffect(() => {
-    if (connectionStatus === "connected" && models.length > 0) {
+    if (page === 'dashboard') {
+      refreshAll();
+    }
+  }, [page]);
+
+  // Start runner when connected with models
+  useEffect(() => {
+    if (connectionStatus === 'connected' && models.length > 0) {
       runner.start(models.map((m) => m.name));
     }
-
-    return () => {
-      runner.stop();
-    };
   }, [connectionStatus, models, runner]);
+
+  // Stop only on unmount
+  useEffect(() => () => runner.stop(), [runner]);
 
   // Refresh everything
   const refreshAll = useCallback(async () => {
-    await Promise.all([refreshProviders(), refreshModels()]);
-  }, [refreshProviders, refreshModels]);
+    await Promise.all([
+      refreshProviders(),
+      refreshModels(),
+      refreshRegistered(),
+    ]);
+  }, [refreshProviders, refreshModels, refreshRegistered]);
 
-  // Keyboard shortcuts
-  useInput((input, key) => {
-    // Debug: show what key was pressed
-    setLastKey(input || (key.escape ? "ESC" : "?"));
+  const handleQuit = useCallback(() => {
+    runner.stop();
+    exit();
+  }, [runner, exit]);
 
-    // Quit on 'q' or Escape
-    if (input.toLowerCase() === "q" || key.escape) {
-      runner.stop();
-      exit();
-    }
-    // Refresh on 'r'
-    if (input.toLowerCase() === "r") {
-      refreshAll();
-    }
-  });
+  const handleOnboardingComplete = useCallback(() => {
+    retryConnection();
+    refreshAll();
+    setPage('dashboard');
+  }, [retryConnection, refreshAll]);
 
-  // Show error state
-  if (connectionStatus === "error") {
-    return (
-      <Box flexDirection="column" padding={1}>
-        <Text color="red" bold>
-          Connection Error
-        </Text>
-        <Text color="red">{connectionError}</Text>
-        <Box marginTop={1}>
-          <Text color="gray">Press </Text>
-          <Text color="cyan" bold>
-            q
-          </Text>
-          <Text color="gray"> to exit</Text>
-        </Box>
-      </Box>
-    );
-  }
+  const handleNavigate = useCallback(
+    (id: string) => {
+      switch (id) {
+        case 'auth':
+          setPage('onboarding');
+          break;
+        case 'register':
+          setPage('register');
+          break;
+        case 'setup':
+          setPage('setup');
+          break;
+        case 'refresh':
+          refreshAll();
+          break;
+        case 'quit':
+          handleQuit();
+          break;
+      }
+    },
+    [refreshModels, refreshRegistered, refreshAll, handleQuit],
+  );
 
-  // Check for no running providers
-  const hasRunningProvider = providers.some((p) => p.running);
+  const subpageMenuItems: MenuItem[] = [
+    { id: 'back', label: 'Back', description: 'Return to dashboard' },
+  ];
 
-  if (
-    connectionStatus === "connected" &&
-    providers.length > 0 &&
-    !hasRunningProvider
-  ) {
-    return (
-      <Box flexDirection="column" padding={1}>
-        <Header
-          connection={connectionStatus}
-          environment={environment}
-          activeRequests={activeCount}
-        />
-        <Box flexDirection="column" marginTop={1}>
-          <Text color="yellow" bold>
-            No providers running
-          </Text>
-          <Text color="gray">Start one of the following:</Text>
-          <Text color="white"> Ollama: ollama serve</Text>
-          <Text color="white"> LM Studio: Start the local server</Text>
-          <Text color="white"> Stable Diffusion: Start AUTOMATIC1111</Text>
-        </Box>
-        <StatusBar />
-      </Box>
-    );
-  }
+  const handleSubpageNavigate = useCallback(
+    (id: string) => {
+      if (id === 'back') {
+        setPage('dashboard');
+      } else {
+        handleNavigate(id);
+      }
+    },
+    [handleNavigate],
+  );
+
+  const termHeight = (stdout?.rows ?? 24) - 4;
 
   return (
-    <Box flexDirection="column" padding={1}>
-      <Header
-        connection={connectionStatus}
-        environment={environment}
-        activeRequests={activeCount}
-      />
+    <Box flexDirection="column" height={termHeight} overflow="hidden">
+      {page === 'onboarding' ? (
+        <OnboardingPage onComplete={handleOnboardingComplete} />
+      ) : (
+        <>
+          <Header
+            connection={connectionStatus}
+            environment={environment}
+            configPath={getConfigPath()}
+            connectionError={connectionError}
+          />
 
-      {/* Main content area */}
-      <Box flexDirection="row" marginTop={1}>
-        {/* Left column: Providers */}
-        <Box width="40%">
-          <ProvidersPanel providers={providers} />
-        </Box>
+          {page === 'dashboard' && (
+            <DashboardPage
+              requests={requests}
+              models={models}
+              registeredNames={registeredNames}
+              modelsLoading={modelsLoading}
+              onNavigate={handleNavigate}
+            />
+          )}
+          {page === 'setup' && (
+            <SetupPage onBack={() => setPage('dashboard')} />
+          )}
+          {page === 'register' && <RegisterPage />}
 
-        {/* Right column: Models */}
-        <Box width="60%" marginLeft={1}>
-          <ModelsPanel models={models} />
-        </Box>
-      </Box>
+          {page !== 'dashboard' && page !== 'setup' && <Box flexGrow={1} />}
 
-      {/* Request log */}
-      <Box marginTop={1}>
-        <RequestLog requests={requests} />
-      </Box>
-
-      {/* Status bar */}
-      <StatusBar />
+          {page !== 'dashboard' && page !== 'setup' && (
+            <NavigationMenu
+              items={subpageMenuItems}
+              onSelect={handleSubpageNavigate}
+            />
+          )}
+        </>
+      )}
     </Box>
   );
 }

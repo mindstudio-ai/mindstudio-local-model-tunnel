@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
-import { discoverAllModels } from "../../providers/index.js";
-import type { LocalModel } from "../../providers/types.js";
+import { useState, useEffect, useCallback } from 'react';
+import { discoverAllModels } from '../../providers';
+import type { LocalModel } from '../../providers/types';
 
 interface UseModelsResult {
   models: LocalModel[];

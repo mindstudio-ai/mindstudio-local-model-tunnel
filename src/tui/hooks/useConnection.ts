@@ -1,42 +1,40 @@
-import { useState, useEffect, useCallback } from "react";
-import { verifyApiKey } from "../../api.js";
-import { getApiKey, getEnvironment } from "../../config.js";
-import type { ConnectionStatus } from "../types.js";
+import { useState, useEffect, useCallback } from 'react';
+import { verifyApiKey } from '../../api';
+import { getApiKey, getEnvironment } from '../../config';
+import type { ConnectionStatus } from '../types';
 
 interface UseConnectionResult {
   status: ConnectionStatus;
-  environment: "prod" | "local";
+  environment: 'prod' | 'local';
   error: string | null;
   retry: () => void;
 }
 
 export function useConnection(): UseConnectionResult {
-  const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
   const environment = getEnvironment();
 
   const connect = useCallback(async () => {
-    setStatus("connecting");
+    setStatus('connecting');
     setError(null);
 
     const apiKey = getApiKey();
     if (!apiKey) {
-      setStatus("error");
-      setError("Not authenticated. Run: mindstudio-local auth");
+      setStatus('not_authenticated');
       return;
     }
 
     try {
       const isValid = await verifyApiKey();
       if (isValid) {
-        setStatus("connected");
+        setStatus('connected');
       } else {
-        setStatus("error");
-        setError("Invalid API key. Run: mindstudio-local auth");
+        setStatus('not_authenticated');
       }
     } catch (err) {
-      setStatus("error");
-      setError(err instanceof Error ? err.message : "Connection failed");
+      setStatus('error');
+      setError(err instanceof Error ? err.message : 'Connection failed');
     }
   }, []);
 

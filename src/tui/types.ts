@@ -1,10 +1,13 @@
-import type { Provider, LocalModel } from "../providers/types.js";
+import type { Provider, LocalModel } from '../providers/types';
 
 export type ConnectionStatus =
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  | "error";
+  | 'connecting'
+  | 'connected'
+  | 'not_authenticated'
+  | 'disconnected'
+  | 'error';
+
+export type Page = 'dashboard' | 'register' | 'setup' | 'onboarding';
 
 export interface ProviderStatus {
   provider: Provider;
@@ -14,21 +17,23 @@ export interface ProviderStatus {
 export interface RequestLogEntry {
   id: string;
   modelId: string;
-  requestType: "llm_chat" | "image_generation" | "video_generation";
-  status: "processing" | "completed" | "failed";
+  requestType: 'llm_chat' | 'image_generation' | 'video_generation';
+  status: 'processing' | 'completed' | 'failed';
   startTime: number;
   endTime?: number;
   duration?: number;
+  content?: string;
   result?: {
     chars?: number;
     imageSize?: number;
+    videoSize?: number;
   };
   error?: string;
 }
 
 export interface AppState {
   connection: ConnectionStatus;
-  environment: "prod" | "local";
+  environment: 'prod' | 'local';
   providers: ProviderStatus[];
   models: LocalModel[];
   requests: RequestLogEntry[];

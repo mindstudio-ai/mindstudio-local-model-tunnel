@@ -1,20 +1,21 @@
-import React from "react";
-import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
-import type { RequestLogEntry } from "../types.js";
+import React from 'react';
+import { Box, Text, useStdout } from 'ink';
+import Spinner from 'ink-spinner';
+import type { RequestLogEntry } from '../types';
 
 interface RequestLogProps {
   requests: RequestLogEntry[];
   maxVisible?: number;
+  hasModels?: boolean;
 }
 
 function formatTime(timestamp: number): string {
   const date = new Date(timestamp);
-  return date.toLocaleTimeString("en-US", {
+  return date.toLocaleTimeString('en-US', {
     hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
 }
 
@@ -23,96 +24,147 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function getRequestTypeIcon(type: string): string {
+function getRequestTypeLabel(type: string): { label: string; color: string } {
   switch (type) {
-    case "llm_chat":
-      return "💬";
-    case "image_generation":
-      return "🎨";
-    case "video_generation":
-      return "🎬";
+    case 'llm_chat':
+      return { label: 'text', color: 'gray' };
+    case 'image_generation':
+      return { label: 'image', color: 'magenta' };
+    case 'video_generation':
+      return { label: 'video', color: 'cyan' };
     default:
-      return "📦";
+      return { label: type, color: 'gray' };
   }
 }
 
-function RequestItem({ request }: { request: RequestLogEntry }) {
-  const time = formatTime(request.startTime);
-  const icon = getRequestTypeIcon(request.requestType);
+function snippetLine(content: string, maxWidth: number): string {
+  // Collapse whitespace/newlines into single spaces
+  const flat = content.replace(/\s+/g, ' ').trim();
+  if (flat.length <= maxWidth) return flat;
+  return '\u2026' + flat.slice(-(maxWidth - 1));
+}
 
-  if (request.status === "processing") {
+function RequestItem({ request, width }: { request: RequestLogEntry; width: number }) {
+  const time = formatTime(request.startTime);
+  const typeLabel = getRequestTypeLabel(request.requestType);
+  // indent for snippet: status(1) + space(1) + padding for alignment
+  const snippetIndent = '   ';
+  const snippetWidth = width - snippetIndent.length - 2; // 2 for paddingX
+
+  if (request.status === 'processing') {
     const elapsed = Date.now() - request.startTime;
+    const snippet = request.content && request.requestType === 'llm_chat'
+      ? snippetLine(request.content, snippetWidth)
+      : null;
     return (
-      <Box>
-        <Text color="cyan">
-          <Spinner type="dots" />
-        </Text>
-        <Text color="gray"> {time} </Text>
-        <Text>{icon} </Text>
-        <Text color="cyan">{request.modelId}</Text>
-        <Text color="gray"> - Generating... ({formatDuration(elapsed)})</Text>
+      <Box flexDirection="column">
+        <Box>
+          <Text color="cyan">
+            <Spinner type="dots" />
+          </Text>
+          <Text color="gray">{' '}{time}  </Text>
+          <Text color="white">{request.modelId}</Text>
+          <Text color="gray">  </Text>
+          <Text color={typeLabel.color}>{typeLabel.label}</Text>
+          <Text color="gray">  {formatDuration(elapsed)}...</Text>
+        </Box>
+        {snippet && (
+          <Text color="gray" dimColor wrap="truncate-end">
+            {snippetIndent}{snippet}
+          </Text>
+        )}
       </Box>
     );
   }
 
-  if (request.status === "completed") {
-    const duration = request.duration ? formatDuration(request.duration) : "";
-    let resultInfo = "";
+  if (request.status === 'completed') {
+    const duration = request.duration ? formatDuration(request.duration) : '';
+    let resultInfo = '';
     if (request.result?.chars) {
-      resultInfo = ` (${request.result.chars} chars)`;
+      resultInfo = ` \u00B7 ${request.result.chars} chars`;
     } else if (request.result?.imageSize) {
-      resultInfo = ` (${Math.round(request.result.imageSize / 1024)}KB)`;
+      resultInfo = ` \u00B7 ${Math.round(request.result.imageSize / 1024)}KB`;
+    } else if (request.result?.videoSize) {
+      resultInfo = ` \u00B7 ${Math.round(request.result.videoSize / 1024 / 1024)}MB`;
     }
 
+    const snippet = request.content && request.requestType === 'llm_chat'
+      ? snippetLine(request.content, snippetWidth)
+      : null;
+
     return (
-      <Box>
-        <Text color="green">✓</Text>
-        <Text color="gray"> {time} </Text>
-        <Text>{icon} </Text>
-        <Text color="white">{request.modelId}</Text>
-        <Text color="gray">
-          {" "}
-          - Completed in {duration}
-          {resultInfo}
-        </Text>
+      <Box flexDirection="column">
+        <Box>
+          <Text color="green">{'\u2713'}</Text>
+          <Text color="gray">{' '}{time}  </Text>
+          <Text color="white">{request.modelId}</Text>
+          <Text color="gray">  </Text>
+          <Text color={typeLabel.color}>{typeLabel.label}</Text>
+          <Text color="gray">  {duration}{resultInfo}</Text>
+        </Box>
+        {snippet && (
+          <Text color="gray" dimColor wrap="truncate-end">
+            {snippetIndent}{snippet}
+          </Text>
+        )}
       </Box>
     );
   }
 
   // Failed
   return (
-    <Box>
-      <Text color="red">✗</Text>
-      <Text color="gray"> {time} </Text>
-      <Text>{icon} </Text>
-      <Text color="white">{request.modelId}</Text>
-      <Text color="red"> - {request.error || "Failed"}</Text>
+    <Box flexDirection="column">
+      <Box>
+        <Text color="red">{'\u25CF'}</Text>
+        <Text color="gray">{' '}{time}  </Text>
+        <Text color="white">{request.modelId}</Text>
+        <Text color="gray">  </Text>
+        <Text color={typeLabel.color}>{typeLabel.label}</Text>
+        <Text color="red">  {request.error || 'Failed'}</Text>
+      </Box>
     </Box>
   );
 }
 
-export function RequestLog({ requests, maxVisible = 8 }: RequestLogProps) {
-  // Get the most recent requests, with active ones always shown
-  const activeRequests = requests.filter((r) => r.status === "processing");
-  const completedRequests = requests.filter((r) => r.status !== "processing");
+export function RequestLog({ requests, maxVisible = 8, hasModels = true }: RequestLogProps) {
+  const { stdout } = useStdout();
+  const width = stdout?.columns ?? 80;
 
-  // Show active requests + most recent completed, up to maxVisible total
-  const completedToShow = completedRequests.slice(
-    -(maxVisible - activeRequests.length)
-  );
+  // Get the most recent requests, with active ones always shown
+  const activeRequests = requests.filter((r) => r.status === 'processing');
+  const completedRequests = requests.filter((r) => r.status !== 'processing');
+
+  // Text requests with content take 2 lines, others take 1
+  // Calculate how many items fit in maxVisible lines
+  const itemLines = (r: RequestLogEntry) =>
+    r.requestType === 'llm_chat' && r.content ? 2 : 1;
+
+  let completedToShow: RequestLogEntry[] = [];
+  let linesUsed = activeRequests.reduce((sum, r) => sum + itemLines(r), 0);
+  for (let i = completedRequests.length - 1; i >= 0 && linesUsed < maxVisible; i--) {
+    const r = completedRequests[i]!;
+    const lines = itemLines(r);
+    if (linesUsed + lines <= maxVisible) {
+      completedToShow.unshift(r);
+      linesUsed += lines;
+    } else {
+      break;
+    }
+  }
+
   const visibleRequests = [...completedToShow, ...activeRequests];
 
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor="gray"
+      flexGrow={1}
+      width="100%"
       paddingX={1}
-      minHeight={6}
+      marginTop={1}
     >
-      <Box marginBottom={1}>
-        <Text bold color="white">
-          REQUESTS
+      <Box>
+        <Text bold underline color="white">
+          Generation Requests
         </Text>
         {activeRequests.length > 0 && (
           <Text color="cyan"> ({activeRequests.length} active)</Text>
@@ -120,13 +172,16 @@ export function RequestLog({ requests, maxVisible = 8 }: RequestLogProps) {
       </Box>
 
       {requests.length === 0 ? (
-        <Box>
-          <Text color="gray">Waiting for requests...</Text>
+        <Box flexGrow={1} alignItems="center" justifyContent="center">
+          <Text color="gray">{hasModels
+            ? 'Tunnel is live — requests will appear here when models are used in MindStudio'
+            : 'Start a model to begin receiving generation requests.'
+          }</Text>
         </Box>
       ) : (
-        <Box flexDirection="column">
+        <Box flexDirection="column" marginTop={1}>
           {visibleRequests.map((request) => (
-            <RequestItem key={request.id} request={request} />
+            <RequestItem key={request.id} request={request} width={width} />
           ))}
         </Box>
       )}

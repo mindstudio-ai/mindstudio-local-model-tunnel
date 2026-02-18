@@ -1,7 +1,7 @@
-import React from "react";
-import { render } from "ink";
-import { App } from "./App.js";
-import { TunnelRunner } from "./TunnelRunner.js";
+import React from 'react';
+import { render } from 'ink';
+import { App } from './App';
+import { TunnelRunner } from '../runner';
 
 export async function startTUI(): Promise<void> {
   // Clear the screen
@@ -11,9 +11,13 @@ export async function startTUI(): Promise<void> {
   const runner = new TunnelRunner();
 
   // Render the TUI with stdin configured for keyboard input
-  const { waitUntilExit } = render(<App runner={runner} />, {
-    exitOnCtrlC: true,
-  });
+  const { waitUntilExit } = render(
+    <App runner={runner} />,
+    {
+      exitOnCtrlC: true,
+      incrementalRendering: true,
+    },
+  );
 
   // Wait for the app to exit
   await waitUntilExit();

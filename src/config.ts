@@ -1,6 +1,8 @@
-import Conf from "conf";
+import Conf from 'conf';
+import os from 'node:os';
+import path from 'node:path';
 
-export type Environment = "prod" | "local";
+export type Environment = 'prod' | 'local';
 
 interface EnvironmentConfig {
   apiKey?: string;
@@ -9,32 +11,28 @@ interface EnvironmentConfig {
 
 interface ConfigSchema {
   environment: Environment;
-  ollamaBaseUrl: string;
-  lmstudioBaseUrl: string;
-  stableDiffusionBaseUrl: string;
-  stableDiffusionInstallPath?: string;
-  comfyuiBaseUrl: string;
-  comfyuiInstallPath?: string;
+  providerBaseUrls: Record<string, string>;
+  providerInstallPaths: Record<string, string>;
   environments: {
     prod: EnvironmentConfig;
     local: EnvironmentConfig;
   };
 }
 
-const config = new Conf<ConfigSchema>({
-  projectName: "mindstudio-local",
+export const config = new Conf<ConfigSchema>({
+  projectName: 'mindstudio-local',
+  cwd: path.join(os.homedir(), '.mindstudio-local-tunnel'),
+  configName: 'config',
   defaults: {
-    environment: "prod",
-    ollamaBaseUrl: "http://localhost:11434",
-    lmstudioBaseUrl: "http://localhost:1234/v1",
-    stableDiffusionBaseUrl: "http://127.0.0.1:7860",
-    comfyuiBaseUrl: "http://127.0.0.1:8188",
+    environment: 'prod',
+    providerBaseUrls: {},
+    providerInstallPaths: {},
     environments: {
       prod: {
-        apiBaseUrl: "https://api.mindstudio.ai",
+        apiBaseUrl: 'https://api.mindstudio.ai',
       },
       local: {
-        apiBaseUrl: "http://localhost:3129",
+        apiBaseUrl: 'http://localhost:3129',
       },
     },
   },
@@ -42,11 +40,11 @@ const config = new Conf<ConfigSchema>({
 
 // Environment management
 export function getEnvironment(): Environment {
-  return config.get("environment");
+  return config.get('environment');
 }
 
 export function setEnvironment(env: Environment): void {
-  config.set("environment", env);
+  config.set('environment', env);
 }
 
 // Get config for current environment
@@ -66,7 +64,7 @@ export function getApiKey(): string | undefined {
 }
 
 export function setApiKey(key: string): void {
-  setEnvConfig("apiKey", key);
+  setEnvConfig('apiKey', key);
 }
 
 export function clearApiKey(): void {
@@ -80,65 +78,22 @@ export function getApiBaseUrl(): string {
 }
 
 export function setApiBaseUrl(url: string): void {
-  setEnvConfig("apiBaseUrl", url);
-}
-
-// Ollama (shared across environments)
-export function getOllamaBaseUrl(): string {
-  return config.get("ollamaBaseUrl");
-}
-
-export function setOllamaBaseUrl(url: string): void {
-  config.set("ollamaBaseUrl", url);
-}
-
-// LM Studio (shared across environments)
-export function getLMStudioBaseUrl(): string {
-  return config.get("lmstudioBaseUrl");
-}
-
-export function setLMStudioBaseUrl(url: string): void {
-  config.set("lmstudioBaseUrl", url);
-}
-
-// Stable Diffusion / AUTOMATIC1111 (shared across environments)
-export function getStableDiffusionBaseUrl(): string {
-  return config.get("stableDiffusionBaseUrl");
-}
-
-export function setStableDiffusionBaseUrl(url: string): void {
-  config.set("stableDiffusionBaseUrl", url);
-}
-
-// Stable Diffusion install path
-export function getStableDiffusionInstallPath(): string | undefined {
-  return config.get("stableDiffusionInstallPath");
-}
-
-export function setStableDiffusionInstallPath(path: string): void {
-  config.set("stableDiffusionInstallPath", path);
-}
-
-// ComfyUI (shared across environments)
-export function getComfyUIBaseUrl(): string {
-  return config.get("comfyuiBaseUrl");
-}
-
-export function setComfyUIBaseUrl(url: string): void {
-  config.set("comfyuiBaseUrl", url);
-}
-
-// ComfyUI install path
-export function getComfyUIInstallPath(): string | undefined {
-  return config.get("comfyuiInstallPath");
-}
-
-export function setComfyUIInstallPath(path: string): void {
-  config.set("comfyuiInstallPath", path);
+  setEnvConfig('apiBaseUrl', url);
 }
 
 export function getConfigPath(): string {
   return config.path;
+}
+
+// Provider helpers
+export function getProviderBaseUrl(name: string, defaultUrl: string): string {
+  const urls = config.get('providerBaseUrls');
+  return urls[name] ?? defaultUrl;
+}
+
+export function getProviderInstallPath(name: string): string | undefined {
+  const paths = config.get('providerInstallPaths');
+  return paths[name];
 }
 
 // Get all environment info for display
