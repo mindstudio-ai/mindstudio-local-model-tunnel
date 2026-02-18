@@ -15,7 +15,6 @@ export async function startTUI(): Promise<void> {
     <App runner={runner} />,
     {
       exitOnCtrlC: true,
-      incrementalRendering: true,
     },
   );
 
