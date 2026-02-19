@@ -209,7 +209,7 @@ export function DashboardPage({
                 ? ` (${workflowCount} workflow${workflowCount !== 1 ? 's' : ''}, ${isSynced ? workflowCount : 0} synced)`
                 : '';
               return (
-                <Box key={model.name}>
+                <Box key={`${model.provider}:${model.name}`}>
                   <Text color={isSynced ? 'green' : 'gray'}>
                     {isSynced ? '\u25CF' : '\u25CB'}
                   </Text>
@@ -227,7 +227,7 @@ export function DashboardPage({
                 providers.find((p) => p.provider.name === warning.provider)
                   ?.provider.displayName ?? warning.provider;
               return (
-                <Box key={warning.name}>
+                <Box key={`${warning.provider}:${warning.name}`}>
                   <Text color="gray">{'\u25CB'}</Text>
                   <Text color="white">{` ${warning.name}`}</Text>
                   <Text color="gray">{' - '}</Text>
