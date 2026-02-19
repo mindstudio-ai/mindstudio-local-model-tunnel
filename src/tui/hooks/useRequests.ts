@@ -41,10 +41,12 @@ export function useRequests(maxHistory: number = 50): UseRequestsResult {
 
     const unsubProgress = requestEvents.onProgress((event) => {
       const existing = requestsRef.current.get(event.id);
-      if (existing && existing.status === 'processing' && event.content) {
+      if (existing && existing.status === 'processing') {
         const updated: RequestLogEntry = {
           ...existing,
-          content: event.content,
+          ...(event.content !== undefined && { content: event.content }),
+          ...(event.step !== undefined && { step: event.step }),
+          ...(event.totalSteps !== undefined && { totalSteps: event.totalSteps }),
         };
         requestsRef.current.set(event.id, updated);
         setRequests((prev) =>

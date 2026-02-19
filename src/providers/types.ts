@@ -6,50 +6,106 @@ export type ModelCapability = 'text' | 'image' | 'video';
 // ============================================
 
 export interface SelectOption {
-  label: string;
-  value: string | number | boolean;
+  label?: string;
+  value: string;
 }
 
 export interface NumberOptions {
-  min?: number;
-  max?: number;
+  min: number;
+  max: number;
   step?: number;
+}
+
+export interface LorasOptions {
+  maxItems?: number;
+  civitBaseModelName?: string;
+  civitBaseModelNameImageAlt?: string;
 }
 
 export interface BaseParameterSchema {
   variable: string;
   label: string;
   helpText?: string;
-}
-
-export interface SelectParameterSchema extends BaseParameterSchema {
-  type: 'select';
-  defaultValue: string | number | boolean;
-  selectOptions: SelectOption[];
-}
-
-export interface NumberParameterSchema extends BaseParameterSchema {
-  type: 'number';
-  defaultValue?: number;
-  numberOptions?: NumberOptions;
+  defaultValue?: string;
 }
 
 export interface TextParameterSchema extends BaseParameterSchema {
   type: 'text';
-  defaultValue?: string;
   placeholder?: string;
 }
 
-export interface BooleanParameterSchema extends BaseParameterSchema {
-  type: 'boolean';
-  defaultValue?: boolean;
+export interface PromptParameterSchema extends BaseParameterSchema {
+  type: 'prompt';
+  placeholder?: string;
+}
+
+export interface ImageUrlParameterSchema extends BaseParameterSchema {
+  type: 'imageUrl';
+}
+
+export interface VideoUrlParameterSchema extends BaseParameterSchema {
+  type: 'videoUrl';
+}
+
+export interface SelectParameterSchema extends BaseParameterSchema {
+  type: 'select';
+  selectOptions: SelectOption[];
+  allowCustomValue?: boolean;
+}
+
+export interface NumberParameterSchema extends BaseParameterSchema {
+  type: 'number';
+  numberOptions?: NumberOptions;
+}
+
+export interface TextArrayParameterSchema extends BaseParameterSchema {
+  type: 'textArray';
+}
+
+export interface ImageUrlArrayParameterSchema extends BaseParameterSchema {
+  type: 'imageUrlArray';
+}
+
+export interface ToggleGroupParameterSchema extends BaseParameterSchema {
+  type: 'toggleGroup';
+  toggleGroupOptions: SelectOption[];
+  isBooleanValue?: boolean;
+}
+
+export interface LorasParameterSchema extends BaseParameterSchema {
+  type: 'loras';
+  lorasOptions?: LorasOptions;
+}
+
+export interface SeedParameterSchema extends BaseParameterSchema {
+  type: 'seed';
+}
+
+export interface ComfyWorkflowOptions {
+  availableWorkflows: Array<{
+    name: string;
+    workflow: Record<string, unknown>;
+  }>;
+}
+
+export interface ComfyWorkflowParameterSchema extends BaseParameterSchema {
+  type: 'comfyWorkflow';
+  comfyWorkflowOptions: ComfyWorkflowOptions;
 }
 
 export type ParameterSchema =
+  | TextParameterSchema
+  | PromptParameterSchema
+  | ImageUrlParameterSchema
+  | VideoUrlParameterSchema
   | SelectParameterSchema
   | NumberParameterSchema
-  | TextParameterSchema
-  | BooleanParameterSchema;
+  | TextArrayParameterSchema
+  | ImageUrlArrayParameterSchema
+  | ToggleGroupParameterSchema
+  | LorasParameterSchema
+  | SeedParameterSchema
+  | ComfyWorkflowParameterSchema;
 
 // ============================================
 // Model Types
@@ -64,6 +120,8 @@ export interface LocalModel {
   quantization?: string;
   /** Parameter schemas for UI configuration */
   parameters?: ParameterSchema[];
+  /** Optional hint shown in the TUI (e.g. "restart required") — not synced as a model */
+  statusHint?: string;
 }
 
 // ============================================
@@ -97,6 +155,7 @@ export interface ImageGenerationOptions {
   cfgScale?: number;
   seed?: number;
   sampler?: string;
+  workflow?: Record<string, unknown>;
 }
 
 export interface ImageGenerationResult {
@@ -132,6 +191,7 @@ export interface VideoGenerationOptions {
   steps?: number;
   cfgScale?: number;
   seed?: number;
+  workflow?: Record<string, unknown>;
 }
 
 export interface VideoGenerationResult {
@@ -192,12 +252,6 @@ export interface Provider {
   ): AsyncGenerator<ChatResponse>;
 
   generateImage?(
-    model: string,
-    prompt: string,
-    options?: ImageGenerationOptions,
-  ): Promise<ImageGenerationResult>;
-
-  generateImageWithProgress?(
     model: string,
     prompt: string,
     options?: ImageGenerationOptions,

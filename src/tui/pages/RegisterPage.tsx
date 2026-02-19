@@ -1,15 +1,15 @@
 import React, { useEffect } from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
-import { useRegister } from '../hooks/useRegister';
+import { useSync } from '../hooks/useRegister';
 
-export function RegisterPage() {
-  const { status, progress, registeredModels, error, startRegister, cancel } =
-    useRegister();
+export function SyncPage() {
+  const { status, progress, syncedModels, error, startSync, cancel } =
+    useSync();
 
-  // Start registration on mount
+  // Start sync on mount
   useEffect(() => {
-    startRegister();
+    startSync();
     return () => cancel();
   }, []);
 
@@ -17,7 +17,7 @@ export function RegisterPage() {
     return (
       <Box flexDirection="column" marginTop={1} paddingX={1}>
         <Box marginTop={1}>
-          <Text color="gray">Starting model registration...</Text>
+          <Text color="gray">Starting model sync...</Text>
         </Box>
       </Box>
     );
@@ -27,7 +27,7 @@ export function RegisterPage() {
     return (
       <Box flexDirection="column" marginTop={1} paddingX={1}>
         <Box marginTop={1}>
-          <Text color="red">Registration failed: {error}</Text>
+          <Text color="red">Sync failed: {error}</Text>
         </Box>
       </Box>
     );
@@ -46,7 +46,7 @@ export function RegisterPage() {
     );
   }
 
-  if (status === 'registering') {
+  if (status === 'syncing') {
     return (
       <Box flexDirection="column" marginTop={1} paddingX={1}>
         <Box marginTop={1}>
@@ -55,7 +55,7 @@ export function RegisterPage() {
           </Text>
           <Text>
             {' '}
-            Registering {progress.current}/{progress.total} models...
+            Syncing {progress.current}/{progress.total} models...
           </Text>
         </Box>
       </Box>
@@ -63,15 +63,15 @@ export function RegisterPage() {
   }
 
   // Done
-  const newModels = registeredModels.filter((m) => m.isNew);
-  const existingModels = registeredModels.filter((m) => !m.isNew);
+  const newModels = syncedModels.filter((m) => m.isNew);
+  const resyncedModels = syncedModels.filter((m) => !m.isNew);
 
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>
-      {newModels.length > 0 ? (
+      {newModels.length > 0 && (
         <Box flexDirection="column" marginTop={1}>
           <Text color="green">
-            Registered {newModels.length} new model
+            Synced {newModels.length} new model
             {newModels.length !== 1 ? 's' : ''}:
           </Text>
           {newModels.map((m) => (
@@ -82,23 +82,19 @@ export function RegisterPage() {
             </Box>
           ))}
         </Box>
-      ) : (
-        <Box marginTop={1}>
-          <Text color="green">All models already registered.</Text>
-        </Box>
       )}
 
-      {existingModels.length > 0 && (
+      {resyncedModels.length > 0 && (
         <Box flexDirection="column" marginTop={1}>
-          <Text color="gray">
-            Already registered ({existingModels.length}):
+          <Text color="green">
+            Resynced {resyncedModels.length} existing model
+            {resyncedModels.length !== 1 ? 's' : ''}:
           </Text>
-          {existingModels.map((m) => (
+          {resyncedModels.map((m) => (
             <Box key={m.name}>
-              <Text color="gray">{'  ● '}</Text>
-              <Text color="gray">
-                {m.name} [{m.provider}]
-              </Text>
+              <Text color="green">{'  ✓ '}</Text>
+              <Text>{m.name} </Text>
+              <Text color="gray">[{m.provider}]</Text>
             </Box>
           ))}
         </Box>

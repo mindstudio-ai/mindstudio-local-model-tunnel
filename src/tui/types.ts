@@ -7,7 +7,7 @@ export type ConnectionStatus =
   | 'disconnected'
   | 'error';
 
-export type Page = 'dashboard' | 'register' | 'setup' | 'onboarding';
+export type Page = 'dashboard' | 'sync' | 'setup' | 'onboarding';
 
 export interface ProviderStatus {
   provider: Provider;
@@ -23,6 +23,8 @@ export interface RequestLogEntry {
   endTime?: number;
   duration?: number;
   content?: string;
+  step?: number;
+  totalSteps?: number;
   result?: {
     chars?: number;
     imageSize?: number;

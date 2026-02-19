@@ -187,6 +187,7 @@ class StableDiffusionProvider implements Provider {
     model: string,
     prompt: string,
     options?: ImageGenerationOptions,
+    onProgress?: (progress: ImageGenerationProgress) => void,
   ): Promise<ImageGenerationResult> {
     const currentModel = await this.getCurrentModel();
     if (currentModel && !currentModel.includes(model)) {
@@ -204,47 +205,11 @@ class StableDiffusionProvider implements Provider {
       sampler_name: options?.sampler || 'Euler a',
     };
 
-    const response = await fetch(`${this.getBaseUrl()}/sdapi/v1/txt2img`, {
+    const generatePromise = fetch(`${this.getBaseUrl()}/sdapi/v1/txt2img`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Image generation failed: ${response.status} ${error}`);
-    }
-
-    const result = (await response.json()) as Txt2ImgResponse;
-
-    if (!result.images || result.images.length === 0) {
-      throw new Error('No images returned from Stable Diffusion');
-    }
-
-    let info: Record<string, unknown> = {};
-    let seed: number | undefined;
-    try {
-      info = JSON.parse(result.info);
-      seed = typeof info.seed === 'number' ? info.seed : undefined;
-    } catch {
-      // Ignore parse errors
-    }
-
-    return {
-      imageBase64: result.images[0],
-      mimeType: 'image/png',
-      seed,
-      info,
-    };
-  }
-
-  async generateImageWithProgress(
-    model: string,
-    prompt: string,
-    options?: ImageGenerationOptions,
-    onProgress?: (progress: ImageGenerationProgress) => void,
-  ): Promise<ImageGenerationResult> {
-    const generatePromise = this.generateImage(model, prompt, options);
 
     if (onProgress) {
       const pollProgress = async () => {
@@ -275,7 +240,34 @@ class StableDiffusionProvider implements Provider {
       pollProgress().catch(() => {});
     }
 
-    return generatePromise;
+    const response = await generatePromise;
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Image generation failed: ${response.status} ${error}`);
+    }
+
+    const result = (await response.json()) as Txt2ImgResponse;
+
+    if (!result.images || result.images.length === 0) {
+      throw new Error('No images returned from Stable Diffusion');
+    }
+
+    let info: Record<string, unknown> = {};
+    let seed: number | undefined;
+    try {
+      info = JSON.parse(result.info);
+      seed = typeof info.seed === 'number' ? info.seed : undefined;
+    } catch {
+      // Ignore parse errors
+    }
+
+    return {
+      imageBase64: result.images[0],
+      mimeType: 'image/png',
+      seed,
+      info,
+    };
   }
 
   /**
@@ -365,7 +357,7 @@ class StableDiffusionProvider implements Provider {
         variable: 'steps',
         helpText:
           'Number of denoising steps. More steps = higher quality but slower.',
-        defaultValue: 20,
+        defaultValue: '20',
         numberOptions: {
           min: 1,
           max: 150,
@@ -378,7 +370,7 @@ class StableDiffusionProvider implements Provider {
         variable: 'cfgScale',
         helpText:
           'How strongly the image should follow the prompt. Higher = more literal.',
-        defaultValue: 7,
+        defaultValue: '7',
         numberOptions: {
           min: 1,
           max: 30,
@@ -386,16 +378,12 @@ class StableDiffusionProvider implements Provider {
         },
       },
       {
-        type: 'number',
+        type: 'seed',
         label: 'Seed',
         variable: 'seed',
         helpText:
           "A specific value used to guide the 'randomness' of generation. Use -1 for random.",
-        defaultValue: -1,
-        numberOptions: {
-          min: -1,
-          max: 2147483647,
-        },
+        defaultValue: '-1',
       },
       {
         type: 'text',

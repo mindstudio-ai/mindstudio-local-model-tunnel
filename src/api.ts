@@ -54,11 +54,13 @@ export async function pollForRequest(
 }
 
 /**
- * Progress update for text generation (streaming content)
+ * Submit a progress update for a running request.
+ * @param type - 'chunk' for streaming text content, 'log' for raw log lines
  */
 export async function submitProgress(
   requestId: string,
   content: string,
+  type: 'chunk' | 'log' = 'chunk',
 ): Promise<void> {
   const baseUrl = getApiBaseUrl();
 
@@ -67,7 +69,7 @@ export async function submitProgress(
     {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ type, content }),
     },
   );
 
@@ -76,35 +78,6 @@ export async function submitProgress(
   }
 }
 
-/**
- * Progress update for image/video generation (step-based)
- */
-export async function submitGenerationProgress(
-  requestId: string,
-  step: number,
-  totalSteps: number,
-  preview?: string,
-): Promise<void> {
-  const baseUrl = getApiBaseUrl();
-
-  const response = await fetch(
-    `${baseUrl}/v1/local-models/requests/${requestId}/progress`,
-    {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({
-        type: 'generation',
-        step,
-        totalSteps,
-        preview,
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    console.warn(`Generation progress update failed: ${response.status}`);
-  }
-}
 
 /**
  * Result for text/chat completions
@@ -192,7 +165,7 @@ export type ModelTypeMindStudio =
   | 'image_generation'
   | 'video_generation';
 
-export interface RegisterModelOptions {
+export interface SyncModelOptions {
   modelName: string;
   provider: string;
   modelType?: ModelTypeMindStudio;
@@ -200,8 +173,8 @@ export interface RegisterModelOptions {
   parameters?: unknown[];
 }
 
-export async function registerLocalModel(
-  modelNameOrOptions: string | RegisterModelOptions,
+export async function syncLocalModel(
+  modelNameOrOptions: string | SyncModelOptions,
   provider: string = 'ollama',
   modelType: ModelTypeMindStudio = 'llm_chat',
 ): Promise<void> {
@@ -239,11 +212,45 @@ export async function registerLocalModel(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Register failed: ${response.status} ${errorText}`);
+    throw new Error(`Sync failed: ${response.status} ${errorText}`);
   }
 }
 
-export async function getRegisteredModels(): Promise<string[]> {
+export interface UpdateModelOptions extends SyncModelOptions {
+  modelId: string;
+}
+
+export async function updateLocalModel(
+  options: UpdateModelOptions,
+): Promise<void> {
+  const baseUrl = getApiBaseUrl();
+
+  const payload = {
+    modelId: options.modelId,
+    modelName: options.modelName,
+    provider: options.provider,
+    modelType: options.modelType || 'llm_chat',
+    parameters: options.parameters,
+  };
+
+  const response = await fetch(`${baseUrl}/v1/local-models/models/update`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Update failed: ${response.status} ${errorText}`);
+  }
+}
+
+export interface SyncedModel {
+  id: string;
+  name: string;
+}
+
+export async function getSyncedModels(): Promise<SyncedModel[]> {
   const baseUrl = getApiBaseUrl();
 
   const response = await fetch(`${baseUrl}/v1/local-models/models`, {
@@ -254,11 +261,11 @@ export async function getRegisteredModels(): Promise<string[]> {
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(
-      `Failed to fetch registered models: ${response.status} ${errorText}`,
+      `Failed to fetch synced models: ${response.status} ${errorText}`,
     );
   }
 
-  const data = (await response.json()) as { models: string[] };
+  const data = (await response.json()) as { models: SyncedModel[] };
   return data.models;
 }
 

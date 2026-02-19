@@ -1,7 +1,6 @@
 import {
   pollForRequest,
   submitProgress,
-  submitGenerationProgress,
   submitResult,
   disconnectHeartbeat,
   type LocalModelRequest,
@@ -185,36 +184,10 @@ export class TunnelRunner {
     const prompt = request.payload.prompt || '';
     const config = request.payload.config || {};
 
-    let result;
-    if (provider.generateImageWithProgress) {
-      result = await provider.generateImageWithProgress(
-        request.modelId,
-        prompt,
-        {
-          negativePrompt: config.negativePrompt as string | undefined,
-          width: config.width as number | undefined,
-          height: config.height as number | undefined,
-          steps: config.steps as number | undefined,
-          cfgScale: config.cfgScale as number | undefined,
-          seed: config.seed as number | undefined,
-          sampler: config.sampler as string | undefined,
-        },
-        async (progress) => {
-          await submitGenerationProgress(
-            request.id,
-            progress.step,
-            progress.totalSteps,
-            progress.preview,
-          );
-          requestEvents.emitProgress({
-            id: request.id,
-            step: progress.step,
-            totalSteps: progress.totalSteps,
-          });
-        },
-      );
-    } else {
-      result = await provider.generateImage(request.modelId, prompt, {
+    const result = await provider.generateImage(
+      request.modelId,
+      prompt,
+      {
         negativePrompt: config.negativePrompt as string | undefined,
         width: config.width as number | undefined,
         height: config.height as number | undefined,
@@ -222,8 +195,21 @@ export class TunnelRunner {
         cfgScale: config.cfgScale as number | undefined,
         seed: config.seed as number | undefined,
         sampler: config.sampler as string | undefined,
-      });
-    }
+        workflow: config.workflow as Record<string, unknown> | undefined,
+      },
+      async (progress) => {
+        await submitProgress(
+          request.id,
+          `Step ${progress.step}/${progress.totalSteps}`,
+          'log',
+        );
+        requestEvents.emitProgress({
+          id: request.id,
+          step: progress.step,
+          totalSteps: progress.totalSteps,
+        });
+      },
+    );
 
     await submitResult(request.id, true, {
       imageBase64: result.imageBase64,
@@ -265,12 +251,13 @@ export class TunnelRunner {
         steps: config.steps as number | undefined,
         cfgScale: config.cfgScale as number | undefined,
         seed: config.seed as number | undefined,
+        workflow: config.workflow as Record<string, unknown> | undefined,
       },
       async (progress) => {
-        await submitGenerationProgress(
+        await submitProgress(
           request.id,
-          progress.step,
-          progress.totalSteps,
+          `Step ${progress.step}/${progress.totalSteps}`,
+          'log',
         );
         requestEvents.emitProgress({
           id: request.id,

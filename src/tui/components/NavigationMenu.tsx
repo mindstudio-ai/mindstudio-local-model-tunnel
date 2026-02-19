@@ -68,7 +68,7 @@ export function NavigationMenu({ items, onSelect, title }: NavigationMenuProps) 
   return (
     <Box flexDirection="column" paddingX={1} marginBottom={1} borderStyle="single" borderTop borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray">
       <Box marginTop={1}>
-        <Text color="gray" dimColor>{title ?? 'Actions'}</Text>
+        <Text color="gray">{title ?? 'Actions'}</Text>
       </Box>
       <Box flexDirection="column">
         {items.map((item, index) => {
@@ -112,7 +112,7 @@ export function NavigationMenu({ items, onSelect, title }: NavigationMenuProps) 
       </Box>
 
       <Box marginTop={1} height={1}>
-        <Text color="gray" dimColor wrap="truncate-end">
+        <Text color="gray" wrap="truncate-end">
           {items.some((i) => i.id === 'back')
             ? 'Up/Down Navigate \u2022 Enter Select \u2022 q/Esc Back'
             : 'Up/Down Navigate \u2022 Enter Select \u2022 q Quit'}

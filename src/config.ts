@@ -91,9 +91,24 @@ export function getProviderBaseUrl(name: string, defaultUrl: string): string {
   return urls[name] ?? defaultUrl;
 }
 
+export function setProviderBaseUrl(name: string, url: string): void {
+  const urls = config.get('providerBaseUrls');
+  urls[name] = url;
+  config.set('providerBaseUrls', urls);
+}
+
 export function getProviderInstallPath(name: string): string | undefined {
   const paths = config.get('providerInstallPaths');
   return paths[name];
+}
+
+export function setProviderInstallPath(
+  name: string,
+  installPath: string,
+): void {
+  const paths = config.get('providerInstallPaths');
+  paths[name] = installPath;
+  config.set('providerInstallPaths', paths);
 }
 
 // Get all environment info for display

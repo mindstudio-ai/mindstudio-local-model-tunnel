@@ -7,9 +7,9 @@ import { useConnection } from './hooks/useConnection';
 import { useProviders } from './hooks/useProviders';
 import { useModels } from './hooks/useModels';
 import { useRequests } from './hooks/useRequests';
-import { useRegisteredModels } from './hooks/useRegisteredModels';
+import { useSyncedModels } from './hooks/useRegisteredModels';
 import { DashboardPage } from './pages/DashboardPage';
-import { RegisterPage } from './pages/RegisterPage';
+import { SyncPage } from './pages/RegisterPage';
 import { SetupPage } from './pages/SetupPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { TunnelRunner } from '../runner';
@@ -32,12 +32,13 @@ export function App({ runner }: AppProps) {
   const { refresh: refreshProviders } = useProviders();
   const {
     models,
+    warnings: modelWarnings,
     loading: modelsLoading,
     refresh: refreshModels,
   } = useModels();
   const { requests } = useRequests();
-  const { registeredNames, refresh: refreshRegistered } =
-    useRegisteredModels(connectionStatus);
+  const { syncedNames, refresh: refreshSynced } =
+    useSyncedModels(connectionStatus);
   const shouldOnboard = getApiKey() === undefined;
   const [page, setPage] = useState<Page>(
     shouldOnboard ? 'onboarding' : 'dashboard',
@@ -65,9 +66,9 @@ export function App({ runner }: AppProps) {
     await Promise.all([
       refreshProviders(),
       refreshModels(),
-      refreshRegistered(),
+      refreshSynced(),
     ]);
-  }, [refreshProviders, refreshModels, refreshRegistered]);
+  }, [refreshProviders, refreshModels, refreshSynced]);
 
   const handleQuit = useCallback(() => {
     runner.stop();
@@ -87,7 +88,7 @@ export function App({ runner }: AppProps) {
           setPage('onboarding');
           break;
         case 'register':
-          setPage('register');
+          setPage('sync');
           break;
         case 'setup':
           setPage('setup');
@@ -100,7 +101,7 @@ export function App({ runner }: AppProps) {
           break;
       }
     },
-    [refreshModels, refreshRegistered, refreshAll, handleQuit],
+    [refreshModels, refreshSynced, refreshAll, handleQuit],
   );
 
   const subpageMenuItems: MenuItem[] = [
@@ -137,7 +138,8 @@ export function App({ runner }: AppProps) {
             <DashboardPage
               requests={requests}
               models={models}
-              registeredNames={registeredNames}
+              modelWarnings={modelWarnings}
+              syncedNames={syncedNames}
               modelsLoading={modelsLoading}
               onNavigate={handleNavigate}
             />
@@ -145,7 +147,7 @@ export function App({ runner }: AppProps) {
           {page === 'setup' && (
             <SetupPage onBack={() => setPage('dashboard')} />
           )}
-          {page === 'register' && <RegisterPage />}
+          {page === 'sync' && <SyncPage />}
 
           {page !== 'dashboard' && page !== 'setup' && <Box flexGrow={1} />}
 

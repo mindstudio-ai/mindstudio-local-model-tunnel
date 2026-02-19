@@ -1,28 +1,28 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getRegisteredModels } from '../../api';
+import { getSyncedModels } from '../../api';
 import type { ConnectionStatus } from '../types';
 
-interface UseRegisteredModelsResult {
-  registeredNames: Set<string>;
+interface UseSyncedModelsResult {
+  syncedNames: Set<string>;
   refresh: () => Promise<void>;
 }
 
-export function useRegisteredModels(
+export function useSyncedModels(
   connectionStatus: ConnectionStatus,
-): UseRegisteredModelsResult {
-  const [registeredNames, setRegisteredNames] = useState<Set<string>>(
+): UseSyncedModelsResult {
+  const [syncedNames, setSyncedNames] = useState<Set<string>>(
     new Set(),
   );
 
   const refresh = useCallback(async () => {
     if (connectionStatus !== 'connected') {
-      setRegisteredNames(new Set());
+      setSyncedNames(new Set());
       return;
     }
 
     try {
-      const models = await getRegisteredModels();
-      setRegisteredNames(new Set(models));
+      const models = await getSyncedModels();
+      setSyncedNames(new Set(models.map((m) => m.name)));
     } catch {
       // Keep existing state on error
     }
@@ -33,7 +33,7 @@ export function useRegisteredModels(
   }, [refresh]);
 
   return {
-    registeredNames,
+    syncedNames,
     refresh,
   };
 }
