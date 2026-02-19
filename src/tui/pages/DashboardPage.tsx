@@ -4,9 +4,15 @@ import Spinner from 'ink-spinner';
 import { RequestLog } from '../components/RequestLog';
 import { NavigationMenu } from '../components/NavigationMenu';
 import type { MenuItem } from '../components/NavigationMenu';
-import type { LocalModel } from '../../providers/types';
+import type { LocalModel, ComfyWorkflowParameterSchema } from '../../providers/types';
 import type { ProviderStatus, RequestLogEntry } from '../types';
 import { useSetupProviders } from '../hooks/useSetupProviders';
+
+function getWorkflowCount(model: LocalModel): number | null {
+  const param = model.parameters?.find((p) => p.type === 'comfyWorkflow');
+  if (!param) return null;
+  return (param as ComfyWorkflowParameterSchema).comfyWorkflowOptions.availableWorkflows.length;
+}
 
 function getCapabilityLabel(capability: string): {
   label: string;
@@ -16,9 +22,9 @@ function getCapabilityLabel(capability: string): {
     case 'text':
       return { label: 'Text Generation', color: 'gray' };
     case 'image':
-      return { label: 'Image Generation', color: 'magenta' };
+      return { label: 'Image Generation', color: 'gray' };
     case 'video':
-      return { label: 'Video Generation', color: 'cyan' };
+      return { label: 'Video Generation', color: 'gray' };
     default:
       return { label: capability, color: 'gray' };
   }
@@ -27,7 +33,8 @@ function getCapabilityLabel(capability: string): {
 interface DashboardPageProps {
   requests: RequestLogEntry[];
   models: LocalModel[];
-  registeredNames: Set<string>;
+  modelWarnings?: LocalModel[];
+  syncedNames: Set<string>;
   modelsLoading?: boolean;
   onNavigate: (id: string) => void;
 }
@@ -35,7 +42,8 @@ interface DashboardPageProps {
 export function DashboardPage({
   requests,
   models,
-  registeredNames,
+  modelWarnings = [],
+  syncedNames,
   modelsLoading,
   onNavigate,
 }: DashboardPageProps) {
@@ -51,7 +59,7 @@ export function DashboardPage({
   const provStatusWidth = 'Local Server Running'.length;
 
   const allModelNames = new Set(models.map((m) => m.name));
-  const unavailableRegistered = [...registeredNames].filter(
+  const unavailableSynced = [...syncedNames].filter(
     (name) => !allModelNames.has(name),
   );
 
@@ -102,11 +110,12 @@ export function DashboardPage({
   // Models section: marginTop(1) + title(1) + content gap(1) + content
   const modelContentLines = modelsLoading
     ? 1
-    : models.length === 0 && unavailableRegistered.length === 0
+    : models.length === 0 && unavailableSynced.length === 0 && modelWarnings.length === 0
       ? 2
       : models.length +
-        (unavailableRegistered.length > 0
-          ? 1 + unavailableRegistered.length
+        modelWarnings.length +
+        (unavailableSynced.length > 0
+          ? 1 + unavailableSynced.length
           : 0);
   const modelsLines = 3 + modelContentLines;
 
@@ -180,7 +189,7 @@ export function DashboardPage({
             </Text>
             <Text> Discovering models...</Text>
           </Box>
-        ) : models.length === 0 && unavailableRegistered.length === 0 ? (
+        ) : models.length === 0 && unavailableSynced.length === 0 && modelWarnings.length === 0 ? (
           <Box marginTop={1} flexDirection="column">
             <Text color="yellow">No models found.</Text>
             <Text color="gray">
@@ -191,16 +200,21 @@ export function DashboardPage({
           <Box flexDirection="column" marginTop={1}>
             {models.map((model) => {
               const cap = getCapabilityLabel(model.capability);
-              const isRegistered = registeredNames.has(model.name);
+              const isSynced = syncedNames.has(model.name);
               const displayProvider =
                 providers.find((p) => p.provider.name === model.provider)
                   ?.provider.displayName ?? model.provider;
+              const workflowCount = getWorkflowCount(model);
+              const workflowSuffix = workflowCount !== null
+                ? ` (${workflowCount} workflow${workflowCount !== 1 ? 's' : ''}, ${isSynced ? workflowCount : 0} synced)`
+                : '';
               return (
                 <Box key={model.name}>
-                  <Text color={isRegistered ? 'green' : 'gray'}>
-                    {isRegistered ? '\u25CF' : '\u25CB'}
+                  <Text color={isSynced ? 'green' : 'gray'}>
+                    {isSynced ? '\u25CF' : '\u25CB'}
                   </Text>
                   <Text color="white">{` ${model.name}`}</Text>
+                  {workflowSuffix && <Text color="gray">{workflowSuffix}</Text>}
                   <Text color="gray">{' - '}</Text>
                   <Text color="gray">{displayProvider}</Text>
                   <Text color="gray">{' - '}</Text>
@@ -208,13 +222,28 @@ export function DashboardPage({
                 </Box>
               );
             })}
+            {modelWarnings.map((warning) => {
+              const displayProvider =
+                providers.find((p) => p.provider.name === warning.provider)
+                  ?.provider.displayName ?? warning.provider;
+              return (
+                <Box key={warning.name}>
+                  <Text color="gray">{'\u25CB'}</Text>
+                  <Text color="white">{` ${warning.name}`}</Text>
+                  <Text color="gray">{' - '}</Text>
+                  <Text color="gray">{displayProvider}</Text>
+                  <Text color="gray">{' - '}</Text>
+                  <Text color="yellow">{warning.statusHint}</Text>
+                </Box>
+              );
+            })}
 
-            {unavailableRegistered.length > 0 && (
+            {unavailableSynced.length > 0 && (
               <Box flexDirection="column" marginTop={models.length > 0 ? 1 : 0}>
                 <Text color="gray">
-                  Registered but not currently available:
+                  Synced but not currently available:
                 </Text>
-                {unavailableRegistered.map((name) => (
+                {unavailableSynced.map((name) => (
                   <Box key={name}>
                     <Text color="gray">{'\u25CB'}</Text>
                     <Text color="gray">{` ${name}`}</Text>

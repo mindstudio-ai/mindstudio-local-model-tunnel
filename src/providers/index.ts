@@ -125,15 +125,18 @@ export async function discoverAllModelsWithParameters(): Promise<LocalModel[]> {
     runningProviders.map(async (provider) => {
       const models = await provider.discoverModels();
 
+      // Filter out status hint entries — they're for TUI display only
+      const realModels = models.filter((m) => !m.statusHint);
+
       if (typeof provider.getParameterSchemas === 'function') {
         const parameters = await provider.getParameterSchemas();
-        return models.map((model) => ({
+        return realModels.map((model) => ({
           ...model,
-          parameters,
+          parameters: model.parameters ?? parameters,
         }));
       }
 
-      return models;
+      return realModels;
     }),
   );
 

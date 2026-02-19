@@ -102,7 +102,7 @@ function ProviderDetailView({
         borderColor="gray"
       >
         <Box marginTop={1}>
-          <Text color="gray" dimColor>
+          <Text color="gray">
             Actions
           </Text>
         </Box>
@@ -113,7 +113,7 @@ function ProviderDetailView({
           <Text color="gray"> - Return to providers</Text>
         </Box>
         <Box marginTop={1} height={1}>
-          <Text color="gray" dimColor wrap="truncate-end">
+          <Text color="gray" wrap="truncate-end">
             Up/Down Scroll {'\u2022'} Enter/q/Esc Back
             {maxScroll > 0 &&
               ` \u2022 ${Math.round((scrollOffset / maxScroll) * 100)}%`}
@@ -315,7 +315,7 @@ export function SetupPage({ onBack }: SetupPageProps) {
         )}
 
         <Box marginTop={1}>
-          <Text color="gray" dimColor>
+          <Text color="gray">
             Up/Down Navigate {'\u2022'} Enter Select {'\u2022'} q/Esc Back
           </Text>
         </Box>

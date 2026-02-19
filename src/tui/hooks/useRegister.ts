@@ -1,27 +1,27 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { getRegisteredModels, registerLocalModel } from '../../api';
+import { getSyncedModels, syncLocalModel, updateLocalModel } from '../../api';
 import { discoverAllModelsWithParameters } from '../../providers';
 
-type RegisterStatus = 'idle' | 'discovering' | 'registering' | 'done' | 'error';
+type SyncStatus = 'idle' | 'discovering' | 'syncing' | 'done' | 'error';
 
-interface RegisterProgress {
+interface SyncProgress {
   current: number;
   total: number;
 }
 
-interface RegisteredModel {
+interface SyncedModel {
   name: string;
   provider: string;
   capability: string;
   isNew: boolean;
 }
 
-interface UseRegisterResult {
-  status: RegisterStatus;
-  progress: RegisterProgress;
-  registeredModels: RegisteredModel[];
+interface UseSyncResult {
+  status: SyncStatus;
+  progress: SyncProgress;
+  syncedModels: SyncedModel[];
   error: string | null;
-  startRegister: () => void;
+  startSync: () => void;
   cancel: () => void;
 }
 
@@ -31,13 +31,13 @@ const MODEL_TYPE_MAP = {
   video: 'video_generation',
 } as const;
 
-export function useRegister(): UseRegisterResult {
-  const [status, setStatus] = useState<RegisterStatus>('idle');
-  const [progress, setProgress] = useState<RegisterProgress>({
+export function useSync(): UseSyncResult {
+  const [status, setStatus] = useState<SyncStatus>('idle');
+  const [progress, setProgress] = useState<SyncProgress>({
     current: 0,
     total: 0,
   });
-  const [registeredModels, setRegisteredModels] = useState<RegisteredModel[]>(
+  const [syncedModels, setSyncedModels] = useState<SyncedModel[]>(
     [],
   );
   const [error, setError] = useState<string | null>(null);
@@ -54,10 +54,10 @@ export function useRegister(): UseRegisterResult {
     setStatus('idle');
   }, []);
 
-  const startRegister = useCallback(() => {
+  const startSync = useCallback(() => {
     cancelledRef.current = false;
     setError(null);
-    setRegisteredModels([]);
+    setSyncedModels([]);
 
     const run = async () => {
       try {
@@ -72,64 +72,59 @@ export function useRegister(): UseRegisterResult {
           return;
         }
 
-        const existingRegistered = await getRegisteredModels();
+        const existingSynced = await getSyncedModels();
         if (cancelledRef.current) return;
-        const registeredNames = new Set(existingRegistered);
 
-        const unregisteredModels = localModels.filter(
-          (m) => !registeredNames.has(m.name),
+        // Map remote model names to their IDs for updates
+        const remoteByName = new Map(
+          existingSynced.map((m) => [m.name, m.id]),
         );
 
-        // Build the full list for display
-        const allModels: RegisteredModel[] = localModels.map((m) => ({
-          name: m.name,
-          provider: m.provider,
-          capability: m.capability,
-          isNew: !registeredNames.has(m.name),
-        }));
+        setStatus('syncing');
+        setProgress({ current: 0, total: localModels.length });
 
-        if (unregisteredModels.length === 0) {
-          setRegisteredModels(allModels);
-          setProgress({ current: 0, total: 0 });
-          setStatus('done');
-          return;
-        }
-
-        setStatus('registering');
-        setProgress({ current: 0, total: unregisteredModels.length });
-
-        for (let i = 0; i < unregisteredModels.length; i++) {
+        for (let i = 0; i < localModels.length; i++) {
           if (cancelledRef.current) return;
 
-          const model = unregisteredModels[i]!;
+          const model = localModels[i]!;
           const modelType =
             MODEL_TYPE_MAP[model.capability as keyof typeof MODEL_TYPE_MAP];
+          const existingId = remoteByName.get(model.name);
 
-          await registerLocalModel({
-            modelName: model.name,
-            provider: model.provider,
-            modelType,
-            parameters: model.parameters,
-          });
+          if (existingId) {
+            await updateLocalModel({
+              modelId: existingId,
+              modelName: model.name,
+              provider: model.provider,
+              modelType,
+              parameters: model.parameters,
+            });
+          } else {
+            await syncLocalModel({
+              modelName: model.name,
+              provider: model.provider,
+              modelType,
+              parameters: model.parameters,
+            });
+          }
 
-          setProgress({ current: i + 1, total: unregisteredModels.length });
+          setProgress({ current: i + 1, total: localModels.length });
         }
 
         if (cancelledRef.current) return;
 
-        // Mark all as registered now
-        const finalModels: RegisteredModel[] = localModels.map((m) => ({
+        const finalModels: SyncedModel[] = localModels.map((m) => ({
           name: m.name,
           provider: m.provider,
           capability: m.capability,
-          isNew: !registeredNames.has(m.name),
+          isNew: !remoteByName.has(m.name),
         }));
 
-        setRegisteredModels(finalModels);
+        setSyncedModels(finalModels);
         setStatus('done');
       } catch (err) {
         if (!cancelledRef.current) {
-          setError(err instanceof Error ? err.message : 'Registration failed');
+          setError(err instanceof Error ? err.message : 'Sync failed');
           setStatus('error');
         }
       }
@@ -141,9 +136,9 @@ export function useRegister(): UseRegisterResult {
   return {
     status,
     progress,
-    registeredModels,
+    syncedModels,
     error,
-    startRegister,
+    startSync,
     cancel,
   };
 }

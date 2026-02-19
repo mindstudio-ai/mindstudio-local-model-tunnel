@@ -29,9 +29,9 @@ function getRequestTypeLabel(type: string): { label: string; color: string } {
     case 'llm_chat':
       return { label: 'text', color: 'gray' };
     case 'image_generation':
-      return { label: 'image', color: 'magenta' };
+      return { label: 'image', color: 'gray' };
     case 'video_generation':
-      return { label: 'video', color: 'cyan' };
+      return { label: 'video', color: 'gray' };
     default:
       return { label: type, color: 'gray' };
   }
@@ -56,6 +56,9 @@ function RequestItem({ request, width }: { request: RequestLogEntry; width: numb
     const snippet = request.content && request.requestType === 'llm_chat'
       ? snippetLine(request.content, snippetWidth)
       : null;
+    const stepProgress = request.step !== undefined && request.totalSteps
+      ? `Step ${request.step}/${request.totalSteps}`
+      : null;
     return (
       <Box flexDirection="column">
         <Box>
@@ -69,8 +72,13 @@ function RequestItem({ request, width }: { request: RequestLogEntry; width: numb
           <Text color="gray">  {formatDuration(elapsed)}...</Text>
         </Box>
         {snippet && (
-          <Text color="gray" dimColor wrap="truncate-end">
+          <Text color="gray" wrap="truncate-end">
             {snippetIndent}{snippet}
+          </Text>
+        )}
+        {stepProgress && (
+          <Text color="gray">
+            {snippetIndent}{stepProgress}
           </Text>
         )}
       </Box>
@@ -103,7 +111,7 @@ function RequestItem({ request, width }: { request: RequestLogEntry; width: numb
           <Text color="gray">  {duration}{resultInfo}</Text>
         </Box>
         {snippet && (
-          <Text color="gray" dimColor wrap="truncate-end">
+          <Text color="gray" wrap="truncate-end">
             {snippetIndent}{snippet}
           </Text>
         )}
@@ -134,10 +142,12 @@ export function RequestLog({ requests, maxVisible = 8, hasModels = true }: Reque
   const activeRequests = requests.filter((r) => r.status === 'processing');
   const completedRequests = requests.filter((r) => r.status !== 'processing');
 
-  // Text requests with content take 2 lines, others take 1
-  // Calculate how many items fit in maxVisible lines
-  const itemLines = (r: RequestLogEntry) =>
-    r.requestType === 'llm_chat' && r.content ? 2 : 1;
+  // Requests with a snippet or step progress take 2 lines, others take 1
+  const itemLines = (r: RequestLogEntry) => {
+    if (r.requestType === 'llm_chat' && r.content) return 2;
+    if (r.status === 'processing' && r.step !== undefined) return 2;
+    return 1;
+  };
 
   let completedToShow: RequestLogEntry[] = [];
   let linesUsed = activeRequests.reduce((sum, r) => sum + itemLines(r), 0);
