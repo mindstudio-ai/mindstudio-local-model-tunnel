@@ -172,7 +172,7 @@ export function RequestLog({ requests, maxVisible = 8, hasModels = true }: Reque
       </Box>
 
       {requests.length === 0 ? (
-        <Box flexGrow={1} alignItems="center" justifyContent="center">
+        <Box marginTop={1} flexDirection="column">
           <Text color="gray">{hasModels
             ? 'Tunnel is live — requests will appear here when models are used in MindStudio'
             : 'Start a model to begin receiving generation requests.'
