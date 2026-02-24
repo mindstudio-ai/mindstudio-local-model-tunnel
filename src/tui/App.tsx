@@ -49,7 +49,7 @@ export function App({ runner }: AppProps) {
   const { requests } = useRequests();
   const {
     syncedNames,
-    syncedModelIds,
+    syncedModels,
     refresh: refreshSynced,
   } = useSyncedModels(connectionStatus);
   const shouldOnboard = getApiKey() === undefined;
@@ -78,10 +78,10 @@ export function App({ runner }: AppProps) {
 
   // Start runner when connected with synced models
   useEffect(() => {
-    if (connectionStatus === 'connected' && syncedModelIds.length > 0) {
-      runner.start(syncedModelIds);
+    if (connectionStatus === 'connected' && syncedModels.length > 0) {
+      runner.start(syncedModels);
     }
-  }, [connectionStatus, syncedModelIds, runner]);
+  }, [connectionStatus, syncedModels, runner]);
 
   // Stop only on unmount
   useEffect(() => () => runner.stop(), [runner]);
