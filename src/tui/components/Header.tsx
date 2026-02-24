@@ -9,12 +9,13 @@ interface HeaderProps {
   environment: 'prod' | 'local';
   configPath: string;
   connectionError?: string | null;
+  compact?: boolean;
 }
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string };
 
-export const LogoString = `      .=+-.     :++.
+export const LogoString = `       .=+-.     :++.
       *@@@@@+  :%@@@@%:
     .%@@@@@@#..@@@@@@@=
   .*@@@@@@@--@@@@@@@#.**.
@@ -44,6 +45,7 @@ export function Header({
   environment,
   configPath,
   connectionError,
+  compact,
 }: HeaderProps) {
   const { color: connectionColor, text: connectionText } =
     getConnectionDisplay(connection);
@@ -58,14 +60,17 @@ export function Header({
       paddingY={1}
       width="100%"
     >
-      <Box paddingLeft={3}>
-        <Text color="cyan">{LogoString}</Text>
-      </Box>
-      <Box flexDirection="column" marginLeft={4}>
+      {!compact && (
+        <Box paddingLeft={3}>
+          <Text color="cyan">{LogoString}</Text>
+        </Box>
+      )}
+      <Box flexDirection="column" marginLeft={compact ? 0 : 4}>
         <Box>
           <Text bold color="white">
             MindStudio Local Tunnel
           </Text>
+          {compact && <Text color="gray"> v{pkg.version}</Text>}
           {environment !== 'prod' && (
             <>
               <Text> </Text>
@@ -75,7 +80,7 @@ export function Header({
             </>
           )}
         </Box>
-        <Text color="gray">v{pkg.version}</Text>
+        {!compact && <Text color="gray">v{pkg.version}</Text>}
         <Text color={connectionColor}>● {connectionText}</Text>
         {connectionError && <Text color="red">{connectionError}</Text>}
         <Text color="gray">

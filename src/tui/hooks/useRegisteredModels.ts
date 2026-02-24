@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getSyncedModels } from '../../api';
+import { getSyncedModels, type SyncedModel } from '../../api';
 import type { ConnectionStatus } from '../types';
 
 interface UseSyncedModelsResult {
   syncedNames: Set<string>;
+  syncedModels: SyncedModel[];
   refresh: () => Promise<void>;
 }
 
@@ -13,16 +14,19 @@ export function useSyncedModels(
   const [syncedNames, setSyncedNames] = useState<Set<string>>(
     new Set(),
   );
+  const [syncedModels, setSyncedModels] = useState<SyncedModel[]>([]);
 
   const refresh = useCallback(async () => {
     if (connectionStatus !== 'connected') {
       setSyncedNames(new Set());
+      setSyncedModels([]);
       return;
     }
 
     try {
       const models = await getSyncedModels();
       setSyncedNames(new Set(models.map((m) => m.name)));
+      setSyncedModels(models);
     } catch {
       // Keep existing state on error
     }
@@ -34,6 +38,7 @@ export function useSyncedModels(
 
   return {
     syncedNames,
+    syncedModels,
     refresh,
   };
 }

@@ -4,6 +4,7 @@ import {
   submitResult,
   disconnectHeartbeat,
   type LocalModelRequest,
+  type SyncedModel,
 } from './api';
 import {
   getProvider,
@@ -13,28 +14,33 @@ import {
 } from './providers';
 import { requestEvents } from './events';
 
+interface ModelMapping {
+  provider: Provider;
+  localModelName: string;
+}
+
 /**
  * TunnelRunner handles the polling and request processing loop.
  * It emits events that listeners (TUI or simple chalk output) can subscribe to.
  */
 export class TunnelRunner {
   private isRunning = false;
-  private modelProviderMap: Map<string, Provider> = new Map();
-  private models: string[] = [];
+  private modelMap: Map<string, ModelMapping> = new Map();
+  private modelIds: string[] = [];
 
   /**
-   * Start with a pre-discovered list of model names.
+   * Start with a pre-discovered list of synced models.
    * Used by the TUI, which discovers models itself.
    */
-  async start(models: string[]): Promise<void> {
+  async start(syncedModels: SyncedModel[]): Promise<void> {
     if (this.isRunning) return;
 
-    this.models = models;
+    this.modelIds = syncedModels.map((m) => m.id);
     this.isRunning = true;
 
-    // Build model -> provider mapping
+    // Build cloud ID -> { provider, localModelName } mapping
     const allModels = await discoverAllModels();
-    this.buildModelProviderMap(allModels);
+    this.buildModelMap(syncedModels, allModels);
 
     // Start polling loop
     this.pollLoop();
@@ -45,12 +51,27 @@ export class TunnelRunner {
     disconnectHeartbeat().catch(() => {});
   }
 
-  private buildModelProviderMap(models: LocalModel[]): void {
-    this.modelProviderMap.clear();
-    for (const model of models) {
-      const provider = getProvider(model.provider);
-      if (provider) {
-        this.modelProviderMap.set(model.name, provider);
+  private buildModelMap(
+    syncedModels: SyncedModel[],
+    localModels: LocalModel[],
+  ): void {
+    this.modelMap.clear();
+    // Index local models by name for fast lookup
+    const localByName = new Map<string, LocalModel>();
+    for (const model of localModels) {
+      localByName.set(model.name, model);
+    }
+    // Map cloud ID -> provider + local model name
+    for (const synced of syncedModels) {
+      const local = localByName.get(synced.name);
+      if (local) {
+        const provider = getProvider(local.provider);
+        if (provider) {
+          this.modelMap.set(synced.id, {
+            provider,
+            localModelName: local.name,
+          });
+        }
       }
     }
   }
@@ -58,7 +79,7 @@ export class TunnelRunner {
   private async pollLoop(): Promise<void> {
     while (this.isRunning) {
       try {
-        const request = await pollForRequest(this.models);
+        const request = await pollForRequest(this.modelIds);
         if (request) {
           // Process request in background
           this.processRequest(request);
@@ -81,9 +102,9 @@ export class TunnelRunner {
       timestamp: startTime,
     });
 
-    const provider = this.modelProviderMap.get(request.modelId);
+    const mapping = this.modelMap.get(request.modelId);
 
-    if (!provider) {
+    if (!mapping) {
       const error = `Model ${request.modelId} not found`;
       await submitResult(request.id, false, undefined, error);
       requestEvents.emitComplete({
@@ -98,13 +119,13 @@ export class TunnelRunner {
     try {
       switch (request.requestType) {
         case 'llm_chat':
-          await this.handleTextRequest(request, provider, startTime);
+          await this.handleTextRequest(request, mapping, startTime);
           break;
         case 'image_generation':
-          await this.handleImageRequest(request, provider, startTime);
+          await this.handleImageRequest(request, mapping, startTime);
           break;
         case 'video_generation':
-          await this.handleVideoRequest(request, provider, startTime);
+          await this.handleVideoRequest(request, mapping, startTime);
           break;
         default:
           throw new Error(`Unsupported request type: ${request.requestType}`);
@@ -123,7 +144,7 @@ export class TunnelRunner {
 
   private async handleTextRequest(
     request: LocalModelRequest,
-    provider: Provider,
+    { provider, localModelName }: ModelMapping,
     startTime: number,
   ): Promise<void> {
     if (!provider.chat) {
@@ -135,7 +156,7 @@ export class TunnelRunner {
       content: m.content,
     }));
 
-    const stream = provider.chat(request.modelId, messages, {
+    const stream = provider.chat(localModelName, messages, {
       temperature: request.payload.temperature,
       maxTokens: request.payload.maxTokens,
     });
@@ -174,7 +195,7 @@ export class TunnelRunner {
 
   private async handleImageRequest(
     request: LocalModelRequest,
-    provider: Provider,
+    { provider, localModelName }: ModelMapping,
     startTime: number,
   ): Promise<void> {
     if (!provider.generateImage) {
@@ -185,7 +206,7 @@ export class TunnelRunner {
     const config = request.payload.config || {};
 
     const result = await provider.generateImage(
-      request.modelId,
+      localModelName,
       prompt,
       {
         negativePrompt: config.negativePrompt as string | undefined,
@@ -229,7 +250,7 @@ export class TunnelRunner {
 
   private async handleVideoRequest(
     request: LocalModelRequest,
-    provider: Provider,
+    { provider, localModelName }: ModelMapping,
     startTime: number,
   ): Promise<void> {
     if (!provider.generateVideo) {
@@ -240,7 +261,7 @@ export class TunnelRunner {
     const config = request.payload.config || {};
 
     const result = await provider.generateVideo(
-      request.modelId,
+      localModelName,
       prompt,
       {
         negativePrompt: config.negativePrompt as string | undefined,
