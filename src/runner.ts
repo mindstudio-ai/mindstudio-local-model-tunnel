@@ -20,16 +20,16 @@ import { requestEvents } from './events';
 export class TunnelRunner {
   private isRunning = false;
   private modelProviderMap: Map<string, Provider> = new Map();
-  private models: string[] = [];
+  private modelIds: string[] = [];
 
   /**
-   * Start with a pre-discovered list of model names.
+   * Start with a pre-discovered list of synced model IDs.
    * Used by the TUI, which discovers models itself.
    */
-  async start(models: string[]): Promise<void> {
+  async start(modelIds: string[]): Promise<void> {
     if (this.isRunning) return;
 
-    this.models = models;
+    this.modelIds = modelIds;
     this.isRunning = true;
 
     // Build model -> provider mapping
@@ -58,7 +58,7 @@ export class TunnelRunner {
   private async pollLoop(): Promise<void> {
     while (this.isRunning) {
       try {
-        const request = await pollForRequest(this.models);
+        const request = await pollForRequest(this.modelIds);
         if (request) {
           // Process request in background
           this.processRequest(request);

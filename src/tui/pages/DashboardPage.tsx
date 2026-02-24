@@ -4,14 +4,19 @@ import Spinner from 'ink-spinner';
 import { RequestLog } from '../components/RequestLog';
 import { NavigationMenu } from '../components/NavigationMenu';
 import type { MenuItem } from '../components/NavigationMenu';
-import type { LocalModel, ComfyWorkflowParameterSchema } from '../../providers/types';
-import type { ProviderStatus, RequestLogEntry } from '../types';
-import { useSetupProviders } from '../hooks/useSetupProviders';
+import type {
+  LocalModel,
+  Provider,
+  ProviderSetupStatus,
+  ComfyWorkflowParameterSchema,
+} from '../../providers/types';
+import type { RequestLogEntry } from '../types';
 
 function getWorkflowCount(model: LocalModel): number | null {
   const param = model.parameters?.find((p) => p.type === 'comfyWorkflow');
   if (!param) return null;
-  return (param as ComfyWorkflowParameterSchema).comfyWorkflowOptions.availableWorkflows.length;
+  return (param as ComfyWorkflowParameterSchema).comfyWorkflowOptions
+    .availableWorkflows.length;
 }
 
 function getCapabilityLabel(capability: string): {
@@ -30,12 +35,20 @@ function getCapabilityLabel(capability: string): {
   }
 }
 
+interface ProviderWithStatus {
+  provider: Provider;
+  status: ProviderSetupStatus;
+}
+
 interface DashboardPageProps {
   requests: RequestLogEntry[];
   models: LocalModel[];
   modelWarnings?: LocalModel[];
+  providers: ProviderWithStatus[];
+  providersLoading?: boolean;
   syncedNames: Set<string>;
   modelsLoading?: boolean;
+  syncStatus?: 'idle' | 'syncing' | 'synced';
   onNavigate: (id: string) => void;
 }
 
@@ -43,12 +56,14 @@ export function DashboardPage({
   requests,
   models,
   modelWarnings = [],
+  providers,
+  providersLoading,
   syncedNames,
   modelsLoading,
+  syncStatus = 'idle',
   onNavigate,
 }: DashboardPageProps) {
   const { stdout } = useStdout();
-  const { providers, loading: setupLoading } = useSetupProviders();
 
   const installedProviders = providers.filter(({ status }) => status.installed);
 
@@ -63,17 +78,19 @@ export function DashboardPage({
     (name) => !allModelNames.has(name),
   );
 
+  const syncDescription =
+    syncStatus === 'syncing'
+      ? 'Syncing...'
+      : syncStatus === 'synced'
+        ? '\u2713 Synced'
+        : 'Re-detect providers and sync models to MindStudio';
+
   const menuItems = useMemo((): MenuItem[] => {
     return [
       {
-        id: 'register',
-        label: 'Sync Models',
-        description: 'Sync models with MindStudio Cloud',
-      },
-      {
         id: 'refresh',
-        label: 'Refresh Providers',
-        description: 'Re-detect local AI providers and models',
+        label: 'Sync Models',
+        description: syncDescription,
       },
       {
         id: 'setup',
@@ -91,16 +108,17 @@ export function DashboardPage({
         description: 'Quit the application',
       },
     ];
-  }, []);
+  }, [syncDescription]);
 
   // Compute maxVisible for request log based on terminal height
   const termHeight = (stdout?.rows ?? 24) - 4; // matches App's height calculation
+  const compactHeader = (stdout?.rows ?? 24) <= 45 || (stdout?.columns ?? 80) <= 90;
 
-  // Header: border(2) + padding(2) + logo(~10 lines) = 14
-  const headerLines = 14;
+  // Header: compact (no logo, version on title line) = border(2) + padding(2) + 3 text lines = 7, full = border(2) + padding(2) + logo(~10 lines) = 14
+  const headerLines = compactHeader ? 7 : 14;
 
   // Providers section: marginTop(1) + title(1) + content gap(1) + content
-  const providerContentLines = setupLoading
+  const providerContentLines = providersLoading
     ? 1
     : installedProviders.length === 0
       ? 2
@@ -110,20 +128,21 @@ export function DashboardPage({
   // Models section: marginTop(1) + title(1) + content gap(1) + content
   const modelContentLines = modelsLoading
     ? 1
-    : models.length === 0 && unavailableSynced.length === 0 && modelWarnings.length === 0
+    : models.length === 0 &&
+        unavailableSynced.length === 0 &&
+        modelWarnings.length === 0
       ? 2
       : models.length +
         modelWarnings.length +
-        (unavailableSynced.length > 0
-          ? 1 + unavailableSynced.length
-          : 0);
+        (unavailableSynced.length > 0 ? 1 + unavailableSynced.length : 0);
   const modelsLines = 3 + modelContentLines;
 
   // Request log overhead: marginTop(1) + title(1) + content gap(1)
   const requestLogOverhead = 3;
 
-  // Menu: border-top(1) + marginTop(1) + title(1) + items + hint(1) + marginTop(1) + marginBottom(1)
-  const menuLines = menuItems.length + 6;
+  // Menu: compact = border-top(1) + items(1) + hint(1) = 3, full = border-top(1) + marginTop(1) + title(1) + items + hint(1) + marginTop(1) + marginBottom(1)
+  const compactMenu = termHeight + 4 < 40; // stdout rows < 40
+  const menuLines = compactMenu ? 2 : menuItems.length + 6;
 
   const usedLines =
     headerLines + providersLines + modelsLines + requestLogOverhead + menuLines;
@@ -137,7 +156,7 @@ export function DashboardPage({
           Providers
         </Text>
 
-        {setupLoading ? (
+        {providersLoading ? (
           <Box marginTop={1}>
             <Text color="cyan">
               <Spinner type="dots" />
@@ -189,7 +208,9 @@ export function DashboardPage({
             </Text>
             <Text> Discovering models...</Text>
           </Box>
-        ) : models.length === 0 && unavailableSynced.length === 0 && modelWarnings.length === 0 ? (
+        ) : models.length === 0 &&
+          unavailableSynced.length === 0 &&
+          modelWarnings.length === 0 ? (
           <Box marginTop={1} flexDirection="column">
             <Text color="yellow">No models found.</Text>
             <Text color="gray">
@@ -205,9 +226,10 @@ export function DashboardPage({
                 providers.find((p) => p.provider.name === model.provider)
                   ?.provider.displayName ?? model.provider;
               const workflowCount = getWorkflowCount(model);
-              const workflowSuffix = workflowCount !== null
-                ? ` (${workflowCount} workflow${workflowCount !== 1 ? 's' : ''}, ${isSynced ? workflowCount : 0} synced)`
-                : '';
+              const workflowSuffix =
+                workflowCount !== null
+                  ? ` (${workflowCount} workflow${workflowCount !== 1 ? 's' : ''}, ${isSynced ? workflowCount : 0} synced)`
+                  : '';
               return (
                 <Box key={`${model.provider}:${model.name}`}>
                   <Text color={isSynced ? 'green' : 'gray'}>
@@ -240,9 +262,7 @@ export function DashboardPage({
 
             {unavailableSynced.length > 0 && (
               <Box flexDirection="column" marginTop={models.length > 0 ? 1 : 0}>
-                <Text color="gray">
-                  Synced but not currently available:
-                </Text>
+                <Text color="gray">Synced but provider not running:</Text>
                 {unavailableSynced.map((name) => (
                   <Box key={name}>
                     <Text color="gray">{'\u25CB'}</Text>

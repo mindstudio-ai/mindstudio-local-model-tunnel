@@ -28,13 +28,13 @@ function getHeaders(): Record<string, string> {
 }
 
 export async function pollForRequest(
-  models: string[],
+  modelIds: string[],
 ): Promise<LocalModelRequest | null> {
   const baseUrl = getApiBaseUrl();
-  const modelsParam = models.join(',');
+  const modelIdsParam = modelIds.join(',');
 
   const response = await fetch(
-    `${baseUrl}/v1/local-models/poll?models=${encodeURIComponent(modelsParam)}`,
+    `${baseUrl}/v1/local-models/poll?modelIds=${encodeURIComponent(modelIdsParam)}`,
     {
       method: 'GET',
       headers: getHeaders(),
@@ -165,83 +165,27 @@ export type ModelTypeMindStudio =
   | 'image_generation'
   | 'video_generation';
 
-export interface SyncModelOptions {
-  modelName: string;
+export interface SyncModelEntry {
+  name: string;
   provider: string;
-  modelType?: ModelTypeMindStudio;
-  /** Parameter schemas for configurable options */
+  type: ModelTypeMindStudio;
   parameters?: unknown[];
 }
 
-export async function syncLocalModel(
-  modelNameOrOptions: string | SyncModelOptions,
-  provider: string = 'ollama',
-  modelType: ModelTypeMindStudio = 'llm_chat',
+export async function syncModels(
+  models: SyncModelEntry[],
 ): Promise<void> {
   const baseUrl = getApiBaseUrl();
 
-  let payload: {
-    modelName: string;
-    provider: string;
-    modelType: ModelTypeMindStudio;
-    parameters?: unknown[];
-  };
-
-  if (typeof modelNameOrOptions === 'string') {
-    // Legacy signature
-    payload = {
-      modelName: modelNameOrOptions,
-      provider,
-      modelType,
-    };
-  } else {
-    // New options object signature
-    payload = {
-      modelName: modelNameOrOptions.modelName,
-      provider: modelNameOrOptions.provider,
-      modelType: modelNameOrOptions.modelType || 'llm_chat',
-      parameters: modelNameOrOptions.parameters,
-    };
-  }
-
-  const response = await fetch(`${baseUrl}/v1/local-models/models/create`, {
+  const response = await fetch(`${baseUrl}/v1/local-models/models/sync`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ models }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Sync failed: ${response.status} ${errorText}`);
-  }
-}
-
-export interface UpdateModelOptions extends SyncModelOptions {
-  modelId: string;
-}
-
-export async function updateLocalModel(
-  options: UpdateModelOptions,
-): Promise<void> {
-  const baseUrl = getApiBaseUrl();
-
-  const payload = {
-    modelId: options.modelId,
-    modelName: options.modelName,
-    provider: options.provider,
-    modelType: options.modelType || 'llm_chat',
-    parameters: options.parameters,
-  };
-
-  const response = await fetch(`${baseUrl}/v1/local-models/models/update`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Update failed: ${response.status} ${errorText}`);
   }
 }
 
