@@ -237,9 +237,6 @@ export function App({ runner }: AppProps) {
           {page === 'interfaces' && (
             <InterfacesPage
               onBack={() => setPage('dashboard')}
-              onSelect={() => {
-                // TODO: handle connecting to selected interface/script
-              }}
             />
           )}
           {page !== 'dashboard' && page !== 'setup' && page !== 'interfaces' && <Box flexGrow={1} />}

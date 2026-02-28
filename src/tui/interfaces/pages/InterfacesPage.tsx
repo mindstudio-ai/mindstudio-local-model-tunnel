@@ -1,7 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import { useEditorSessions, type RefreshStatus } from '../hooks/useEditorSessions';
+import { useLocalInterface } from '../hooks/useLocalInterface';
+import { InterfaceSessionView } from './InterfaceSessionView';
+import { InterfaceRunningView } from './InterfaceRunningView';
 import type {
   EditorSession,
   CustomInterfaceStepInfo,
@@ -10,7 +13,6 @@ import type {
 
 interface InterfacesPageProps {
   onBack: () => void;
-  onSelect: (item: InterfaceItem | ScriptItem) => void;
 }
 
 export interface InterfaceItem {
@@ -262,6 +264,11 @@ function AgentDetailView({
 }) {
   const [offlineItem, setOfflineItem] = useState<ListItem | null>(null);
 
+  // Refresh sessions when entering this view
+  useEffect(() => {
+    onRefresh();
+  }, []);
+
   const interfaces = useMemo(
     (): InterfaceItem[] =>
       session.customInterfaceSteps.map((step) => ({
@@ -428,11 +435,84 @@ function AgentDetailView({
   );
 }
 
+// --- Local dev view (level 3, online interfaces) ---
+
+function InterfaceLocalDevView({
+  item,
+  onBack,
+}: {
+  item: InterfaceItem;
+  onBack: () => void;
+}) {
+  const hotUpdateDomain = item.step.spaEditorSession?.hotUpdateDomain ?? '';
+  const sessionId = hotUpdateDomain.replace(/^https?:\/\//, '').split('.')[0] || '';
+
+  const {
+    phase,
+    hasLocalCopy,
+    localPath,
+    outputLines,
+    errorMessage,
+    start,
+    stop,
+    deleteLocalCopy,
+  } = useLocalInterface({
+    appId: item.appId,
+    stepId: item.step.stepId,
+    sessionId,
+  });
+
+  const name = `${item.step.workflowName} - ${item.step.displayName}`;
+
+  const isActive =
+    phase === 'cloning' ||
+    phase === 'installing' ||
+    phase === 'running' ||
+    phase === 'deleting';
+
+  // If the dev server exits (phase goes from active back to idle), go back to the list
+  const wasActiveRef = useRef(false);
+  useEffect(() => {
+    if (isActive) {
+      wasActiveRef.current = true;
+    } else if (wasActiveRef.current && phase === 'idle') {
+      wasActiveRef.current = false;
+      onBack();
+    }
+  }, [phase, isActive, onBack]);
+
+  if (isActive || phase === 'error') {
+    return (
+      <InterfaceRunningView
+        name={name}
+        phase={phase}
+        outputLines={outputLines}
+        errorMessage={errorMessage}
+        localPath={localPath}
+        onStop={stop}
+        onBack={onBack}
+      />
+    );
+  }
+
+  return (
+    <InterfaceSessionView
+      item={item}
+      onStart={start}
+      onDelete={deleteLocalCopy}
+      onBack={onBack}
+      hasLocalCopy={hasLocalCopy}
+      localPath={localPath}
+    />
+  );
+}
+
 // --- Main page ---
 
-export function InterfacesPage({ onBack, onSelect }: InterfacesPageProps) {
+export function InterfacesPage({ onBack }: InterfacesPageProps) {
   const { sessions, loading, error, refreshStatus, refresh } = useEditorSessions();
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<InterfaceItem | null>(null);
 
   if (loading) {
     return (
@@ -463,6 +543,15 @@ export function InterfacesPage({ onBack, onSelect }: InterfacesPageProps) {
     );
   }
 
+  if (selectedItem) {
+    return (
+      <InterfaceLocalDevView
+        item={selectedItem}
+        onBack={() => setSelectedItem(null)}
+      />
+    );
+  }
+
   if (selectedAppId) {
     const session = sessions.find((s) => s.appId === selectedAppId);
     if (session) {
@@ -470,7 +559,11 @@ export function InterfacesPage({ onBack, onSelect }: InterfacesPageProps) {
         <AgentDetailView
           session={session}
           onBack={() => setSelectedAppId(null)}
-          onSelect={onSelect}
+          onSelect={(item) => {
+            if (item.kind === 'interface') {
+              setSelectedItem(item);
+            }
+          }}
           onRefresh={refresh}
           refreshStatus={refreshStatus}
         />
