@@ -435,17 +435,22 @@ function AgentDetailView({
   );
 }
 
-// --- Local dev view (level 3, online interfaces) ---
+// --- Local dev view (level 3, interfaces and scripts) ---
 
-function InterfaceLocalDevView({
+function LocalDevView({
   item,
   onBack,
 }: {
-  item: InterfaceItem;
+  item: InterfaceItem | ScriptItem;
   onBack: () => void;
 }) {
-  const hotUpdateDomain = item.step.spaEditorSession?.hotUpdateDomain ?? '';
-  const sessionId = hotUpdateDomain.replace(/^https?:\/\//, '').split('.')[0] || '';
+  const mode = item.kind === 'script' ? 'script' : 'interface';
+
+  let sessionId = '';
+  if (item.kind === 'interface') {
+    const hotUpdateDomain = item.step.spaEditorSession?.hotUpdateDomain ?? '';
+    sessionId = hotUpdateDomain.replace(/^https?:\/\//, '').split('.')[0] || '';
+  }
 
   const {
     phase,
@@ -457,8 +462,10 @@ function InterfaceLocalDevView({
     stop,
     deleteLocalCopy,
   } = useLocalInterface({
+    mode,
     appId: item.appId,
     stepId: item.step.stepId,
+    workflowId: item.step.workflowId,
     sessionId,
   });
 
@@ -512,7 +519,7 @@ function InterfaceLocalDevView({
 export function InterfacesPage({ onBack }: InterfacesPageProps) {
   const { sessions, loading, error, refreshStatus, refresh } = useEditorSessions();
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
-  const [selectedItem, setSelectedItem] = useState<InterfaceItem | null>(null);
+  const [selectedItem, setSelectedItem] = useState<InterfaceItem | ScriptItem | null>(null);
 
   if (loading) {
     return (
@@ -545,7 +552,7 @@ export function InterfacesPage({ onBack }: InterfacesPageProps) {
 
   if (selectedItem) {
     return (
-      <InterfaceLocalDevView
+      <LocalDevView
         item={selectedItem}
         onBack={() => setSelectedItem(null)}
       />
@@ -560,9 +567,7 @@ export function InterfacesPage({ onBack }: InterfacesPageProps) {
           session={session}
           onBack={() => setSelectedAppId(null)}
           onSelect={(item) => {
-            if (item.kind === 'interface') {
-              setSelectedItem(item);
-            }
+            setSelectedItem(item);
           }}
           onRefresh={refresh}
           refreshStatus={refreshStatus}

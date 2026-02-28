@@ -7,10 +7,14 @@ import {
   setLocalInterfacePath,
   deleteLocalInterfacePath,
   getLocalInterfacesDir,
+  getApiKey,
+  getApiBaseUrl,
+  getEnvironment,
 } from '../../../config';
 import path from 'node:path';
 
-const SCAFFOLD_REPO = 'https://github.com/mindstudio-ai/spa-bundle-scaffold';
+const INTERFACE_SCAFFOLD_REPO = 'https://github.com/mindstudio-ai/spa-bundle-scaffold';
+const SCRIPT_SCAFFOLD_REPO = 'https://github.com/mindstudio-ai/script-scaffold';
 const MAX_OUTPUT_LINES = 500;
 
 export type LocalInterfacePhase =
@@ -22,9 +26,12 @@ export type LocalInterfacePhase =
   | 'deleting';
 
 interface UseLocalInterfaceOptions {
+  mode: 'interface' | 'script';
   appId: string;
   stepId: string;
-  sessionId: string;
+  workflowId: string;
+  /** For interfaces: the hot update domain subdomain (e.g. sb-xxx) */
+  sessionId?: string;
 }
 
 interface UseLocalInterfaceResult {
@@ -39,8 +46,10 @@ interface UseLocalInterfaceResult {
 }
 
 export function useLocalInterface({
+  mode,
   appId,
   stepId,
+  workflowId,
   sessionId,
 }: UseLocalInterfaceOptions): UseLocalInterfaceResult {
   const key = `${appId}:${stepId}`;
@@ -87,14 +96,14 @@ export function useLocalInterface({
     (
       command: string,
       args: string[],
-      options: { cwd?: string } = {},
+      options: { cwd?: string; env?: Record<string, string> } = {},
     ): Promise<number> => {
       return new Promise((resolve, reject) => {
         const fullCommand = [command, ...args].join(' ');
         const proc = spawn(fullCommand, [], {
           cwd: options.cwd,
           shell: true,
-          env: { ...process.env, FORCE_COLOR: '1' },
+          env: { ...process.env, FORCE_COLOR: '1', ...options.env },
         });
 
         processRef.current = proc;
@@ -125,6 +134,32 @@ export function useLocalInterface({
     [appendOutput],
   );
 
+  const getScaffoldRepo = () =>
+    mode === 'script' ? SCRIPT_SCAFFOLD_REPO : INTERFACE_SCAFFOLD_REPO;
+
+  const getDirPrefix = () =>
+    mode === 'script' ? 'script' : 'interface';
+
+  const getDevLocalArgs = (): { args: string[]; env: Record<string, string> } => {
+    const env: Record<string, string> = {};
+
+    if (getEnvironment() === 'local') {
+      env.MINDSTUDIO_API_URL = getApiBaseUrl();
+    }
+
+    if (mode === 'script') {
+      env.MINDSTUDIO_API_KEY = getApiKey() ?? '';
+      return {
+        args: ['run', 'dev:local', '--', '--app', appId, '--workflow', workflowId, '--step', stepId],
+        env,
+      };
+    }
+    return {
+      args: ['run', 'dev:local', '--', sessionId ?? ''],
+      env,
+    };
+  };
+
   const start = useCallback(() => {
     setErrorMessage(null);
     setOutputLines([]);
@@ -142,12 +177,12 @@ export function useLocalInterface({
           fs.mkdirSync(interfacesDir, { recursive: true });
 
           const shortId = crypto.randomBytes(4).toString('hex');
-          const dirName = `interface-${shortId}`;
+          const dirName = `${getDirPrefix()}-${shortId}`;
           const targetDir = path.join(interfacesDir, dirName);
 
           appendOutput(`Cloning scaffold into ${targetDir}...`);
           const cloneCode = await runCommand('git', [
-            'clone', '--depth', '1', SCAFFOLD_REPO, targetDir,
+            'clone', '--depth', '1', getScaffoldRepo(), targetDir,
           ]);
 
           if (!mountedRef.current) return;
@@ -172,11 +207,9 @@ export function useLocalInterface({
 
           // Run
           setPhase('running');
-          appendOutput(`Connecting to session ${sessionId}...`);
-          const devCode = await runCommand(
-            'npm', ['run', 'dev:local', '--', sessionId],
-            { cwd: targetDir },
-          );
+          const { args, env } = getDevLocalArgs();
+          appendOutput('Starting local dev server...');
+          await runCommand('npm', args, { cwd: targetDir, env });
 
           if (mountedRef.current) {
             setPhase('idle');
@@ -185,11 +218,9 @@ export function useLocalInterface({
         } else {
           // Already cloned — just run
           setPhase('running');
-          appendOutput(`Connecting to session ${sessionId}...`);
-          const devCode = await runCommand(
-            'npm', ['run', 'dev:local', '--', sessionId],
-            { cwd: localPath },
-          );
+          const { args, env } = getDevLocalArgs();
+          appendOutput('Starting local dev server...');
+          await runCommand('npm', args, { cwd: localPath, env });
 
           if (mountedRef.current) {
             setPhase('idle');
@@ -207,7 +238,7 @@ export function useLocalInterface({
     };
 
     run();
-  }, [key, appId, stepId, sessionId, appendOutput, runCommand]);
+  }, [key, mode, appId, stepId, workflowId, sessionId, appendOutput, runCommand]);
 
   const stop = useCallback(() => {
     stoppedRef.current = true;

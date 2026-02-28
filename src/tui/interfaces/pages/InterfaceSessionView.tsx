@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import os from 'node:os';
 import open from 'open';
-import type { InterfaceItem } from './InterfacesPage';
+import type { InterfaceItem, ScriptItem } from './InterfacesPage';
 
 interface InterfaceSessionViewProps {
-  item: InterfaceItem;
+  item: InterfaceItem | ScriptItem;
   onStart: () => void;
   onDelete: () => void;
   onBack: () => void;
@@ -68,9 +68,13 @@ export function InterfaceSessionView({
   });
 
   const name = `${item.step.workflowName} - ${item.step.displayName}`;
-  const hotUpdateDomain = item.step.spaEditorSession?.hotUpdateDomain ?? '';
-  const sessionId = hotUpdateDomain.replace(/^https?:\/\//, '').split('.')[0] || 'unknown';
   const displayPath = localPath?.replace(os.homedir(), '~');
+
+  let sessionInfo: string | null = null;
+  if (item.kind === 'interface') {
+    const hotUpdateDomain = item.step.spaEditorSession?.hotUpdateDomain ?? '';
+    sessionInfo = hotUpdateDomain.replace(/^https?:\/\//, '').split('.')[0] || null;
+  }
 
   return (
     <Box flexDirection="column" flexGrow={1}>
@@ -80,7 +84,7 @@ export function InterfaceSessionView({
         </Text>
 
         <Box marginTop={1} flexDirection="column">
-          <Text color="gray">Session: {sessionId}</Text>
+          {sessionInfo && <Text color="gray">Session: {sessionInfo}</Text>}
           {hasLocalCopy && localPath ? (
             <>
               <Text color="green">Local copy exists</Text>
