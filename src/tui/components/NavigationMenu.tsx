@@ -22,8 +22,6 @@ export function NavigationMenu({ items, onSelect, title }: NavigationMenuProps) 
   const compact = (stdout?.rows ?? 24) < 40;
 
   const getDefaultIndex = () => {
-    const backIdx = items.findIndex((i) => i.id === 'back');
-    if (backIdx >= 0) return backIdx;
     const firstIdx = items.findIndex((i) => !i.disabled && !i.isSeparator);
     return firstIdx >= 0 ? firstIdx : 0;
   };

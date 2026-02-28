@@ -2,15 +2,15 @@ import React, { useMemo } from 'react';
 import { Box, Text, useStdout } from 'ink';
 import Spinner from 'ink-spinner';
 import { RequestLog } from '../components/RequestLog';
-import { NavigationMenu } from '../components/NavigationMenu';
-import type { MenuItem } from '../components/NavigationMenu';
+import { NavigationMenu } from '../../components/NavigationMenu';
+import type { MenuItem } from '../../components/NavigationMenu';
 import type {
   LocalModel,
   Provider,
   ProviderSetupStatus,
   ComfyWorkflowParameterSchema,
-} from '../../providers/types';
-import type { RequestLogEntry } from '../types';
+} from '../../../providers/types';
+import type { RequestLogEntry } from '../../types';
 
 function getWorkflowCount(model: LocalModel): number | null {
   const param = model.parameters?.find((p) => p.type === 'comfyWorkflow');
@@ -87,6 +87,11 @@ export function DashboardPage({
 
   const menuItems = useMemo((): MenuItem[] => {
     return [
+      {
+        id: 'interfaces',
+        label: 'Connect to IDE',
+        description: 'Connect your local editor to a MindStudio interface or script',
+      },
       {
         id: 'refresh',
         label: 'Sync Models',

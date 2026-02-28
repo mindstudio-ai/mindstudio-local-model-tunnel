@@ -4,16 +4,17 @@ import { Header } from './components/Header';
 import { NavigationMenu } from './components/NavigationMenu';
 import type { MenuItem } from './components/NavigationMenu';
 import { useConnection } from './hooks/useConnection';
-import { useSetupProviders } from './hooks/useSetupProviders';
-import { useModels } from './hooks/useModels';
-import { useRequests } from './hooks/useRequests';
-import { useSyncedModels } from './hooks/useRegisteredModels';
-import { DashboardPage } from './pages/DashboardPage';
-import { SetupPage } from './pages/SetupPage';
+import { useSetupProviders } from './models/hooks/useSetupProviders';
+import { useModels } from './models/hooks/useModels';
+import { useRequests } from './models/hooks/useRequests';
+import { useSyncedModels } from './models/hooks/useRegisteredModels';
+import { DashboardPage } from './models/pages/DashboardPage';
+import { SetupPage } from './models/pages/SetupPage';
+import { InterfacesPage } from './interfaces/pages/InterfacesPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { TunnelRunner } from '../runner';
 import { syncModels, type ModelTypeMindStudio } from '../api';
-import { getApiKey, getConfigPath } from '../config';
+import { getApiKey, getUserId, getConfigPath } from '../config';
 import type { Page } from './types';
 
 const MODEL_TYPE_MAP: Record<string, ModelTypeMindStudio> = {
@@ -52,7 +53,7 @@ export function App({ runner }: AppProps) {
     syncedModels,
     refresh: refreshSynced,
   } = useSyncedModels(connectionStatus);
-  const shouldOnboard = getApiKey() === undefined;
+  const shouldOnboard = getApiKey() === undefined || getUserId() === undefined;
   const [page, setPage] = useState<Page>(
     shouldOnboard ? 'onboarding' : 'dashboard',
   );
@@ -148,6 +149,9 @@ export function App({ runner }: AppProps) {
   const handleNavigate = useCallback(
     (id: string) => {
       switch (id) {
+        case 'interfaces':
+          setPage('interfaces');
+          break;
         case 'auth':
           setPage('onboarding');
           break;
@@ -230,9 +234,14 @@ export function App({ runner }: AppProps) {
           {page === 'setup' && (
             <SetupPage onBack={() => setPage('dashboard')} />
           )}
-          {page !== 'dashboard' && page !== 'setup' && <Box flexGrow={1} />}
+          {page === 'interfaces' && (
+            <InterfacesPage
+              onBack={() => setPage('dashboard')}
+            />
+          )}
+          {page !== 'dashboard' && page !== 'setup' && page !== 'interfaces' && <Box flexGrow={1} />}
 
-          {page !== 'dashboard' && page !== 'setup' && (
+          {page !== 'dashboard' && page !== 'setup' && page !== 'interfaces' && (
             <NavigationMenu
               items={subpageMenuItems}
               onSelect={handleSubpageNavigate}

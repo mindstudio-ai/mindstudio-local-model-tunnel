@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getSyncedModels, type SyncedModel } from '../../api';
-import type { ConnectionStatus } from '../types';
+import { getSyncedModels, type SyncedModel } from '../../../api';
+import type { ConnectionStatus } from '../../types';
 
 interface UseSyncedModelsResult {
   syncedNames: Set<string>;

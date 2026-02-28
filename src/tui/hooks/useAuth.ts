@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import open from 'open';
 import { requestDeviceAuth, pollDeviceAuth } from '../../api';
-import { setApiKey } from '../../config';
+import { setApiKey, setUserId } from '../../config';
 
 type AuthStatus = 'idle' | 'waiting' | 'success' | 'expired' | 'timeout';
 
@@ -80,6 +80,9 @@ export function useAuth(): UseAuthResult {
           if (result.status === 'completed' && result.apiKey) {
             if (timerRef.current) clearInterval(timerRef.current);
             setApiKey(result.apiKey);
+            if (result.userId) {
+              setUserId(result.userId);
+            }
             setStatus('success');
             return;
           }

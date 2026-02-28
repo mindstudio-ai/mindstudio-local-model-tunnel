@@ -1,4 +1,4 @@
-import { getApiKey, getApiBaseUrl } from './config';
+import { getApiKey, getApiBaseUrl, getUserId } from './config';
 
 export interface LocalModelRequest {
   id: string;
@@ -21,10 +21,17 @@ function getHeaders(): Record<string, string> {
     throw new Error('Not authenticated. Run: mindstudio-local auth');
   }
 
-  return {
+  const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
   };
+
+  const userId = getUserId();
+  if (userId) {
+    headers['x-user-id'] = userId;
+  }
+
+  return headers;
 }
 
 export async function pollForRequest(
@@ -239,7 +246,8 @@ export async function requestDeviceAuth(): Promise<{
 
 export async function pollDeviceAuth(token: string): Promise<{
   status: 'pending' | 'completed' | 'expired';
-  apiKey?: string;
+  apiKey: string | null;
+  userId: string | null;
 }> {
   const baseUrl = getApiBaseUrl();
 
@@ -256,10 +264,62 @@ export async function pollDeviceAuth(token: string): Promise<{
 
   const data = (await response.json()) as {
     status: 'pending' | 'completed' | 'expired';
-    apiKey?: string;
+    apiKey: string | null;
+    userId: string | null;
   };
 
   return data;
+}
+
+export interface SpaEditorSessionInfo {
+  sessionId: string;
+  status: string;
+  previewDomain: string | null;
+  hotUpdateDomain: string | null;
+}
+
+export interface CustomInterfaceStepInfo {
+  stepId: string;
+  stepType: string;
+  displayName: string;
+  workflowId: string;
+  workflowName: string;
+  spaEditorSession: SpaEditorSessionInfo | null;
+}
+
+export interface ScriptStepInfo {
+  stepId: string;
+  displayName: string;
+  workflowId: string;
+  workflowName: string;
+  files: Record<string, string>;
+  entryFile: string;
+}
+
+export interface EditorSession {
+  appId: string;
+  appName: string;
+  customInterfaceSteps: CustomInterfaceStepInfo[];
+  scriptSteps: ScriptStepInfo[];
+}
+
+export async function getEditorSessions(): Promise<EditorSession[]> {
+  const baseUrl = getApiBaseUrl();
+
+  const response = await fetch(`${baseUrl}/v1/local-editor/sessions`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Failed to fetch editor sessions: ${response.status} ${errorText}`,
+    );
+  }
+
+  const data = (await response.json()) as { editors: EditorSession[] };
+  return data.editors;
 }
 
 export async function disconnectHeartbeat(): Promise<void> {

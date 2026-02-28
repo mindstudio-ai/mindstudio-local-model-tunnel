@@ -6,6 +6,7 @@ export type Environment = 'prod' | 'local';
 
 interface EnvironmentConfig {
   apiKey?: string;
+  userId?: string;
   apiBaseUrl: string;
 }
 
@@ -13,6 +14,7 @@ interface ConfigSchema {
   environment: Environment;
   providerBaseUrls: Record<string, string>;
   providerInstallPaths: Record<string, string>;
+  localInterfaces: Record<string, string>;
   environments: {
     prod: EnvironmentConfig;
     local: EnvironmentConfig;
@@ -27,6 +29,7 @@ export const config = new Conf<ConfigSchema>({
     environment: 'prod',
     providerBaseUrls: {},
     providerInstallPaths: {},
+    localInterfaces: {},
     environments: {
       prod: {
         apiBaseUrl: 'https://api.mindstudio.ai',
@@ -72,6 +75,20 @@ export function clearApiKey(): void {
   config.delete(`environments.${env}.apiKey` as keyof ConfigSchema);
 }
 
+// User ID (per environment)
+export function getUserId(): string | undefined {
+  return getEnvConfig().userId;
+}
+
+export function setUserId(id: string): void {
+  setEnvConfig('userId', id);
+}
+
+export function clearUserId(): void {
+  const env = getEnvironment();
+  config.delete(`environments.${env}.userId` as keyof ConfigSchema);
+}
+
 // API Base URL (per environment)
 export function getApiBaseUrl(): string {
   return getEnvConfig().apiBaseUrl;
@@ -109,6 +126,28 @@ export function setProviderInstallPath(
   const paths = config.get('providerInstallPaths');
   paths[name] = installPath;
   config.set('providerInstallPaths', paths);
+}
+
+// Local interface helpers
+export function getLocalInterfacesDir(): string {
+  return path.join(os.homedir(), '.mindstudio-local-tunnel', 'interfaces');
+}
+
+export function getLocalInterfacePath(key: string): string | undefined {
+  const interfaces = config.get('localInterfaces');
+  return interfaces[key];
+}
+
+export function setLocalInterfacePath(key: string, dirPath: string): void {
+  const interfaces = config.get('localInterfaces');
+  interfaces[key] = dirPath;
+  config.set('localInterfaces', interfaces);
+}
+
+export function deleteLocalInterfacePath(key: string): void {
+  const interfaces = config.get('localInterfaces');
+  delete interfaces[key];
+  config.set('localInterfaces', interfaces);
 }
 
 // Get all environment info for display
