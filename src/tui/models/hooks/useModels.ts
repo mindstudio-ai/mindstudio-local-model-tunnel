@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { discoverAllModelsWithParameters } from '../../providers';
-import type { LocalModel } from '../../providers/types';
+import { discoverAllModelsWithParameters } from '../../../providers';
+import type { LocalModel } from '../../../providers/types';
 
 interface UseModelsResult {
   models: LocalModel[];

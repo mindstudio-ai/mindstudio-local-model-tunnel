@@ -6,6 +6,7 @@ export type Environment = 'prod' | 'local';
 
 interface EnvironmentConfig {
   apiKey?: string;
+  userId?: string;
   apiBaseUrl: string;
 }
 
@@ -70,6 +71,20 @@ export function setApiKey(key: string): void {
 export function clearApiKey(): void {
   const env = getEnvironment();
   config.delete(`environments.${env}.apiKey` as keyof ConfigSchema);
+}
+
+// User ID (per environment)
+export function getUserId(): string | undefined {
+  return getEnvConfig().userId;
+}
+
+export function setUserId(id: string): void {
+  setEnvConfig('userId', id);
+}
+
+export function clearUserId(): void {
+  const env = getEnvironment();
+  config.delete(`environments.${env}.userId` as keyof ConfigSchema);
 }
 
 // API Base URL (per environment)

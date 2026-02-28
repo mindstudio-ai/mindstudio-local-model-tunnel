@@ -3,7 +3,7 @@ import {
   detectAllProviderStatuses,
   type Provider,
   type ProviderSetupStatus,
-} from '../../providers';
+} from '../../../providers';
 
 interface ProviderWithStatus {
   provider: Provider;

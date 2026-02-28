@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import Spinner from 'ink-spinner';
-import { renderMarkdown } from '../components/MarkdownText';
+import { renderMarkdown } from '../../components/MarkdownText';
 import { useSetupProviders } from '../hooks/useSetupProviders';
-import type { Provider } from '../../providers/types';
+import type { Provider } from '../../../providers/types';
 
 interface SetupPageProps {
   onBack: () => void;
@@ -146,11 +146,11 @@ export function SetupPage({ onBack }: SetupPageProps) {
 
   const totalItems = allProviders.length + 1; // +1 for Back
   const backIndex = allProviders.length;
-  const [cursorIndex, setCursorIndex] = useState(backIndex);
+  const [cursorIndex, setCursorIndex] = useState(0);
 
   useEffect(() => {
-    setCursorIndex(backIndex);
-  }, [backIndex]);
+    setCursorIndex(0);
+  }, [allProviders.length]);
 
   useInput((input, key) => {
     if (selectedProvider) return;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { verifyApiKey } from '../../api';
-import { getApiKey, getEnvironment } from '../../config';
+import { getApiKey, getUserId, getEnvironment } from '../../config';
 import type { ConnectionStatus } from '../types';
 
 interface UseConnectionResult {
@@ -20,7 +20,8 @@ export function useConnection(): UseConnectionResult {
     setError(null);
 
     const apiKey = getApiKey();
-    if (!apiKey) {
+    const userId = getUserId();
+    if (!apiKey || !userId) {
       setStatus('not_authenticated');
       return;
     }
