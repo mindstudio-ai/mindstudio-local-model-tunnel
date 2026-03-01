@@ -25,7 +25,8 @@ interface LMStudioModelsResponse {
 class LMStudioProvider implements Provider {
   readonly name = 'lmstudio';
   readonly displayName = 'LM Studio';
-  readonly description = 'Desktop app for running LLMs locally with a visual interface. No terminal required.';
+  readonly description =
+    'Desktop app for running LLMs locally with a visual interface. No terminal required.';
   readonly capabilities = ['text'] as const;
   readonly readme = readme;
   readonly defaultBaseUrl = 'http://localhost:1234/v1';

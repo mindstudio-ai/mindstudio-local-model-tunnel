@@ -108,7 +108,8 @@ export function UpdatePrompt({
 
         <Box flexDirection="column" alignItems="center">
           <Text color="gray">
-            Update required {'\u2022'} v{currentVersion} {'\u2192'} v{latestVersion}
+            Update required {'\u2022'} v{currentVersion} {'\u2192'} v
+            {latestVersion}
           </Text>
           <Box marginTop={1}>
             <Text color="cyan" bold>

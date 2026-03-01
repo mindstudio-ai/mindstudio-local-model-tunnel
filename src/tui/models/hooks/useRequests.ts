@@ -46,7 +46,9 @@ export function useRequests(maxHistory: number = 50): UseRequestsResult {
           ...existing,
           ...(event.content !== undefined && { content: event.content }),
           ...(event.step !== undefined && { step: event.step }),
-          ...(event.totalSteps !== undefined && { totalSteps: event.totalSteps }),
+          ...(event.totalSteps !== undefined && {
+            totalSteps: event.totalSteps,
+          }),
         };
         requestsRef.current.set(event.id, updated);
         setRequests((prev) =>

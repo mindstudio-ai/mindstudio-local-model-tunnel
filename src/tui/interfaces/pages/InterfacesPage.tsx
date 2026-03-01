@@ -48,7 +48,10 @@ function isItemSelectable(item: ListItem): boolean {
   return status === 'running' || status === 'compiling';
 }
 
-function getStatusLabel(status: SessionStatus): { text: string; color: string } {
+function getStatusLabel(status: SessionStatus): {
+  text: string;
+  color: string;
+} {
   switch (status) {
     case 'running':
     case 'compiling':
@@ -84,13 +87,7 @@ function formatCount(interfaces: number, scripts: number): string {
 
 // --- Offline view (level 3) ---
 
-function OfflineView({
-  item,
-  onBack,
-}: {
-  item: ListItem;
-  onBack: () => void;
-}) {
+function OfflineView({ item, onBack }: { item: ListItem; onBack: () => void }) {
   useInput((input, key) => {
     if (input === 'q' || key.escape || key.return) {
       onBack();
@@ -123,9 +120,7 @@ function OfflineView({
         </Box>
 
         <Box marginTop={1}>
-          <Text color="gray">
-            Enter/q/Esc Back
-          </Text>
+          <Text color="gray">Enter/q/Esc Back</Text>
         </Box>
       </Box>
     </Box>
@@ -200,19 +195,29 @@ function AgentListView({
                 session.scriptSteps.length,
               );
               return (
-                <Box key={session.appId} flexDirection="column" marginTop={i > 0 ? 1 : 0}>
+                <Box
+                  key={session.appId}
+                  flexDirection="column"
+                  marginTop={i > 0 ? 1 : 0}
+                >
                   <Box>
-                    <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
+                    <Text
+                      color={isSelected ? 'cyan' : 'white'}
+                      bold={isSelected}
+                    >
                       {isSelected ? '\u276F' : ' '} {session.appName}
                     </Text>
-                    {isSelected && <Text color="gray">{' - Connect to this Agent'}</Text>}
+                    {isSelected && (
+                      <Text color="gray">{' - Connect to this Agent'}</Text>
+                    )}
                   </Box>
                   <Text color="gray">
                     {'  '}https://app.mindstudio.ai/agents/{session.appId}/edit
                   </Text>
                   {stats !== '' && (
                     <Text color="gray">
-                      {'  '}{stats}
+                      {'  '}
+                      {stats}
                     </Text>
                   )}
                 </Box>
@@ -230,7 +235,7 @@ function AgentListView({
               {cursorIndex === refreshIndex ? '\u276F' : ' '} Refresh
             </Text>
             {getRefreshSuffix(refreshStatus) && (
-              <Text color="gray">{' '}{getRefreshSuffix(refreshStatus)}</Text>
+              <Text color="gray"> {getRefreshSuffix(refreshStatus)}</Text>
             )}
           </Box>
           <Text
@@ -336,7 +341,9 @@ function AgentDetailView({
   });
 
   if (offlineItem) {
-    return <OfflineView item={offlineItem} onBack={() => setOfflineItem(null)} />;
+    return (
+      <OfflineView item={offlineItem} onBack={() => setOfflineItem(null)} />
+    );
   }
 
   const scriptsOffset = interfaces.length;
@@ -366,13 +373,22 @@ function AgentDetailView({
                 const statusLabel = getStatusLabel(status);
 
                 return (
-                  <Box key={`${item.step.workflowId}:${item.step.stepId}`} flexDirection="column" marginTop={i > 0 ? 1 : 0}>
-                    <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
-                      {isSelected ? '\u276F' : ' '} {item.step.workflowName} - {item.step.displayName}
+                  <Box
+                    key={`${item.step.workflowId}:${item.step.stepId}`}
+                    flexDirection="column"
+                    marginTop={i > 0 ? 1 : 0}
+                  >
+                    <Text
+                      color={isSelected ? 'cyan' : 'white'}
+                      bold={isSelected}
+                    >
+                      {isSelected ? '\u276F' : ' '} {item.step.workflowName} -{' '}
+                      {item.step.displayName}
                     </Text>
                     <Box>
                       <Text color={statusLabel.color}>
-                        {'  '}{statusLabel.text}
+                        {'  '}
+                        {statusLabel.text}
                       </Text>
                     </Box>
                   </Box>
@@ -380,7 +396,7 @@ function AgentDetailView({
               })}
             </Box>
           ) : (
-            <Text color="gray">  No interfaces in this agent.</Text>
+            <Text color="gray"> No interfaces in this agent.</Text>
           )}
 
           <Box flexDirection="column" marginTop={1}>
@@ -394,19 +410,28 @@ function AgentDetailView({
                   const isSelected = index === cursorIndex;
 
                   return (
-                    <Box key={`${item.step.workflowId}:${item.step.stepId}`} flexDirection="column" marginTop={i > 0 ? 1 : 0}>
-                      <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
-                        {isSelected ? '\u276F' : ' '} {item.step.workflowName} - {item.step.displayName}
+                    <Box
+                      key={`${item.step.workflowId}:${item.step.stepId}`}
+                      flexDirection="column"
+                      marginTop={i > 0 ? 1 : 0}
+                    >
+                      <Text
+                        color={isSelected ? 'cyan' : 'white'}
+                        bold={isSelected}
+                      >
+                        {isSelected ? '\u276F' : ' '} {item.step.workflowName} -{' '}
+                        {item.step.displayName}
                       </Text>
                       <Text color="gray">
-                        {'  '}{item.step.entryFile}
+                        {'  '}
+                        {item.step.entryFile}
                       </Text>
                     </Box>
                   );
                 })}
               </Box>
             ) : (
-              <Text color="gray">  No scripts in this agent.</Text>
+              <Text color="gray"> No scripts in this agent.</Text>
             )}
           </Box>
 
@@ -419,7 +444,7 @@ function AgentDetailView({
                 {cursorIndex === refreshIndex ? '\u276F' : ' '} Refresh
               </Text>
               {getRefreshSuffix(refreshStatus) && (
-                <Text color="gray">{' '}{getRefreshSuffix(refreshStatus)}</Text>
+                <Text color="gray"> {getRefreshSuffix(refreshStatus)}</Text>
               )}
             </Box>
             <Text
@@ -522,16 +547,20 @@ function LocalDevView({
 
 // --- Main page ---
 
-export function InterfacesPage({ onBack, sessions, refreshStatus, refresh }: InterfacesPageProps) {
+export function InterfacesPage({
+  onBack,
+  sessions,
+  refreshStatus,
+  refresh,
+}: InterfacesPageProps) {
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
-  const [selectedItem, setSelectedItem] = useState<InterfaceItem | ScriptItem | null>(null);
+  const [selectedItem, setSelectedItem] = useState<
+    InterfaceItem | ScriptItem | null
+  >(null);
 
   if (selectedItem) {
     return (
-      <LocalDevView
-        item={selectedItem}
-        onBack={() => setSelectedItem(null)}
-      />
+      <LocalDevView item={selectedItem} onBack={() => setSelectedItem(null)} />
     );
   }
 

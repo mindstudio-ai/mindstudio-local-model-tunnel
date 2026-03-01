@@ -102,9 +102,7 @@ function ProviderDetailView({
         borderColor="gray"
       >
         <Box marginTop={1}>
-          <Text color="gray">
-            Actions
-          </Text>
+          <Text color="gray">Actions</Text>
         </Box>
         <Box>
           <Text color="cyan" bold>

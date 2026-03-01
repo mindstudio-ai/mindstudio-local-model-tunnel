@@ -1,8 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  getEditorSessions,
-  type EditorSession,
-} from '../../../api';
+import { getEditorSessions, type EditorSession } from '../../../api';
 
 export type RefreshStatus = 'idle' | 'refreshing' | 'refreshed';
 

@@ -85,7 +85,6 @@ export async function submitProgress(
   }
 }
 
-
 /**
  * Result for text/chat completions
  */
@@ -179,9 +178,7 @@ export interface SyncModelEntry {
   parameters?: unknown[];
 }
 
-export async function syncModels(
-  models: SyncModelEntry[],
-): Promise<void> {
+export async function syncModels(models: SyncModelEntry[]): Promise<void> {
   const baseUrl = getApiBaseUrl();
 
   const response = await fetch(`${baseUrl}/v1/local-models/models/sync`, {
