@@ -73,7 +73,8 @@ export function InterfaceSessionView({
   let sessionInfo: string | null = null;
   if (item.kind === 'interface') {
     const hotUpdateDomain = item.step.spaEditorSession?.hotUpdateDomain ?? '';
-    sessionInfo = hotUpdateDomain.replace(/^https?:\/\//, '').split('.')[0] || null;
+    sessionInfo =
+      hotUpdateDomain.replace(/^https?:\/\//, '').split('.')[0] || null;
   }
 
   return (
@@ -92,7 +93,8 @@ export function InterfaceSessionView({
             </>
           ) : (
             <Text color="yellow">
-              No local copy. &quot;Start Locally&quot; will clone the scaffold and install dependencies.
+              No local copy. &quot;Start Locally&quot; will clone the scaffold
+              and install dependencies.
             </Text>
           )}
         </Box>

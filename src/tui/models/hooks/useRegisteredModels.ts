@@ -11,9 +11,7 @@ interface UseSyncedModelsResult {
 export function useSyncedModels(
   connectionStatus: ConnectionStatus,
 ): UseSyncedModelsResult {
-  const [syncedNames, setSyncedNames] = useState<Set<string>>(
-    new Set(),
-  );
+  const [syncedNames, setSyncedNames] = useState<Set<string>>(new Set());
   const [syncedModels, setSyncedModels] = useState<SyncedModel[]>([]);
 
   const refresh = useCallback(async () => {

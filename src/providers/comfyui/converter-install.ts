@@ -106,7 +106,9 @@ export async function convertWorkflow(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Workflow conversion failed: ${response.status} ${errorText}`);
+    throw new Error(
+      `Workflow conversion failed: ${response.status} ${errorText}`,
+    );
   }
 
   return (await response.json()) as Record<string, unknown>;

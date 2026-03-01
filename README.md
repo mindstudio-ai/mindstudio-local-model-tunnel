@@ -1,6 +1,6 @@
-# MindStudio Local Model Tunnel
+# MindStudio Local Tunnel
 
-Use your own locally-running AI models in MindStudio. The tunnel connects local providers like Ollama, LM Studio, Stable Diffusion, and ComfyUI to MindStudio Cloud so you can use your own hardware for text, image, and video generation.
+Local tunnel for MindStudio. Use your own locally-running AI models, and edit custom interfaces and scripts for your MindStudio apps — all from your own machine.
 
 ## Quick Start
 
@@ -11,20 +11,24 @@ npm install -g @mindstudio-ai/local-model-tunnel
 mindstudio-local
 ```
 
-The app will walk you through connecting your MindStudio account and detecting any local providers you have running.
+The app will walk you through connecting your MindStudio account and getting set up.
 
-## Supported Providers
+## Features
 
-| Provider | Capability | Website |
-|----------|-----------|---------|
-| [Ollama](https://ollama.com) | Text generation | ollama.com |
-| [LM Studio](https://lmstudio.ai) | Text generation | lmstudio.ai |
-| [Stable Diffusion WebUI](https://github.com/AUTOMATIC1111/stable-diffusion-webui) | Image generation | github.com |
-| [ComfyUI](https://www.comfy.org) | Video generation | comfy.org |
+### Local Model Tunnel
+
+Connect local AI providers to MindStudio Cloud so you can use your own hardware for text, image, and video generation.
+
+| Provider                                                                          | Capability       | Website     |
+| --------------------------------------------------------------------------------- | ---------------- | ----------- |
+| [Ollama](https://ollama.com)                                                      | Text generation  | ollama.com  |
+| [LM Studio](https://lmstudio.ai)                                                  | Text generation  | lmstudio.ai |
+| [Stable Diffusion WebUI](https://github.com/AUTOMATIC1111/stable-diffusion-webui) | Image generation | github.com  |
+| [ComfyUI](https://www.comfy.org)                                                  | Video generation | comfy.org   |
 
 Don't have any of these installed yet? No problem -- select **Manage Providers** in the app for step-by-step setup guides for each one.
 
-## How It Works
+**How it works:**
 
 1. You start a local provider (e.g. `ollama serve`)
 2. The tunnel detects it and discovers your models
@@ -32,6 +36,18 @@ Don't have any of these installed yet? No problem -- select **Manage Providers**
 4. When a MindStudio app uses one of your models, the request is routed to your local machine and the response is streamed back
 
 The tunnel stays running and handles requests as they come in. You can see live request logs and status in the dashboard.
+
+### Local Interface & Script Editing
+
+Edit custom interfaces (SPAs) and scripts from your MindStudio apps locally. Open any app that's active in the MindStudio editor, clone its interfaces or scripts to your machine, and develop with a local dev server — complete with hot reloading for interfaces.
+
+**How it works:**
+
+1. Open an app in the MindStudio editor
+2. Select **Interfaces** in the CLI dashboard
+3. Pick an interface or script from your app
+4. The CLI clones the scaffold and starts a local dev server
+5. Edit with your preferred tools — the CLI provides ready-to-use commands for Claude Code and Codex
 
 ## Example: Getting Started with Ollama
 

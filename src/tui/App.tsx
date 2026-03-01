@@ -4,6 +4,7 @@ import { Header } from './components/Header';
 import { NavigationMenu } from './components/NavigationMenu';
 import type { MenuItem } from './components/NavigationMenu';
 import { useConnection } from './hooks/useConnection';
+import { useEditorSessions } from './interfaces/hooks/useEditorSessions';
 import { useSetupProviders } from './models/hooks/useSetupProviders';
 import { useModels } from './models/hooks/useModels';
 import { useRequests } from './models/hooks/useRequests';
@@ -36,6 +37,7 @@ export function App({ runner }: AppProps) {
     error: connectionError,
     retry: retryConnection,
   } = useConnection();
+  const editorSessions = useEditorSessions();
   const {
     providers,
     loading: providersLoading,
@@ -47,7 +49,7 @@ export function App({ runner }: AppProps) {
     loading: modelsLoading,
     refresh: refreshModels,
   } = useModels();
-  const { requests } = useRequests();
+  const { requests, activeCount: activeRequestCount } = useRequests();
   const {
     syncedNames,
     syncedModels,
@@ -60,7 +62,7 @@ export function App({ runner }: AppProps) {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>(
     'idle',
   );
-  const syncTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastSyncPayloadRef = useRef<string>('');
 
   // Redirect to onboarding when not authenticated
@@ -216,6 +218,7 @@ export function App({ runner }: AppProps) {
             configPath={getConfigPath()}
             connectionError={connectionError}
             compact={compactHeader}
+            hasActiveRequest={activeRequestCount > 0}
           />
 
           {page === 'dashboard' && (
@@ -228,6 +231,8 @@ export function App({ runner }: AppProps) {
               syncedNames={syncedNames}
               modelsLoading={modelsLoading}
               syncStatus={syncStatus}
+              editorSessions={editorSessions.sessions}
+              editorsLoading={editorSessions.loading}
               onNavigate={handleNavigate}
             />
           )}
@@ -237,16 +242,23 @@ export function App({ runner }: AppProps) {
           {page === 'interfaces' && (
             <InterfacesPage
               onBack={() => setPage('dashboard')}
+              sessions={editorSessions.sessions}
+              refreshStatus={editorSessions.refreshStatus}
+              refresh={editorSessions.refresh}
             />
           )}
-          {page !== 'dashboard' && page !== 'setup' && page !== 'interfaces' && <Box flexGrow={1} />}
+          {page !== 'dashboard' &&
+            page !== 'setup' &&
+            page !== 'interfaces' && <Box flexGrow={1} />}
 
-          {page !== 'dashboard' && page !== 'setup' && page !== 'interfaces' && (
-            <NavigationMenu
-              items={subpageMenuItems}
-              onSelect={handleSubpageNavigate}
-            />
-          )}
+          {page !== 'dashboard' &&
+            page !== 'setup' &&
+            page !== 'interfaces' && (
+              <NavigationMenu
+                items={subpageMenuItems}
+                onSelect={handleSubpageNavigate}
+              />
+            )}
         </>
       )}
     </Box>

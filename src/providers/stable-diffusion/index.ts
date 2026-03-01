@@ -69,7 +69,8 @@ interface SDSampler {
 class StableDiffusionProvider implements Provider {
   readonly name = 'stable-diffusion';
   readonly displayName = 'Stable Diffusion WebUI';
-  readonly description = 'Generate images locally using Stable Diffusion checkpoints. Runs as a local web UI.';
+  readonly description =
+    'Generate images locally using Stable Diffusion checkpoints. Runs as a local web UI.';
   readonly capabilities = ['image'] as const;
   readonly readme = readme;
   readonly defaultBaseUrl = 'http://127.0.0.1:7860';

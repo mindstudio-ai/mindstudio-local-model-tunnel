@@ -40,13 +40,21 @@ function getPhaseLabel(phase: LocalInterfacePhase): {
     case 'cloning':
       return { text: 'Cloning scaffold...', color: 'cyan', showSpinner: true };
     case 'installing':
-      return { text: 'Installing dependencies...', color: 'cyan', showSpinner: true };
+      return {
+        text: 'Installing dependencies...',
+        color: 'cyan',
+        showSpinner: true,
+      };
     case 'running':
       return { text: 'Dev server running', color: 'green', showSpinner: true };
     case 'error':
       return { text: 'Error', color: 'red', showSpinner: false };
     case 'deleting':
-      return { text: 'Deleting local copy...', color: 'yellow', showSpinner: true };
+      return {
+        text: 'Deleting local copy...',
+        color: 'yellow',
+        showSpinner: true,
+      };
     default:
       return { text: 'Idle', color: 'gray', showSpinner: false };
   }
@@ -65,7 +73,10 @@ export function InterfaceRunningView({
   const termHeight = (stdout?.rows ?? 24) - 4;
 
   const isActive =
-    phase === 'cloning' || phase === 'installing' || phase === 'running' || phase === 'deleting';
+    phase === 'cloning' ||
+    phase === 'installing' ||
+    phase === 'running' ||
+    phase === 'deleting';
 
   const displayPath = localPath?.replace(os.homedir(), '~');
 
@@ -73,8 +84,16 @@ export function InterfaceRunningView({
   const menuItems = useMemo(() => {
     const items: Array<{ id: string; label: string; copyValue?: string }> = [];
     if (isActive && displayPath) {
-      items.push({ id: 'claude', label: 'Copy Claude Code Command', copyValue: `cd ${displayPath} && claude` });
-      items.push({ id: 'codex', label: 'Copy Codex Command', copyValue: `cd ${displayPath} && codex` });
+      items.push({
+        id: 'claude',
+        label: 'Copy Claude Code Command',
+        copyValue: `cd ${displayPath} && claude`,
+      });
+      items.push({
+        id: 'codex',
+        label: 'Copy Codex Command',
+        copyValue: `cd ${displayPath} && codex`,
+      });
       items.push({ id: 'reveal', label: 'Open Folder' });
     }
     items.push({ id: 'action', label: isActive ? 'Stop' : 'Back' });
@@ -183,9 +202,7 @@ export function InterfaceRunningView({
                 <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
                   {isSelected ? '\u276F' : ' '} {item.label}
                 </Text>
-                {isCopied && (
-                  <Text color="green">{' '}{'\u2713'} Copied!</Text>
-                )}
+                {isCopied && <Text color="green"> {'\u2713'} Copied!</Text>}
               </Box>
             );
           })}
@@ -193,7 +210,8 @@ export function InterfaceRunningView({
 
         <Box marginTop={1} height={1}>
           <Text color="gray" wrap="truncate-end">
-            Up/Down Navigate {'\u2022'} Enter Select {'\u2022'} q/Esc {isActive ? 'Stop' : 'Back'}
+            Up/Down Navigate {'\u2022'} Enter Select {'\u2022'} q/Esc{' '}
+            {isActive ? 'Stop' : 'Back'}
           </Text>
         </Box>
       </Box>

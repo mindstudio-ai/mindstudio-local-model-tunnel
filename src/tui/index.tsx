@@ -58,12 +58,9 @@ export async function startTUI(): Promise<void> {
   const runner = new TunnelRunner();
 
   // Render the TUI with stdin configured for keyboard input
-  const { waitUntilExit } = render(
-    <App runner={runner} />,
-    {
-      exitOnCtrlC: true,
-    },
-  );
+  const { waitUntilExit } = render(<App runner={runner} />, {
+    exitOnCtrlC: true,
+  });
 
   // Wait for the app to exit
   await waitUntilExit();

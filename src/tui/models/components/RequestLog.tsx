@@ -44,7 +44,13 @@ function snippetLine(content: string, maxWidth: number): string {
   return '\u2026' + flat.slice(-(maxWidth - 1));
 }
 
-function RequestItem({ request, width }: { request: RequestLogEntry; width: number }) {
+function RequestItem({
+  request,
+  width,
+}: {
+  request: RequestLogEntry;
+  width: number;
+}) {
   const time = formatTime(request.startTime);
   const typeLabel = getRequestTypeLabel(request.requestType);
   // indent for snippet: status(1) + space(1) + padding for alignment
@@ -53,32 +59,36 @@ function RequestItem({ request, width }: { request: RequestLogEntry; width: numb
 
   if (request.status === 'processing') {
     const elapsed = Date.now() - request.startTime;
-    const snippet = request.content && request.requestType === 'llm_chat'
-      ? snippetLine(request.content, snippetWidth)
-      : null;
-    const stepProgress = request.step !== undefined && request.totalSteps
-      ? `Step ${request.step}/${request.totalSteps}`
-      : null;
+    const snippet =
+      request.content && request.requestType === 'llm_chat'
+        ? snippetLine(request.content, snippetWidth)
+        : null;
+    const stepProgress =
+      request.step !== undefined && request.totalSteps
+        ? `Step ${request.step}/${request.totalSteps}`
+        : null;
     return (
       <Box flexDirection="column">
         <Box>
           <Text color="cyan">
             <Spinner type="dots" />
           </Text>
-          <Text color="gray">{' '}{time}  </Text>
+          <Text color="gray"> {time} </Text>
           <Text color="white">{request.modelId}</Text>
-          <Text color="gray">  </Text>
+          <Text color="gray"> </Text>
           <Text color={typeLabel.color}>{typeLabel.label}</Text>
-          <Text color="gray">  {formatDuration(elapsed)}...</Text>
+          <Text color="gray"> {formatDuration(elapsed)}...</Text>
         </Box>
         {snippet && (
           <Text color="gray" wrap="truncate-end">
-            {snippetIndent}{snippet}
+            {snippetIndent}
+            {snippet}
           </Text>
         )}
         {stepProgress && (
           <Text color="gray">
-            {snippetIndent}{stepProgress}
+            {snippetIndent}
+            {stepProgress}
           </Text>
         )}
       </Box>
@@ -96,23 +106,29 @@ function RequestItem({ request, width }: { request: RequestLogEntry; width: numb
       resultInfo = ` \u00B7 ${Math.round(request.result.videoSize / 1024 / 1024)}MB`;
     }
 
-    const snippet = request.content && request.requestType === 'llm_chat'
-      ? snippetLine(request.content, snippetWidth)
-      : null;
+    const snippet =
+      request.content && request.requestType === 'llm_chat'
+        ? snippetLine(request.content, snippetWidth)
+        : null;
 
     return (
       <Box flexDirection="column">
         <Box>
           <Text color="green">{'\u2713'}</Text>
-          <Text color="gray">{' '}{time}  </Text>
+          <Text color="gray"> {time} </Text>
           <Text color="white">{request.modelId}</Text>
-          <Text color="gray">  </Text>
+          <Text color="gray"> </Text>
           <Text color={typeLabel.color}>{typeLabel.label}</Text>
-          <Text color="gray">  {duration}{resultInfo}</Text>
+          <Text color="gray">
+            {' '}
+            {duration}
+            {resultInfo}
+          </Text>
         </Box>
         {snippet && (
           <Text color="gray" wrap="truncate-end">
-            {snippetIndent}{snippet}
+            {snippetIndent}
+            {snippet}
           </Text>
         )}
       </Box>
@@ -124,17 +140,21 @@ function RequestItem({ request, width }: { request: RequestLogEntry; width: numb
     <Box flexDirection="column">
       <Box>
         <Text color="red">{'\u25CF'}</Text>
-        <Text color="gray">{' '}{time}  </Text>
+        <Text color="gray"> {time} </Text>
         <Text color="white">{request.modelId}</Text>
-        <Text color="gray">  </Text>
+        <Text color="gray"> </Text>
         <Text color={typeLabel.color}>{typeLabel.label}</Text>
-        <Text color="red">  {request.error || 'Failed'}</Text>
+        <Text color="red"> {request.error || 'Failed'}</Text>
       </Box>
     </Box>
   );
 }
 
-export function RequestLog({ requests, maxVisible = 8, hasModels = true }: RequestLogProps) {
+export function RequestLog({
+  requests,
+  maxVisible = 8,
+  hasModels = true,
+}: RequestLogProps) {
   const { stdout } = useStdout();
   const width = stdout?.columns ?? 80;
 
@@ -151,7 +171,11 @@ export function RequestLog({ requests, maxVisible = 8, hasModels = true }: Reque
 
   let completedToShow: RequestLogEntry[] = [];
   let linesUsed = activeRequests.reduce((sum, r) => sum + itemLines(r), 0);
-  for (let i = completedRequests.length - 1; i >= 0 && linesUsed < maxVisible; i--) {
+  for (
+    let i = completedRequests.length - 1;
+    i >= 0 && linesUsed < maxVisible;
+    i--
+  ) {
     const r = completedRequests[i]!;
     const lines = itemLines(r);
     if (linesUsed + lines <= maxVisible) {
@@ -183,10 +207,11 @@ export function RequestLog({ requests, maxVisible = 8, hasModels = true }: Reque
 
       {requests.length === 0 ? (
         <Box marginTop={1} flexDirection="column">
-          <Text color="gray">{hasModels
-            ? 'Tunnel is live — requests will appear here when models are used in MindStudio'
-            : 'Start a model to begin receiving generation requests.'
-          }</Text>
+          <Text color="gray">
+            {hasModels
+              ? 'Tunnel is live — requests will appear here when models are used in MindStudio'
+              : 'Start a model to begin receiving generation requests.'}
+          </Text>
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={1}>

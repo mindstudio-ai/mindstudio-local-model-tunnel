@@ -1,6 +1,6 @@
-# MindStudio Local Model Tunnel
+# MindStudio Local Developer Tools
 
-CLI tool that connects local AI providers (Ollama, LM Studio, Stable Diffusion, ComfyUI) to MindStudio Cloud.
+CLI tool for local MindStudio development. Connects local AI providers (Ollama, LM Studio, Stable Diffusion, ComfyUI) to MindStudio Cloud, and supports local editing of custom interfaces and scripts from the MindStudio IDE.
 
 ## Build & Run
 
@@ -27,6 +27,7 @@ src/providers/my-provider/
 The class must implement `Provider` from `src/providers/types.ts`. Use Ollama (`src/providers/ollama/index.ts`) as the simplest reference.
 
 Required fields:
+
 - `name` -- unique identifier (e.g. `'my-provider'`)
 - `displayName` -- shown in the TUI (e.g. `'My Provider'`)
 - `description` -- one-line description for the provider list
@@ -36,11 +37,13 @@ Required fields:
 - `baseUrl` -- getter using `getProviderBaseUrl(this.name, this.defaultBaseUrl)` from `src/config.ts`
 
 Required methods:
+
 - `isRunning()` -- check if the provider's server responds (use `fetch` with `AbortSignal.timeout`)
 - `detect()` -- return `{ installed, running }`. Check for files on disk or CLI commands for `installed`, call `isRunning()` for `running`
 - `discoverModels()` -- query the running server for available models, return `LocalModel[]` with `provider: this.name`
 
 Capability methods (implement based on `capabilities`):
+
 - `chat()` -- async generator yielding `{ content, done }` chunks for text providers
 - `generateImage()` -- return `{ imageBase64, mimeType }` for image providers
 - `generateVideo()` -- return `{ videoBase64, mimeType }` for video providers

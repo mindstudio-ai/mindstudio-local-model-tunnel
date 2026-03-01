@@ -13,7 +13,8 @@ import {
 } from '../../../config';
 import path from 'node:path';
 
-const INTERFACE_SCAFFOLD_REPO = 'https://github.com/mindstudio-ai/spa-bundle-scaffold';
+const INTERFACE_SCAFFOLD_REPO =
+  'https://github.com/mindstudio-ai/spa-bundle-scaffold';
 const SCRIPT_SCAFFOLD_REPO = 'https://github.com/mindstudio-ai/script-scaffold';
 const MAX_OUTPUT_LINES = 500;
 
@@ -137,10 +138,12 @@ export function useLocalInterface({
   const getScaffoldRepo = () =>
     mode === 'script' ? SCRIPT_SCAFFOLD_REPO : INTERFACE_SCAFFOLD_REPO;
 
-  const getDirPrefix = () =>
-    mode === 'script' ? 'script' : 'interface';
+  const getDirPrefix = () => (mode === 'script' ? 'script' : 'interface');
 
-  const getDevLocalArgs = (): { args: string[]; env: Record<string, string> } => {
+  const getDevLocalArgs = (): {
+    args: string[];
+    env: Record<string, string>;
+  } => {
     const env: Record<string, string> = {};
 
     if (getEnvironment() === 'local') {
@@ -150,7 +153,17 @@ export function useLocalInterface({
     if (mode === 'script') {
       env.MINDSTUDIO_API_KEY = getApiKey() ?? '';
       return {
-        args: ['run', 'dev:local', '--', '--app', appId, '--workflow', workflowId, '--step', stepId],
+        args: [
+          'run',
+          'dev:local',
+          '--',
+          '--app',
+          appId,
+          '--workflow',
+          workflowId,
+          '--step',
+          stepId,
+        ],
         env,
       };
     }
@@ -182,7 +195,11 @@ export function useLocalInterface({
 
           appendOutput(`Cloning scaffold into ${targetDir}...`);
           const cloneCode = await runCommand('git', [
-            'clone', '--depth', '1', getScaffoldRepo(), targetDir,
+            'clone',
+            '--depth',
+            '1',
+            getScaffoldRepo(),
+            targetDir,
           ]);
 
           if (!mountedRef.current) return;
@@ -230,15 +247,22 @@ export function useLocalInterface({
       } catch (err) {
         if (mountedRef.current) {
           setPhase('error');
-          setErrorMessage(
-            err instanceof Error ? err.message : 'Unknown error',
-          );
+          setErrorMessage(err instanceof Error ? err.message : 'Unknown error');
         }
       }
     };
 
     run();
-  }, [key, mode, appId, stepId, workflowId, sessionId, appendOutput, runCommand]);
+  }, [
+    key,
+    mode,
+    appId,
+    stepId,
+    workflowId,
+    sessionId,
+    appendOutput,
+    runCommand,
+  ]);
 
   const stop = useCallback(() => {
     stoppedRef.current = true;
@@ -269,9 +293,7 @@ export function useLocalInterface({
       setHasLocalCopy(false);
       appendOutput('Deleted successfully.');
     } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Failed to delete',
-      );
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to delete');
     }
     setPhase('idle');
   }, [key, appendOutput]);

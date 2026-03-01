@@ -17,7 +17,11 @@ interface NavigationMenuProps {
   title?: string;
 }
 
-export function NavigationMenu({ items, onSelect, title }: NavigationMenuProps) {
+export function NavigationMenu({
+  items,
+  onSelect,
+  title,
+}: NavigationMenuProps) {
   const { stdout } = useStdout();
   const compact = (stdout?.rows ?? 24) < 40;
 
@@ -69,7 +73,16 @@ export function NavigationMenu({ items, onSelect, title }: NavigationMenuProps) 
   if (compact) {
     const selectedItem = items[selectedIndex];
     return (
-      <Box flexDirection="column" paddingX={1} borderStyle="single" borderTop borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray">
+      <Box
+        flexDirection="column"
+        paddingX={1}
+        borderStyle="single"
+        borderTop
+        borderBottom={false}
+        borderLeft={false}
+        borderRight={false}
+        borderColor="gray"
+      >
         <Box height={1} overflow="hidden" gap={1}>
           {items.map((item, index) => {
             if (item.isSeparator) return null;
@@ -91,11 +104,23 @@ export function NavigationMenu({ items, onSelect, title }: NavigationMenuProps) 
   }
 
   // Fixed height: header + items + hint + margins
-  const separatorExtraLines = items.filter((item, idx) => item.isSeparator && idx > 0).length;
+  const separatorExtraLines = items.filter(
+    (item, idx) => item.isSeparator && idx > 0,
+  ).length;
   const menuHeight = items.length + 4 + separatorExtraLines;
 
   return (
-    <Box flexDirection="column" paddingX={1} marginBottom={1} borderStyle="single" borderTop borderBottom={false} borderLeft={false} borderRight={false} borderColor="gray">
+    <Box
+      flexDirection="column"
+      paddingX={1}
+      marginBottom={1}
+      borderStyle="single"
+      borderTop
+      borderBottom={false}
+      borderLeft={false}
+      borderRight={false}
+      borderColor="gray"
+    >
       <Box marginTop={1}>
         <Text color="gray">{title ?? 'Actions'}</Text>
       </Box>
@@ -129,11 +154,18 @@ export function NavigationMenu({ items, onSelect, title }: NavigationMenuProps) 
 
           return (
             <Box key={item.id} height={1} overflow="hidden">
-              <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected} wrap="truncate-end">
+              <Text
+                color={isSelected ? 'cyan' : 'white'}
+                bold={isSelected}
+                wrap="truncate-end"
+              >
                 {prefix} {item.label}
               </Text>
               {isSelected && (
-                <Text color="gray" wrap="truncate-end"> - {item.description}</Text>
+                <Text color="gray" wrap="truncate-end">
+                  {' '}
+                  - {item.description}
+                </Text>
               )}
             </Box>
           );

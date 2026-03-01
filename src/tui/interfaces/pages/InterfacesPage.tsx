@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
-import Spinner from 'ink-spinner';
-import { useEditorSessions, type RefreshStatus } from '../hooks/useEditorSessions';
+import type { RefreshStatus } from '../hooks/useEditorSessions';
 import { useLocalInterface } from '../hooks/useLocalInterface';
 import { InterfaceSessionView } from './InterfaceSessionView';
 import { InterfaceRunningView } from './InterfaceRunningView';
@@ -13,6 +12,9 @@ import type {
 
 interface InterfacesPageProps {
   onBack: () => void;
+  sessions: EditorSession[];
+  refreshStatus: RefreshStatus;
+  refresh: () => Promise<void>;
 }
 
 export interface InterfaceItem {
@@ -46,7 +48,10 @@ function isItemSelectable(item: ListItem): boolean {
   return status === 'running' || status === 'compiling';
 }
 
-function getStatusLabel(status: SessionStatus): { text: string; color: string } {
+function getStatusLabel(status: SessionStatus): {
+  text: string;
+  color: string;
+} {
   switch (status) {
     case 'running':
     case 'compiling':
@@ -82,13 +87,7 @@ function formatCount(interfaces: number, scripts: number): string {
 
 // --- Offline view (level 3) ---
 
-function OfflineView({
-  item,
-  onBack,
-}: {
-  item: ListItem;
-  onBack: () => void;
-}) {
+function OfflineView({ item, onBack }: { item: ListItem; onBack: () => void }) {
   useInput((input, key) => {
     if (input === 'q' || key.escape || key.return) {
       onBack();
@@ -121,9 +120,7 @@ function OfflineView({
         </Box>
 
         <Box marginTop={1}>
-          <Text color="gray">
-            Enter/q/Esc Back
-          </Text>
+          <Text color="gray">Enter/q/Esc Back</Text>
         </Box>
       </Box>
     </Box>
@@ -181,13 +178,13 @@ function AgentListView({
         <Text bold color="white" underline>
           Choose an Agent
         </Text>
+        <Text color="gray">
+          Don't see your agent? Make sure it's open in the MindStudio editor.
+        </Text>
 
         {sessions.length === 0 ? (
           <Box marginTop={1} flexDirection="column">
             <Text color="yellow">No active editor sessions.</Text>
-            <Text color="gray">
-              Open an app in MindStudio's editor to see sessions here.
-            </Text>
           </Box>
         ) : (
           <Box flexDirection="column" marginTop={1}>
@@ -198,19 +195,31 @@ function AgentListView({
                 session.scriptSteps.length,
               );
               return (
-                <Box key={session.appId} flexDirection="column" marginTop={i > 0 ? 1 : 0}>
+                <Box
+                  key={session.appId}
+                  flexDirection="column"
+                  marginTop={i > 0 ? 1 : 0}
+                >
                   <Box>
-                    <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
+                    <Text
+                      color={isSelected ? 'cyan' : 'white'}
+                      bold={isSelected}
+                    >
                       {isSelected ? '\u276F' : ' '} {session.appName}
                     </Text>
-                    {isSelected && <Text color="gray">{' - Connect to this Agent'}</Text>}
+                    {isSelected && (
+                      <Text color="gray">{' - Connect to this Agent'}</Text>
+                    )}
                   </Box>
                   <Text color="gray">
                     {'  '}https://app.mindstudio.ai/agents/{session.appId}/edit
                   </Text>
-                  <Text color="gray">
-                    {'  '}{stats}
-                  </Text>
+                  {stats !== '' && (
+                    <Text color="gray">
+                      {'  '}
+                      {stats}
+                    </Text>
+                  )}
                 </Box>
               );
             })}
@@ -226,7 +235,7 @@ function AgentListView({
               {cursorIndex === refreshIndex ? '\u276F' : ' '} Refresh
             </Text>
             {getRefreshSuffix(refreshStatus) && (
-              <Text color="gray">{' '}{getRefreshSuffix(refreshStatus)}</Text>
+              <Text color="gray"> {getRefreshSuffix(refreshStatus)}</Text>
             )}
           </Box>
           <Text
@@ -264,10 +273,7 @@ function AgentDetailView({
 }) {
   const [offlineItem, setOfflineItem] = useState<ListItem | null>(null);
 
-  // Refresh sessions when entering this view
-  useEffect(() => {
-    onRefresh();
-  }, []);
+  // Auto-polling handles background refresh, no need to trigger on mount
 
   const interfaces = useMemo(
     (): InterfaceItem[] =>
@@ -335,7 +341,9 @@ function AgentDetailView({
   });
 
   if (offlineItem) {
-    return <OfflineView item={offlineItem} onBack={() => setOfflineItem(null)} />;
+    return (
+      <OfflineView item={offlineItem} onBack={() => setOfflineItem(null)} />
+    );
   }
 
   const scriptsOffset = interfaces.length;
@@ -347,62 +355,85 @@ function AgentDetailView({
           {session.appName}
         </Text>
         <Text color="gray">
+          https://app.mindstudio.ai/agents/{session.appId}/edit
+        </Text>
+        <Text color="gray">
           Select an interface or script to connect your local editor.
         </Text>
 
         <Box flexDirection="column" marginTop={1}>
-          {interfaces.length > 0 && (
-            <>
-              <Text bold color="white" underline>
-                Interfaces
-              </Text>
-              <Box flexDirection="column" marginTop={1}>
-                {interfaces.map((item, i) => {
-                  const isSelected = i === cursorIndex;
-                  const status = getSessionStatus(item);
-                  const statusLabel = getStatusLabel(status);
+          <Text bold color="white">
+            Interfaces
+          </Text>
+          {interfaces.length > 0 ? (
+            <Box flexDirection="column" marginTop={1}>
+              {interfaces.map((item, i) => {
+                const isSelected = i === cursorIndex;
+                const status = getSessionStatus(item);
+                const statusLabel = getStatusLabel(status);
 
-                  return (
-                    <Box key={`${item.step.workflowId}:${item.step.stepId}`} flexDirection="column" marginTop={i > 0 ? 1 : 0}>
-                      <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
-                        {isSelected ? '\u276F' : ' '} {item.step.workflowName} - {item.step.displayName}
+                return (
+                  <Box
+                    key={`${item.step.workflowId}:${item.step.stepId}`}
+                    flexDirection="column"
+                    marginTop={i > 0 ? 1 : 0}
+                  >
+                    <Text
+                      color={isSelected ? 'cyan' : 'white'}
+                      bold={isSelected}
+                    >
+                      {isSelected ? '\u276F' : ' '} {item.step.workflowName} -{' '}
+                      {item.step.displayName}
+                    </Text>
+                    <Box>
+                      <Text color={statusLabel.color}>
+                        {'  '}
+                        {statusLabel.text}
                       </Text>
-                      <Box>
-                        <Text color={statusLabel.color}>
-                          {'  '}{statusLabel.text}
-                        </Text>
-                      </Box>
                     </Box>
-                  );
-                })}
-              </Box>
-            </>
+                  </Box>
+                );
+              })}
+            </Box>
+          ) : (
+            <Text color="gray"> No interfaces in this agent.</Text>
           )}
 
-          {scripts.length > 0 && (
-            <Box flexDirection="column" marginTop={interfaces.length > 0 ? 1 : 0}>
-              <Text bold color="white" underline>
-                Scripts
-              </Text>
+          <Box flexDirection="column" marginTop={1}>
+            <Text bold color="white">
+              Scripts
+            </Text>
+            {scripts.length > 0 ? (
               <Box flexDirection="column" marginTop={1}>
                 {scripts.map((item, i) => {
                   const index = scriptsOffset + i;
                   const isSelected = index === cursorIndex;
 
                   return (
-                    <Box key={`${item.step.workflowId}:${item.step.stepId}`} flexDirection="column" marginTop={i > 0 ? 1 : 0}>
-                      <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
-                        {isSelected ? '\u276F' : ' '} {item.step.workflowName} - {item.step.displayName}
+                    <Box
+                      key={`${item.step.workflowId}:${item.step.stepId}`}
+                      flexDirection="column"
+                      marginTop={i > 0 ? 1 : 0}
+                    >
+                      <Text
+                        color={isSelected ? 'cyan' : 'white'}
+                        bold={isSelected}
+                      >
+                        {isSelected ? '\u276F' : ' '} {item.step.workflowName} -{' '}
+                        {item.step.displayName}
                       </Text>
                       <Text color="gray">
-                        {'  '}{item.step.entryFile}
+                        {'  '}
+                        {item.step.entryFile}
                       </Text>
                     </Box>
                   );
                 })}
               </Box>
-            </Box>
-          )}
+            ) : (
+              <Text color="gray"> No scripts in this agent.</Text>
+            )}
+          </Box>
 
           <Box flexDirection="column" marginTop={1}>
             <Box>
@@ -413,7 +444,7 @@ function AgentDetailView({
                 {cursorIndex === refreshIndex ? '\u276F' : ' '} Refresh
               </Text>
               {getRefreshSuffix(refreshStatus) && (
-                <Text color="gray">{' '}{getRefreshSuffix(refreshStatus)}</Text>
+                <Text color="gray"> {getRefreshSuffix(refreshStatus)}</Text>
               )}
             </Box>
             <Text
@@ -516,46 +547,20 @@ function LocalDevView({
 
 // --- Main page ---
 
-export function InterfacesPage({ onBack }: InterfacesPageProps) {
-  const { sessions, loading, error, refreshStatus, refresh } = useEditorSessions();
+export function InterfacesPage({
+  onBack,
+  sessions,
+  refreshStatus,
+  refresh,
+}: InterfacesPageProps) {
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
-  const [selectedItem, setSelectedItem] = useState<InterfaceItem | ScriptItem | null>(null);
-
-  if (loading) {
-    return (
-      <Box flexDirection="column" flexGrow={1} paddingX={1} marginTop={1}>
-        <Text bold color="white" underline>
-          Choose an Agent
-        </Text>
-        <Box marginTop={1}>
-          <Text color="cyan">
-            <Spinner type="dots" />
-          </Text>
-          <Text> Loading editor sessions...</Text>
-        </Box>
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Box flexDirection="column" flexGrow={1} paddingX={1} marginTop={1}>
-        <Text bold color="white" underline>
-          Choose an Agent
-        </Text>
-        <Box marginTop={1}>
-          <Text color="red">{error}</Text>
-        </Box>
-      </Box>
-    );
-  }
+  const [selectedItem, setSelectedItem] = useState<
+    InterfaceItem | ScriptItem | null
+  >(null);
 
   if (selectedItem) {
     return (
-      <LocalDevView
-        item={selectedItem}
-        onBack={() => setSelectedItem(null)}
-      />
+      <LocalDevView item={selectedItem} onBack={() => setSelectedItem(null)} />
     );
   }
 
