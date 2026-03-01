@@ -148,27 +148,22 @@ export function useLocalInterface({
 
     if (getEnvironment() === 'local') {
       env.MINDSTUDIO_API_URL = getApiBaseUrl();
+      env.MINDSTUDIO_WS_URL = 'ws://localhost:8888';
     }
 
-    if (mode === 'script') {
-      env.MINDSTUDIO_API_KEY = getApiKey() ?? '';
-      return {
-        args: [
-          'run',
-          'dev:local',
-          '--',
-          '--app',
-          appId,
-          '--workflow',
-          workflowId,
-          '--step',
-          stepId,
-        ],
-        env,
-      };
-    }
+    env.MINDSTUDIO_API_KEY = getApiKey() ?? '';
     return {
-      args: ['run', 'dev:local', '--', sessionId ?? ''],
+      args: [
+        'run',
+        'dev:local',
+        '--',
+        '--app',
+        appId,
+        '--workflow',
+        workflowId,
+        '--step',
+        stepId,
+      ],
       env,
     };
   };
