@@ -62,7 +62,7 @@ export function App({ runner }: AppProps) {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>(
     'idle',
   );
-  const syncTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastSyncPayloadRef = useRef<string>('');
 
   // Redirect to onboarding when not authenticated

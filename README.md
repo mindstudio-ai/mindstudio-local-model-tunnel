@@ -1,6 +1,6 @@
-# MindStudio Local Developer Tools
+# MindStudio Local Tunnel
 
-Local development companion for MindStudio. Use your own locally-running AI models, and edit custom interfaces and scripts for your MindStudio apps — all from your own machine.
+Local tunnel for MindStudio. Use your own locally-running AI models, and edit custom interfaces and scripts for your MindStudio apps — all from your own machine.
 
 ## Quick Start
 
@@ -19,12 +19,12 @@ The app will walk you through connecting your MindStudio account and getting set
 
 Connect local AI providers to MindStudio Cloud so you can use your own hardware for text, image, and video generation.
 
-| Provider | Capability | Website |
-|----------|-----------|---------|
-| [Ollama](https://ollama.com) | Text generation | ollama.com |
-| [LM Studio](https://lmstudio.ai) | Text generation | lmstudio.ai |
-| [Stable Diffusion WebUI](https://github.com/AUTOMATIC1111/stable-diffusion-webui) | Image generation | github.com |
-| [ComfyUI](https://www.comfy.org) | Video generation | comfy.org |
+| Provider                                                                          | Capability       | Website     |
+| --------------------------------------------------------------------------------- | ---------------- | ----------- |
+| [Ollama](https://ollama.com)                                                      | Text generation  | ollama.com  |
+| [LM Studio](https://lmstudio.ai)                                                  | Text generation  | lmstudio.ai |
+| [Stable Diffusion WebUI](https://github.com/AUTOMATIC1111/stable-diffusion-webui) | Image generation | github.com  |
+| [ComfyUI](https://www.comfy.org)                                                  | Video generation | comfy.org   |
 
 Don't have any of these installed yet? No problem -- select **Manage Providers** in the app for step-by-step setup guides for each one.
 
