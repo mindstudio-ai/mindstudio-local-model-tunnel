@@ -4,6 +4,7 @@ import Spinner from 'ink-spinner';
 import { RequestLog } from '../components/RequestLog';
 import { NavigationMenu } from '../../components/NavigationMenu';
 import type { MenuItem } from '../../components/NavigationMenu';
+import type { EditorSession } from '../../../api';
 import type {
   LocalModel,
   Provider,
@@ -49,6 +50,8 @@ interface DashboardPageProps {
   syncedNames: Set<string>;
   modelsLoading?: boolean;
   syncStatus?: 'idle' | 'syncing' | 'synced';
+  editorSessions: EditorSession[];
+  editorsLoading: boolean;
   onNavigate: (id: string) => void;
 }
 
@@ -61,6 +64,8 @@ export function DashboardPage({
   syncedNames,
   modelsLoading,
   syncStatus = 'idle',
+  editorSessions,
+  editorsLoading,
   onNavigate,
 }: DashboardPageProps) {
   const { stdout } = useStdout();
@@ -89,8 +94,9 @@ export function DashboardPage({
     return [
       {
         id: 'interfaces',
-        label: 'Connect to IDE',
-        description: 'Connect your local editor to a MindStudio interface or script',
+        label: 'Connect to Agent',
+        description:
+          'Connect your local editor to a MindStudio interface or script',
       },
       {
         id: 'refresh',
@@ -117,7 +123,8 @@ export function DashboardPage({
 
   // Compute maxVisible for request log based on terminal height
   const termHeight = (stdout?.rows ?? 24) - 4; // matches App's height calculation
-  const compactHeader = (stdout?.rows ?? 24) <= 45 || (stdout?.columns ?? 80) <= 90;
+  const compactHeader =
+    (stdout?.rows ?? 24) <= 45 || (stdout?.columns ?? 80) <= 90;
 
   // Header: compact (no logo, version on title line) = border(2) + padding(2) + 3 text lines = 7, full = border(2) + padding(2) + logo(~10 lines) = 14
   const headerLines = compactHeader ? 7 : 14;
@@ -129,6 +136,14 @@ export function DashboardPage({
       ? 2
       : installedProviders.length;
   const providersLines = 3 + providerContentLines;
+
+  // Open Editors section: marginTop(1) + title(1) + content gap(1) + content
+  const editorsContentLines = editorsLoading
+    ? 1
+    : editorSessions.length === 0
+      ? 1
+      : editorSessions.length;
+  const editorsLines = 3 + editorsContentLines;
 
   // Models section: marginTop(1) + title(1) + content gap(1) + content
   const modelContentLines = modelsLoading
@@ -150,15 +165,50 @@ export function DashboardPage({
   const menuLines = compactMenu ? 2 : menuItems.length + 6;
 
   const usedLines =
-    headerLines + providersLines + modelsLines + requestLogOverhead + menuLines;
+    headerLines +
+    providersLines +
+    editorsLines +
+    modelsLines +
+    requestLogOverhead +
+    menuLines;
   const maxVisible = Math.max(3, termHeight - usedLines);
 
   return (
     <Box flexDirection="column" flexGrow={1}>
+      {/* Open Editors */}
+      <Box flexDirection="column" paddingX={1} marginTop={1}>
+        <Text bold color="white" underline>
+          Open Agents
+        </Text>
+
+        {editorsLoading ? (
+          <Box marginTop={1}>
+            <Text color="cyan">
+              <Spinner type="dots" />
+            </Text>
+            <Text> Loading editor sessions...</Text>
+          </Box>
+        ) : editorSessions.length === 0 ? (
+          <Box marginTop={1}>
+            <Text color="gray">
+              Agents you are editing in the MindStudio IDE will appear here.
+            </Text>
+          </Box>
+        ) : (
+          <Box flexDirection="column" marginTop={1}>
+            {editorSessions.map((session) => (
+              <Box key={session.appId}>
+                <Text color="white">{session.appName}</Text>
+              </Box>
+            ))}
+          </Box>
+        )}
+      </Box>
+
       {/* Providers */}
       <Box flexDirection="column" paddingX={1} marginTop={1}>
         <Text bold color="white" underline>
-          Providers
+          AI Model Providers
         </Text>
 
         {providersLoading ? (
@@ -203,7 +253,7 @@ export function DashboardPage({
       {/* Models */}
       <Box flexDirection="column" paddingX={1} marginTop={1}>
         <Text bold color="white" underline>
-          Models
+          Local Models
         </Text>
 
         {modelsLoading ? (

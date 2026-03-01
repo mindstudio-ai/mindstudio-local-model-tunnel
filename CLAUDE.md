@@ -1,6 +1,6 @@
-# MindStudio Local Model Tunnel
+# MindStudio Local Developer Tools
 
-CLI tool that connects local AI providers (Ollama, LM Studio, Stable Diffusion, ComfyUI) to MindStudio Cloud.
+CLI tool for local MindStudio development. Connects local AI providers (Ollama, LM Studio, Stable Diffusion, ComfyUI) to MindStudio Cloud, and supports local editing of custom interfaces and scripts from the MindStudio IDE.
 
 ## Build & Run
 
