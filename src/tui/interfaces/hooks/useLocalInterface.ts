@@ -221,9 +221,12 @@ export function useLocalInterface({
           setPhase('running');
           const { args, env } = getDevLocalArgs();
           appendOutput('Starting local dev server...');
-          await runCommand('npm', args, { cwd: targetDir, env });
+          const devCode = await runCommand('npm', args, { cwd: targetDir, env });
 
           if (mountedRef.current) {
+            if (devCode !== 0 && !stoppedRef.current) {
+              throw new Error(`Dev server exited with code ${devCode}`);
+            }
             setPhase('idle');
             setOutputLines([]);
           }
@@ -232,9 +235,12 @@ export function useLocalInterface({
           setPhase('running');
           const { args, env } = getDevLocalArgs();
           appendOutput('Starting local dev server...');
-          await runCommand('npm', args, { cwd: localPath, env });
+          const devCode = await runCommand('npm', args, { cwd: localPath, env });
 
           if (mountedRef.current) {
+            if (devCode !== 0 && !stoppedRef.current) {
+              throw new Error(`Dev server exited with code ${devCode}`);
+            }
             setPhase('idle');
             setOutputLines([]);
           }
