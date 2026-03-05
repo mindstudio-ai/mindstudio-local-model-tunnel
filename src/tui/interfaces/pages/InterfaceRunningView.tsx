@@ -87,12 +87,12 @@ export function InterfaceRunningView({
       items.push({
         id: 'claude',
         label: 'Copy Claude Code Command',
-        copyValue: `cd ${displayPath} && claude`,
+        copyValue: `cd ${displayPath}; claude`,
       });
       items.push({
         id: 'codex',
         label: 'Copy Codex Command',
-        copyValue: `cd ${displayPath} && codex`,
+        copyValue: `cd ${displayPath}; codex`,
       });
       items.push({ id: 'reveal', label: 'Open Folder' });
     }
