@@ -9,7 +9,7 @@ Local tunnel for MindStudio. Use your own locally-running AI models, and edit cu
 No dependencies required — this downloads a standalone binary:
 
 ```
-curl -fsSL https://app.mindstudio.ai/tunnel/install.sh | bash
+curl -fsSL https://msagent.ai/install-tunnel.sh | bash
 mindstudio-local
 ```
 
