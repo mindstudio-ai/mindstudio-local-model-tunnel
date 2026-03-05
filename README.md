@@ -4,7 +4,29 @@ Local tunnel for MindStudio. Use your own locally-running AI models, and edit cu
 
 ## Quick Start
 
-You'll need [Node.js 18+](https://nodejs.org) installed.
+### macOS / Linux (recommended)
+
+No dependencies required — this downloads a standalone binary:
+
+```
+curl -fsSL https://app.mindstudio.ai/tunnel/install.sh | bash
+mindstudio-local
+```
+
+To update, run the same command again. To uninstall, `rm /usr/local/bin/mindstudio-local`.
+
+The app will also prompt you to update automatically when a new version is available.
+
+### Windows
+
+```
+npm install -g @mindstudio-ai/local-model-tunnel
+mindstudio-local
+```
+
+Requires [Node.js 18+](https://nodejs.org).
+
+### Alternative: Install via npm (all platforms)
 
 ```
 npm install -g @mindstudio-ai/local-model-tunnel

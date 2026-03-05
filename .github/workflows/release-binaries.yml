@@ -1,0 +1,92 @@
+name: Release Binaries
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: bun-darwin-arm64
+            artifact: mindstudio-local-darwin-arm64
+          - os: macos-13
+            target: bun-darwin-x64
+            artifact: mindstudio-local-darwin-x64
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            artifact: mindstudio-local-linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install
+
+      - name: Build standalone binary
+        run: |
+          bun build src/cli.ts \
+            --compile \
+            --target=${{ matrix.target }} \
+            --outfile=${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          merge-multiple: true
+
+      - name: Get version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="v${{ steps.version.outputs.version }}"
+
+          # Make binaries executable
+          chmod +x binaries/mindstudio-local-*
+
+          # Create release (or update if tag exists)
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            binaries/mindstudio-local-*
+
+      - name: Upload to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          VERSION="v${{ steps.version.outputs.version }}"
+          BUCKET="${{ secrets.AWS_S3_BUCKET }}"
+
+          # Upload versioned binaries
+          aws s3 cp binaries/ "s3://${BUCKET}/local-model-tunnel/${VERSION}/" --recursive
+
+          # Also copy as "latest" for the install script
+          aws s3 cp binaries/ "s3://${BUCKET}/local-model-tunnel/latest/" --recursive
+
+          # Upload the install script
+          aws s3 cp install.sh "s3://${BUCKET}/local-model-tunnel/install.sh" --content-type "text/plain"

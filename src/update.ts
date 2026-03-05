@@ -3,6 +3,24 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string };
 
+const CDN_BASE_URL = 'https://f.mscdn.ai/local-model-tunnel';
+
+export type InstallMethod = 'binary' | 'npm';
+
+export function getInstallMethod(): InstallMethod {
+  // Bun-compiled binaries embed the runtime — there's no node_modules or global npm prefix
+  // Check if we're running from a standalone binary (not inside a node_modules tree)
+  const execPath = process.execPath;
+  if (
+    !execPath.includes('node_modules') &&
+    !execPath.includes('node') &&
+    !execPath.includes('bun')
+  ) {
+    return 'binary';
+  }
+  return 'npm';
+}
+
 export function getCurrentVersion(): string {
   return pkg.version;
 }
@@ -31,6 +49,12 @@ export function isNewerVersion(current: string, latest: string): boolean {
     if (l < c) return false;
   }
   return false;
+}
+
+export function getBinaryDownloadUrl(): string {
+  const platform = process.platform === 'darwin' ? 'darwin' : 'linux';
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  return `${CDN_BASE_URL}/latest/mindstudio-local-${platform}-${arch}`;
 }
 
 export async function checkForUpdate(): Promise<{
