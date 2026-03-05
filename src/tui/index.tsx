@@ -3,7 +3,7 @@ import { render } from 'ink';
 import { execFileSync, execSync } from 'node:child_process';
 import { App } from './App';
 import { TunnelRunner } from '../runner';
-import { checkForUpdate } from '../update';
+import { checkForUpdate, getInstallMethod, getBinaryDownloadUrl } from '../update';
 import { UpdatePrompt } from './components/UpdatePrompt';
 
 async function promptForUpdate(
@@ -39,9 +39,17 @@ export async function startTUI(): Promise<void> {
     if (shouldUpdate) {
       console.log('\nUpdating to v' + update.latestVersion + '...\n');
       try {
-        execSync('npm install -g @mindstudio-ai/local-model-tunnel@latest', {
-          stdio: 'inherit',
-        });
+        if (getInstallMethod() === 'binary') {
+          const url = getBinaryDownloadUrl();
+          const dest = process.execPath;
+          execSync(`curl -fsSL "${url}" -o "${dest}.tmp" && chmod +x "${dest}.tmp" && mv "${dest}.tmp" "${dest}"`, {
+            stdio: 'inherit',
+          });
+        } else {
+          execSync('npm install -g @mindstudio-ai/local-model-tunnel@latest', {
+            stdio: 'inherit',
+          });
+        }
         console.log('\nRestarting...\n');
         execFileSync(process.execPath, process.argv.slice(1), {
           stdio: 'inherit',

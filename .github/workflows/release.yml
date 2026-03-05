@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if version is already published
+        id: check
+        run: |
+          LOCAL_VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view @mindstudio-ai/local-model-tunnel version 2>/dev/null || echo "0.0.0")
+          if [ "$LOCAL_VERSION" != "$PUBLISHED" ]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "Version $LOCAL_VERSION not yet published (npm has $PUBLISHED)"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Version $LOCAL_VERSION already published, skipping release"
+          fi
+
+  publish-npm:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  build-binaries:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: bun-darwin-arm64
+            artifact: mindstudio-local-darwin-arm64
+          - os: macos-13
+            target: bun-darwin-x64
+            artifact: mindstudio-local-darwin-x64
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            artifact: mindstudio-local-linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install
+
+      - name: Build standalone binary
+        run: |
+          bun build src/cli.ts \
+            --compile \
+            --target=${{ matrix.target }} \
+            --outfile=${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    needs: [publish-npm, build-binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          merge-multiple: true
+
+      - name: Get version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="v${{ steps.version.outputs.version }}"
+
+          # Tag the release
+          git tag "$VERSION" || true
+          git push origin "$VERSION" || true
+
+          # Make binaries executable
+          chmod +x binaries/mindstudio-local-*
+
+          # Create release
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            binaries/mindstudio-local-*
+
+      - name: Upload to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          VERSION="v${{ steps.version.outputs.version }}"
+          BUCKET="${{ secrets.AWS_S3_BUCKET }}"
+
+          # Upload versioned binaries
+          aws s3 cp binaries/ "s3://${BUCKET}/local-model-tunnel/${VERSION}/" --recursive
+
+          # Also copy as "latest" for the install script
+          aws s3 cp binaries/ "s3://${BUCKET}/local-model-tunnel/latest/" --recursive
+
+          # Upload the install script
+          aws s3 cp install.sh "s3://${BUCKET}/local-model-tunnel/install.sh" --content-type "text/plain"
