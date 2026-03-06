@@ -4,7 +4,7 @@ Local tunnel for MindStudio. Use your own locally-running AI models, and edit cu
 
 ## Quick Start
 
-### macOS / Linux (recommended)
+### macOS / Linux (Standlone Binary)
 
 No dependencies required — this downloads a standalone binary:
 
