@@ -13,22 +13,8 @@ function Write-Step { param($Text) Write-Host "  > $Text" }
 function Write-Ok { param($Text) Write-Host "  ✓ $Text" -ForegroundColor Green }
 function Write-Fail { param($Text) Write-Host "  ✗ $Text" -ForegroundColor Red; exit 1 }
 
-$C = "`e[36m"      # cyan
-$B = "`e[96;1m"    # bright cyan bold
-$R = "`e[0m"       # reset
-
 Write-Host ""
-Write-Host "  $C       .$B=$C+$C-.     :$B+$C+$C.$R"
-Write-Host "  $C      $B*@@@@@$C+  $C:$B%@@@@%$C:$R"
-Write-Host "  $C    .$B%@@@@@@#$C..$B@@@@@@@$C=$R"
-Write-Host "  $C  .$B*@@@@@@@$C--$B@@@@@@@#$C.$B**$C.$R"
-Write-Host "  $C  $B*@@@@@@@$C.$B-@@@@@@@@$C.$B#@@*$R"
-Write-Host "  $C.$B#@@@@@@@$C-.$B@@@@@@@*$C $B#@@@@%$C.$R"
-Write-Host "  $C=$B@@@@@@@$C-.$B@@@@@@@#$C.$C-$B@@@@@@$C+$R"
-Write-Host "  $C:$B@@@@@@$C:  $C+$B@@@@@#$C. $C.$B@@@@@@$C:$R"
-Write-Host "  $C  .$C+$C+$C:     .$C-$B*$C-.     .$C+$C+$C:$R"
-Write-Host ""
-Write-Host "  $B MindStudio Local$R"
+Write-Cyan "  MindStudio Local"
 Write-Host ""
 
 # Detect architecture
