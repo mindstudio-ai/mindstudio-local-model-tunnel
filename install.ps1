@@ -1,0 +1,80 @@
+# MindStudio Local — Windows installer
+# Usage: irm https://f.mscdn.ai/local-model-tunnel/install.ps1 | iex
+
+$ErrorActionPreference = "Stop"
+
+$BaseUrl = "https://f.mscdn.ai/local-model-tunnel"
+$BinaryName = "mindstudio-local.exe"
+$InstallDir = "$env:USERPROFILE\.mindstudio\bin"
+
+# Colors
+function Write-Cyan { param($Text) Write-Host $Text -ForegroundColor Cyan }
+function Write-Step { param($Text) Write-Host "  > $Text" }
+function Write-Ok { param($Text) Write-Host "  ✓ $Text" -ForegroundColor Green }
+function Write-Fail { param($Text) Write-Host "  ✗ $Text" -ForegroundColor Red; exit 1 }
+
+$C = "`e[36m"      # cyan
+$B = "`e[96;1m"    # bright cyan bold
+$R = "`e[0m"       # reset
+
+Write-Host ""
+Write-Host "  $C       .$B=$C+$C-.     :$B+$C+$C.$R"
+Write-Host "  $C      $B*@@@@@$C+  $C:$B%@@@@%$C:$R"
+Write-Host "  $C    .$B%@@@@@@#$C..$B@@@@@@@$C=$R"
+Write-Host "  $C  .$B*@@@@@@@$C--$B@@@@@@@#$C.$B**$C.$R"
+Write-Host "  $C  $B*@@@@@@@$C.$B-@@@@@@@@$C.$B#@@*$R"
+Write-Host "  $C.$B#@@@@@@@$C-.$B@@@@@@@*$C $B#@@@@%$C.$R"
+Write-Host "  $C=$B@@@@@@@$C-.$B@@@@@@@#$C.$C-$B@@@@@@$C+$R"
+Write-Host "  $C:$B@@@@@@$C:  $C+$B@@@@@#$C. $C.$B@@@@@@$C:$R"
+Write-Host "  $C  .$C+$C+$C:     .$C-$B*$C-.     .$C+$C+$C:$R"
+Write-Host ""
+Write-Host "  $B MindStudio Local$R"
+Write-Host ""
+
+# Detect architecture
+$Arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
+if ($Arch -ne "x64") {
+    Write-Fail "Only 64-bit Windows is supported."
+}
+
+$Artifact = "mindstudio-local-windows-x64.exe"
+$DownloadUrl = "$BaseUrl/latest/$Artifact"
+
+Write-Step "Detected windows/$Arch"
+Write-Step "Downloading binary..."
+
+# Create install directory
+if (!(Test-Path $InstallDir)) {
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+}
+
+$DestPath = Join-Path $InstallDir $BinaryName
+$TmpPath = "$DestPath.tmp"
+
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $DownloadUrl -OutFile $TmpPath -UseBasicParsing
+} catch {
+    Write-Fail "Download failed. Check your internet connection and try again."
+}
+
+# Replace existing binary if present
+if (Test-Path $DestPath) {
+    Remove-Item $DestPath -Force
+}
+Move-Item $TmpPath $DestPath
+
+# Add to user PATH if not already there
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($UserPath -notlike "*$InstallDir*") {
+    Write-Step "Adding to PATH..."
+    [Environment]::SetEnvironmentVariable("Path", "$UserPath;$InstallDir", "User")
+    # Also update current session
+    $env:Path = "$env:Path;$InstallDir"
+}
+
+Write-Ok "Installed to $DestPath"
+Write-Host ""
+Write-Host "  Run 'mindstudio-local' to get started."
+Write-Host "  (You may need to restart your terminal for PATH changes to take effect.)"
+Write-Host ""
