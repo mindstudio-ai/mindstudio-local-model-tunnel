@@ -17,14 +17,18 @@ To update, run the same command again. To uninstall, `rm /usr/local/bin/mindstud
 
 The app will also prompt you to update automatically when a new version is available.
 
-### Windows
+### Windows (PowerShell)
+
+No dependencies required — this downloads a standalone binary:
 
 ```
-npm install -g @mindstudio-ai/local-model-tunnel
+irm https://msagent.ai/install-tunnel.ps1 | iex
 mindstudio-local
 ```
 
-Requires [Node.js 18+](https://nodejs.org).
+To update, run the same command again. To uninstall, delete `%USERPROFILE%\.mindstudio\bin\mindstudio-local.exe`.
+
+The app will also prompt you to update automatically when a new version is available.
 
 ### Alternative: Install via npm (all platforms)
 
