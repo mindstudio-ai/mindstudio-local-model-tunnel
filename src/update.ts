@@ -52,9 +52,15 @@ export function isNewerVersion(current: string, latest: string): boolean {
 }
 
 export function getBinaryDownloadUrl(): string {
-  const platform = process.platform === 'darwin' ? 'darwin' : 'linux';
+  const platformMap: Record<string, string> = {
+    darwin: 'darwin',
+    linux: 'linux',
+    win32: 'windows',
+  };
+  const platform = platformMap[process.platform] ?? 'linux';
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-  return `${CDN_BASE_URL}/latest/mindstudio-local-${platform}-${arch}`;
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  return `${CDN_BASE_URL}/latest/mindstudio-local-${platform}-${arch}${ext}`;
 }
 
 export async function checkForUpdate(): Promise<{

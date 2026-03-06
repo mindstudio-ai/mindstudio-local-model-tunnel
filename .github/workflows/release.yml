@@ -63,6 +63,9 @@ jobs:
           - os: ubuntu-latest
             target: bun-linux-x64
             artifact: mindstudio-local-linux-x64
+          - os: ubuntu-latest
+            target: bun-windows-x64
+            artifact: mindstudio-local-windows-x64.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -136,5 +139,6 @@ jobs:
           # Also copy as "latest" for the install script
           aws s3 cp binaries/ "s3://${BUCKET}/local-model-tunnel/latest/" --recursive
 
-          # Upload the install script
+          # Upload the install scripts
           aws s3 cp install.sh "s3://${BUCKET}/local-model-tunnel/install.sh" --content-type "text/plain"
+          aws s3 cp install.ps1 "s3://${BUCKET}/local-model-tunnel/install.ps1" --content-type "text/plain"
