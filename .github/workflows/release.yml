@@ -80,7 +80,7 @@ jobs:
         run: |
           bun build src/cli.ts \
             --compile \
-            --external react-devtools-core \
+            --alias react-devtools-core=./src/shims/react-devtools-core.ts \
             --target=${{ matrix.target }} \
             --outfile=${{ matrix.artifact }}
 
