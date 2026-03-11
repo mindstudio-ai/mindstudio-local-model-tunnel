@@ -76,11 +76,16 @@ jobs:
 
       - run: bun install
 
+      - name: Shim react-devtools-core (not needed in production binaries)
+        run: |
+          mkdir -p node_modules/react-devtools-core
+          echo '{"name":"react-devtools-core","version":"0.0.0","main":"index.js"}' > node_modules/react-devtools-core/package.json
+          echo 'module.exports = { initialize() {}, connectToDevTools() {} };' > node_modules/react-devtools-core/index.js
+
       - name: Build standalone binary
         run: |
           bun build src/cli.ts \
             --compile \
-            --alias react-devtools-core=./src/shims/react-devtools-core.ts \
             --target=${{ matrix.target }} \
             --outfile=${{ matrix.artifact }}
 
