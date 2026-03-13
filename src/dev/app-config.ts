@@ -2,6 +2,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { execSync } from 'node:child_process';
 import type { AppConfig, WebInterfaceConfig } from './types';
 
 /**
@@ -119,4 +120,41 @@ export function readTableSources(
   }
 
   return results;
+}
+
+/**
+ * Find project directories that have a package.json but no node_modules.
+ * Returns paths that need `npm install`.
+ */
+export function findDirsNeedingInstall(
+  appConfig: AppConfig,
+  cwd: string = process.cwd(),
+): string[] {
+  const dirs: string[] = [];
+
+  // Backend directory (derived from first method path, e.g. dist/backend/src/foo.ts → dist/backend)
+  if (appConfig.methods.length > 0) {
+    const firstMethodPath = appConfig.methods[0].path;
+    // Walk up from the method file to find the nearest package.json
+    const parts = firstMethodPath.split('/');
+    for (let i = parts.length - 1; i >= 1; i--) {
+      const candidate = join(cwd, ...parts.slice(0, i));
+      if (existsSync(join(candidate, 'package.json'))) {
+        if (!existsSync(join(candidate, 'node_modules'))) {
+          dirs.push(candidate);
+        }
+        break;
+      }
+    }
+  }
+
+  // Web frontend directory
+  const webProjectDir = getWebProjectDir(appConfig, cwd);
+  if (webProjectDir && existsSync(join(webProjectDir, 'package.json'))) {
+    if (!existsSync(join(webProjectDir, 'node_modules'))) {
+      dirs.push(webProjectDir);
+    }
+  }
+
+  return dirs;
 }

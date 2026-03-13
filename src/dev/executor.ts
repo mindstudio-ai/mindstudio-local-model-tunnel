@@ -19,6 +19,7 @@ export interface ExecuteMethodOptions {
   authorizationToken: string;
   apiBaseUrl: string;
   projectRoot: string;
+  streamId?: string;
 }
 
 export interface ExecuteMethodResult {
@@ -136,6 +137,7 @@ export async function executeMethod(
           REMOTE_HOSTNAME: opts.apiBaseUrl,
           MINDSTUDIO_CALLBACK_TOKEN: opts.authorizationToken,
           MINDSTUDIO_API_BASE_URL: opts.apiBaseUrl,
+          ...(opts.streamId ? { STREAM_ID: opts.streamId } : {}),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       });

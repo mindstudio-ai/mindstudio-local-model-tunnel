@@ -54,6 +54,7 @@ export interface DevSession {
   }>;
   methods: Record<string, string>;
   webInterfaceUrl: string;
+  previewUrl?: string;
   /** The window.__MINDSTUDIO__ context object to inject into HTML. */
   clientContext: Record<string, unknown>;
   user: {
@@ -74,6 +75,7 @@ export interface DevRequest {
   input: unknown;
   authorizationToken: string;
   roleOverride?: string[];
+  streamId?: string;
 }
 
 /** Posted to POST /_internal/v2/apps/{appId}/dev/result/{requestId} */

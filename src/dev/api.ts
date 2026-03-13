@@ -36,12 +36,21 @@ function basePath(appId: string): string {
 
 export async function startDevSession(
   appId: string,
-  branch?: string,
+  opts?: {
+    branch?: string;
+    proxyUrl?: string;
+    methods?: Array<{ id: string; export: string; path: string }>;
+  },
 ): Promise<DevSession> {
+  const body: Record<string, unknown> = {};
+  if (opts?.branch) body.branch = opts.branch;
+  if (opts?.proxyUrl) body.proxyUrl = opts.proxyUrl;
+  if (opts?.methods) body.methods = opts.methods;
+
   const response = await fetch(`${basePath(appId)}/manage/start`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify(branch ? { branch } : {}),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {

@@ -1,14 +1,18 @@
 // Hook managing the dev session lifecycle, including dev server and proxy.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
+import { watch, type FSWatcher } from 'node:fs';
+import { join } from 'node:path';
 import { DevRunner } from '../../../dev/runner';
 import { DevProxy } from '../../../dev/proxy';
 import { devRequestEvents } from '../../../dev/events';
 import {
+  detectAppConfig,
   getWebInterfaceConfig,
   getWebProjectDir,
   readTableSources,
+  findDirsNeedingInstall,
 } from '../../../dev/app-config';
 import { syncSchema } from '../../../dev/api';
 import { useDevServer } from './useDevServer';
@@ -21,6 +25,23 @@ function stablePort(appId: string): number {
     hash = ((hash << 5) - hash + appId.charCodeAt(i)) | 0;
   }
   return 3100 + (Math.abs(hash) % 900);
+}
+
+function runNpmInstall(cwd: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('npm', ['install'], {
+      cwd,
+      shell: true,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+    proc.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
+    proc.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`npm install failed in ${cwd}: ${stderr.slice(-200)}`));
+    });
+    proc.on('error', reject);
+  });
 }
 
 function detectGitBranch(): string | undefined {
@@ -52,6 +73,7 @@ export function useDevSession(appConfig: AppConfig) {
   const [proxyPort, setProxyPort] = useState<number | null>(null);
   const [webConfig, setWebConfig] = useState<WebInterfaceConfig | null>(null);
   const [syncResult, setSyncResult] = useState<SyncSchemaResponse | null>(null);
+  const [installStatus, setInstallStatus] = useState<string | null>(null);
   const runnerRef = useRef<DevRunner | null>(null);
   const proxyRef = useRef<DevProxy | null>(null);
   const mountedRef = useRef(true);
@@ -91,6 +113,42 @@ export function useDevSession(appConfig: AppConfig) {
     return unsub;
   }, []);
 
+  // Watch mindstudio.json for changes — restart session on edit
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    let watcher: FSWatcher | undefined;
+    try {
+      const configPath = join(process.cwd(), 'mindstudio.json');
+      watcher = watch(configPath, () => {
+        // Debounce — editors often write multiple times
+        clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = setTimeout(async () => {
+          if (!mountedRef.current || phase !== 'running') return;
+          // Stop current session, re-enter ready phase (auto-starts)
+          proxyRef.current?.stop();
+          proxyRef.current = null;
+          devServer.stop();
+          if (runnerRef.current) {
+            await runnerRef.current.stop().catch(() => {});
+            runnerRef.current = null;
+          }
+          if (mountedRef.current) {
+            setSession(null);
+            setProxyPort(null);
+            setSyncResult(null);
+            setPhase('ready');
+          }
+        }, 500);
+      });
+    } catch {
+      // File might not exist yet
+    }
+    return () => {
+      clearTimeout(restartTimerRef.current);
+      watcher?.close();
+    };
+  }, [phase, devServer]);
+
   // Cleanup on unmount
   useEffect(() => {
     mountedRef.current = true;
@@ -104,9 +162,11 @@ export function useDevSession(appConfig: AppConfig) {
 
   const start = useCallback(
     async (port?: number) => {
+      // Re-read mindstudio.json in case it changed (e.g., restart after edit)
+      const currentConfig = detectAppConfig() ?? appConfig;
       const actualPort = port ?? devPort;
 
-      if (!appConfig.appId) {
+      if (!currentConfig.appId) {
         setPhase('error');
         return;
       }
@@ -119,9 +179,22 @@ export function useDevSession(appConfig: AppConfig) {
       setError(null);
 
       try {
+        // Install dependencies if needed
+        const dirsToInstall = findDirsNeedingInstall(currentConfig);
+        for (const dir of dirsToInstall) {
+          const dirName = dir.split('/').slice(-2).join('/');
+          if (mountedRef.current) {
+            setInstallStatus(`Installing dependencies in ${dirName}...`);
+          }
+          await runNpmInstall(dir);
+        }
+        if (mountedRef.current) {
+          setInstallStatus(null);
+        }
+
         // Start local dev server if we have a web interface and a port
         if (actualPort !== null && actualPort !== undefined) {
-          const webProjectDir = getWebProjectDir(appConfig);
+          const webProjectDir = getWebProjectDir(currentConfig);
           if (webProjectDir) {
             const devCommand = webConfig?.devCommand ?? 'npm run dev';
             await devServer.start({
@@ -134,21 +207,28 @@ export function useDevSession(appConfig: AppConfig) {
 
         // Start the platform session
         const branch = detectGitBranch();
+        const proxyUrl = (actualPort !== null && actualPort !== undefined)
+          ? `http://localhost:${stablePort(currentConfig.appId!)}`
+          : undefined;
         const runner = new DevRunner(
-          appConfig.appId,
+          currentConfig.appId,
           process.cwd(),
-          branch,
+          {
+            branch,
+            proxyUrl,
+            methods: currentConfig.methods.map((m) => ({ id: m.id, export: m.export, path: m.path })),
+          },
         );
         runnerRef.current = runner;
         const devSession = await runner.start();
 
         // Sync table schema if the app has tables
-        if (appConfig.tables.length > 0) {
+        if (currentConfig.tables.length > 0) {
           try {
-            const tableSources = readTableSources(appConfig);
+            const tableSources = readTableSources(currentConfig);
             if (tableSources.length > 0) {
               const result = await syncSchema(
-                appConfig.appId,
+                currentConfig.appId,
                 devSession.sessionId,
                 tableSources,
               );
@@ -255,6 +335,7 @@ export function useDevSession(appConfig: AppConfig) {
     webConfig,
     devServer,
     syncResult,
+    installStatus,
     start,
     stop,
     resync,

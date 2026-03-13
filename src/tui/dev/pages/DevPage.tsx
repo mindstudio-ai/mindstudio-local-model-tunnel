@@ -32,6 +32,7 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
     proxyPort,
     devServer,
     syncResult,
+    installStatus,
     start,
     stop,
     resync,
@@ -100,6 +101,11 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
           <Text>
             <Spinner type="dots" /> Starting dev session...
           </Text>
+          {installStatus && (
+            <Text color="gray">
+              <Spinner type="dots" /> {installStatus}
+            </Text>
+          )}
           {devServer.phase === 'starting' && (
             <Text color="gray">
               <Spinner type="dots" /> Waiting for dev server on port {devPort}...
@@ -209,7 +215,7 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
         <Box gap={2}>
           <Text bold color="white">{appConfig.name}</Text>
           <Text color="green">● {session?.branch ?? 'main'}</Text>
-          <Text color="cyan">{proxyPort ? `http://localhost:${proxyPort}/` : session?.webInterfaceUrl ?? ''}</Text>
+          <Text color="cyan">{session?.previewUrl ?? session?.webInterfaceUrl ?? ''}</Text>
         </Box>
       </Box>
 
@@ -329,7 +335,7 @@ function InfoTab({
 
       <Box marginTop={1}><Text bold color="white" underline>App URL</Text></Box>
       <Text color="cyan" bold>
-        {proxyPort ? `http://localhost:${proxyPort}/` : session?.webInterfaceUrl ?? '...'}
+        {session?.previewUrl ?? session?.webInterfaceUrl ?? '...'}
       </Text>
 
       <Box marginTop={1}><Text bold color="white" underline>Dev Server</Text></Box>

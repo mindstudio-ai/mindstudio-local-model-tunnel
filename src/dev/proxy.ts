@@ -12,6 +12,7 @@ export class DevProxy {
   constructor(
     private readonly upstreamPort: number,
     private readonly clientContext: Record<string, unknown>,
+    private readonly bindAddress: string = '127.0.0.1',
   ) {}
 
   async start(preferredPort?: number): Promise<number> {
@@ -51,7 +52,7 @@ export class DevProxy {
       };
       server.on('error', onError);
 
-      server.listen(port, '127.0.0.1', () => {
+      server.listen(port, this.bindAddress, () => {
         server.removeListener('error', onError);
         const addr = server.address();
         if (!addr || typeof addr === 'string') {
@@ -79,6 +80,20 @@ export class DevProxy {
     clientReq: http.IncomingMessage,
     clientRes: http.ServerResponse,
   ): void {
+    const origin = clientReq.headers.origin;
+
+    // Handle CORS preflight for Private Network Access
+    if (clientReq.method === 'OPTIONS' && origin) {
+      clientRes.writeHead(204, {
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Private-Network': 'true',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+      });
+      clientRes.end();
+      return;
+    }
+
     const options: http.RequestOptions = {
       hostname: '127.0.0.1',
       port: this.upstreamPort,
@@ -99,17 +114,30 @@ export class DevProxy {
           let html = Buffer.concat(chunks).toString('utf-8');
           html = injectClientContext(html, this.clientContext);
 
-          // Copy headers but update content-length
+          // Copy headers but update content-length and disable caching
           const headers = { ...upstreamRes.headers };
           headers['content-length'] = String(Buffer.byteLength(html, 'utf-8'));
+          headers['cache-control'] = 'no-store, no-cache, must-revalidate';
           delete headers['content-encoding']; // injection invalidates gzip/br
+          delete headers['etag'];
+          if (origin) {
+            headers['access-control-allow-origin'] = origin;
+            headers['access-control-allow-private-network'] = 'true';
+          }
 
           clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
           clientRes.end(html);
         });
       } else {
-        // Non-HTML: pipe through unmodified
-        clientRes.writeHead(upstreamRes.statusCode ?? 200, upstreamRes.headers);
+        // Non-HTML: pipe through, disable caching
+        const headers = { ...upstreamRes.headers };
+        headers['cache-control'] = 'no-store, no-cache, must-revalidate';
+        delete headers['etag'];
+        if (origin) {
+          headers['access-control-allow-origin'] = origin;
+          headers['access-control-allow-private-network'] = 'true';
+        }
+        clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
         upstreamRes.pipe(clientRes);
       }
     });

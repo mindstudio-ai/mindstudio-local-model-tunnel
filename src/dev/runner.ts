@@ -24,11 +24,16 @@ export class DevRunner {
   constructor(
     private readonly appId: string,
     private readonly projectRoot: string,
-    private readonly branch?: string,
+    private readonly startOpts: {
+      branch?: string;
+      proxyUrl?: string;
+      methods?: Array<{ id: string; export: string; path: string }>;
+    } = {},
   ) {}
 
   setProxyUrl(url: string): void {
     this.proxyUrl = url;
+    this.startOpts.proxyUrl = url;
   }
 
   async start(): Promise<DevSession> {
@@ -36,7 +41,7 @@ export class DevRunner {
       throw new Error('DevRunner is already running');
     }
 
-    const session = await startDevSession(this.appId, this.branch);
+    const session = await startDevSession(this.appId, this.startOpts);
     this.session = session;
     this.transpiler = new Transpiler(this.appId, this.projectRoot);
     this.isRunning = true;
@@ -60,7 +65,10 @@ export class DevRunner {
       this.session = null;
     }
 
-    this.transpiler = null;
+    if (this.transpiler) {
+      await this.transpiler.cleanup();
+      this.transpiler = null;
+    }
   }
 
   getSession(): DevSession | null {
@@ -144,6 +152,7 @@ export class DevRunner {
         authorizationToken: request.authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
         projectRoot: this.projectRoot,
+        streamId: request.streamId,
       });
 
       const devResult: DevResult = {
