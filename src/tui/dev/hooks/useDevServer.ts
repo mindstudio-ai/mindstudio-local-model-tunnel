@@ -145,5 +145,5 @@ async function waitForPort(port: number, timeoutMs: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, PORT_CHECK_INTERVAL_MS));
   }
   // Timeout is not fatal — the server might still be starting but we
-  // proceed anyway. Index requests will fail gracefully if it's not ready.
+  // proceed anyway. The proxy will return errors until it's ready.
 }

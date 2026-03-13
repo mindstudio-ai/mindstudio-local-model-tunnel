@@ -193,7 +193,7 @@ export function useDevSession(appConfig: AppConfig) {
         }
 
         // Start local dev server if we have a web interface and a port
-        if (actualPort !== null && actualPort !== undefined) {
+        if (actualPort != null) {
           const webProjectDir = getWebProjectDir(currentConfig);
           if (webProjectDir) {
             const devCommand = webConfig?.devCommand ?? 'npm run dev';
@@ -207,7 +207,7 @@ export function useDevSession(appConfig: AppConfig) {
 
         // Start the platform session
         const branch = detectGitBranch();
-        const proxyUrl = (actualPort !== null && actualPort !== undefined)
+        const proxyUrl = actualPort != null
           ? `http://localhost:${stablePort(currentConfig.appId!)}`
           : undefined;
         const runner = new DevRunner(
@@ -243,9 +243,9 @@ export function useDevSession(appConfig: AppConfig) {
         }
 
         // Start the local proxy if we have a frontend port and client context
-        if (actualPort !== null && actualPort !== undefined && devSession.clientContext) {
+        if (actualPort != null && devSession.clientContext) {
           const proxy = new DevProxy(actualPort, devSession.clientContext);
-          const preferredProxyPort = stablePort(appConfig.appId!);
+          const preferredProxyPort = stablePort(currentConfig.appId!);
           const pPort = await proxy.start(preferredProxyPort);
           proxyRef.current = proxy;
           runner.setProxyUrl(`http://localhost:${pPort}`);
@@ -286,12 +286,14 @@ export function useDevSession(appConfig: AppConfig) {
   }, [devServer]);
 
   const resync = useCallback(async () => {
-    if (!session || !appConfig.appId) return;
+    if (!session) return;
+    const freshConfig = detectAppConfig() ?? appConfig;
+    if (!freshConfig.appId) return;
     try {
-      const tableSources = readTableSources(appConfig);
+      const tableSources = readTableSources(freshConfig);
       if (tableSources.length === 0) return;
       const result = await syncSchema(
-        appConfig.appId,
+        freshConfig.appId,
         session.sessionId,
         tableSources,
       );

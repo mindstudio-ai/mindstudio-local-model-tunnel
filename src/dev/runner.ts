@@ -43,7 +43,7 @@ export class DevRunner {
 
     const session = await startDevSession(this.appId, this.startOpts);
     this.session = session;
-    this.transpiler = new Transpiler(this.appId, this.projectRoot);
+    this.transpiler = new Transpiler(this.projectRoot);
     this.isRunning = true;
     this.backoffMs = 1000;
 

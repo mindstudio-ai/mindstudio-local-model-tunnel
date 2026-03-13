@@ -8,7 +8,7 @@ export class Transpiler {
   private projectRoot: string;
   private outputFiles: Set<string> = new Set();
 
-  constructor(_appId: string, projectRoot: string) {
+  constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
   }
 

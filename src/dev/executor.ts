@@ -80,9 +80,6 @@ function serializeError(err) {
 
 // Capture console output from method code
 const _stdout = [];
-const _origLog = console.log;
-const _origWarn = console.warn;
-const _origError = console.error;
 console.log = (...args) => _stdout.push(args.map(String).join(' '));
 console.warn = (...args) => _stdout.push(args.map(String).join(' '));
 console.error = (...args) => _stdout.push(args.map(String).join(' '));
