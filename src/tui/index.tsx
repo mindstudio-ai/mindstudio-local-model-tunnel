@@ -6,6 +6,7 @@ import { get as httpsGet } from 'node:https';
 import { get as httpGet } from 'node:http';
 import { App } from './App';
 import { TunnelRunner } from '../runner';
+import { detectAppConfig } from '../dev/app-config';
 import { checkForUpdate, getInstallMethod, getBinaryDownloadUrl } from '../update';
 import { UpdatePrompt } from './components/UpdatePrompt';
 
@@ -99,13 +100,17 @@ export async function startTUI(): Promise<void> {
     console.clear();
   }
 
+  // Detect v2 app project in CWD
+  const appConfig = detectAppConfig(process.cwd());
+
   // Create the runner instance
   const runner = new TunnelRunner();
 
   // Render the TUI with stdin configured for keyboard input
-  const { waitUntilExit } = render(<App runner={runner} />, {
-    exitOnCtrlC: true,
-  });
+  const { waitUntilExit } = render(
+    <App runner={runner} appConfig={appConfig ?? undefined} />,
+    { exitOnCtrlC: true },
+  );
 
   // Wait for the app to exit
   await waitUntilExit();

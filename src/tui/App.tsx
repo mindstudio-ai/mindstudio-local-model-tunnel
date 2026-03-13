@@ -13,9 +13,11 @@ import { DashboardPage } from './models/pages/DashboardPage';
 import { SetupPage } from './models/pages/SetupPage';
 import { InterfacesPage } from './interfaces/pages/InterfacesPage';
 import { OnboardingPage } from './pages/OnboardingPage';
+import { DevPage } from './dev/pages/DevPage';
 import { TunnelRunner } from '../runner';
 import { syncModels, type ModelTypeMindStudio } from '../api';
 import { getApiKey, getUserId, getConfigPath } from '../config';
+import type { AppConfig } from '../dev/types';
 import type { Page } from './types';
 
 const MODEL_TYPE_MAP: Record<string, ModelTypeMindStudio> = {
@@ -26,9 +28,10 @@ const MODEL_TYPE_MAP: Record<string, ModelTypeMindStudio> = {
 
 interface AppProps {
   runner: TunnelRunner;
+  appConfig?: AppConfig;
 }
 
-export function App({ runner }: AppProps) {
+export function App({ runner, appConfig }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const {
@@ -57,7 +60,7 @@ export function App({ runner }: AppProps) {
   } = useSyncedModels(connectionStatus);
   const shouldOnboard = getApiKey() === undefined || getUserId() === undefined;
   const [page, setPage] = useState<Page>(
-    shouldOnboard ? 'onboarding' : 'dashboard',
+    shouldOnboard ? 'onboarding' : appConfig ? 'dev' : 'dashboard',
   );
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>(
     'idle',
@@ -160,6 +163,12 @@ export function App({ runner }: AppProps) {
         case 'setup':
           setPage('setup');
           break;
+        case 'dev':
+          setPage('dev');
+          break;
+        case 'dashboard':
+          setPage('dashboard');
+          break;
         case 'refresh':
           refreshAll();
           break;
@@ -247,18 +256,13 @@ export function App({ runner }: AppProps) {
               refresh={editorSessions.refresh}
             />
           )}
-          {page !== 'dashboard' &&
-            page !== 'setup' &&
-            page !== 'interfaces' && <Box flexGrow={1} />}
-
-          {page !== 'dashboard' &&
-            page !== 'setup' &&
-            page !== 'interfaces' && (
-              <NavigationMenu
-                items={subpageMenuItems}
-                onSelect={handleSubpageNavigate}
-              />
-            )}
+          {page === 'dev' && appConfig && (
+            <DevPage
+              appConfig={appConfig}
+              onNavigate={handleNavigate}
+              termHeight={termHeight}
+            />
+          )}
         </>
       )}
     </Box>
