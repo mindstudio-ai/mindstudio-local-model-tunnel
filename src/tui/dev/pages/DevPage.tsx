@@ -401,8 +401,8 @@ function InfoTab({
   );
 }
 
-/** Routes tab — list all routes from mindstudio.json. */
-function RoutesTab({
+/** Methods tab — list all methods from mindstudio.json. */
+function MethodsTab({
   appConfig,
   contentHeight,
 }: {
@@ -412,17 +412,17 @@ function RoutesTab({
   return (
     <Box flexDirection="column" paddingX={1} marginTop={1}>
       <Text bold color="white" underline>
-        Routes ({appConfig.routes.length})
+        Methods ({appConfig.methods.length})
       </Text>
-      {appConfig.routes.slice(0, contentHeight - 2).map((route) => (
-        <Box key={route.id} gap={1}>
-          <Text color="cyan">{route.export}</Text>
-          <Text color="gray" dimColor>→ {route.id}</Text>
-          <Text color="gray" dimColor>({route.path})</Text>
+      {appConfig.methods.slice(0, contentHeight - 2).map((method) => (
+        <Box key={method.id} gap={1}>
+          <Text color="cyan">{method.export}</Text>
+          <Text color="gray" dimColor>→ {method.id}</Text>
+          <Text color="gray" dimColor>({method.path})</Text>
         </Box>
       ))}
-      {appConfig.routes.length === 0 && (
-        <Text color="gray" dimColor>No routes defined</Text>
+      {appConfig.methods.length === 0 && (
+        <Text color="gray" dimColor>No methods defined</Text>
       )}
     </Box>
   );
