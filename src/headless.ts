@@ -59,6 +59,13 @@ import {
   getWebInterfaceConfig,
   readTableSources,
 } from './dev/app-config';
+import {
+  getApiKey,
+  getApiBaseUrl,
+  getUserId,
+  getEnvironment,
+  getConfigPath,
+} from './config';
 import { execSync } from 'node:child_process';
 
 /**
@@ -138,6 +145,20 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     emit('error', { message: 'Missing "appId" in mindstudio.json' });
     return;
   }
+
+  // Debug: log auth config so sandbox operators can diagnose 403s
+  const apiKey = getApiKey();
+  const userId = getUserId();
+  emit('debug', {
+    configPath: getConfigPath(),
+    environment: getEnvironment(),
+    apiBaseUrl: getApiBaseUrl(),
+    hasApiKey: !!apiKey,
+    apiKeyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : null,
+    hasUserId: !!userId,
+    userId: userId ?? null,
+    cwd,
+  });
 
   emit('starting', { appId: appConfig.appId, name: appConfig.name });
 

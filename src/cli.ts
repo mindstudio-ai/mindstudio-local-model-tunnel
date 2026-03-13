@@ -7,7 +7,6 @@ function getFlag(name: string): string | undefined {
 }
 
 async function main() {
-  console.error('[cli] argv:', process.argv.join(' '));
   if (process.argv.includes('--headless')) {
     const { startHeadless } = await import('./headless.js');
     await startHeadless({
