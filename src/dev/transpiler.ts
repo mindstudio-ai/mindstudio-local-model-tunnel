@@ -1,7 +1,8 @@
 // esbuild-based TypeScript transpiler. No caching — always fresh for local dev.
 
-import { unlink } from 'node:fs/promises';
-import { resolve, dirname, basename } from 'node:path';
+import { unlink, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { resolve, dirname, basename, join } from 'node:path';
 import { build } from 'esbuild';
 
 export class Transpiler {
@@ -15,14 +16,25 @@ export class Transpiler {
   /**
    * Transpile a method file to ESM JavaScript.
    * Returns the absolute path to the output .mjs file.
-   * Output is written next to the source file so Node's ESM resolver
-   * can find the project's node_modules (e.g. @mindstudio-ai/agent).
+   * Output is written inside the nearest node_modules/.cache/mindstudio-dev/
+   * so ESM resolver can find packages and the repo stays clean.
    */
   async transpile(methodPath: string): Promise<string> {
     const absolutePath = resolve(this.projectRoot, methodPath);
-    const dir = dirname(absolutePath);
     const name = basename(absolutePath).replace(/\.[^.]+$/, '');
-    const outfile = resolve(dir, `${name}.__ms_dev__.mjs`);
+
+    // Find nearest node_modules by walking up from the source file
+    const nodeModulesDir = findNearestNodeModules(dirname(absolutePath));
+    if (!nodeModulesDir) {
+      throw new Error(
+        `No node_modules found near ${methodPath}. Run npm install first.`,
+      );
+    }
+
+    const outDir = join(nodeModulesDir, '.cache', 'mindstudio-dev');
+    await mkdir(outDir, { recursive: true });
+
+    const outfile = join(outDir, `${name}.__ms_dev__.mjs`);
 
     await build({
       entryPoints: [absolutePath],
@@ -49,4 +61,21 @@ export class Transpiler {
     }
     this.outputFiles.clear();
   }
+}
+
+/**
+ * Walk up from a directory to find the nearest node_modules.
+ */
+function findNearestNodeModules(startDir: string): string | null {
+  let dir = startDir;
+  while (true) {
+    const candidate = join(dir, 'node_modules');
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break; // reached root
+    dir = parent;
+  }
+  return null;
 }

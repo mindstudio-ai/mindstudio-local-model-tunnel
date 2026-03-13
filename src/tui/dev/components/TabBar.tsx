@@ -21,12 +21,14 @@ export function TabBar({ tabs, activeTab }: TabBarProps) {
     return { tab, isActive, padded };
   });
 
-  const tabChars = tabSegments.reduce((sum, s) => sum + s.padded.length, 0);
+  const labelText = 'Screen  ';
   const hint = ' ←/→ ';
-  const remaining = Math.max(0, width - tabChars - hint.length);
+  const tabChars = tabSegments.reduce((sum, s) => sum + s.padded.length, 0);
+  const remaining = Math.max(0, width - tabChars - hint.length - labelText.length);
 
   return (
     <Box>
+      <Text color="gray">{labelText}</Text>
       {tabSegments.map(({ tab, isActive, padded }) => (
         <Text
           key={tab.id}

@@ -250,9 +250,6 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
         )}
       </Box>
 
-      {/* Tab bar */}
-      <TabBar tabs={TABS} activeTab={activeTab} />
-
       {/* Menu */}
       <NavigationMenu
         items={runningMenuItems}
@@ -262,6 +259,9 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
           else onNavigate(id);
         }}
       />
+
+      {/* Tab bar */}
+      <TabBar tabs={TABS} activeTab={activeTab} />
     </Box>
   );
 }
