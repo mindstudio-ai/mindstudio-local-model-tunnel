@@ -11,6 +11,7 @@
     "build": "tsup",
     "dev": "tsup && node dist/cli.js",
     "start": "node dist/cli.js",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build",
     "local-update": "npm run build && npm link",
     "clean:destructive": "bash scripts/clean-destructive.sh"
