@@ -1,4 +1,11 @@
-// Detect and parse mindstudio.json from the working directory.
+// Reads the project's mindstudio.json manifest and related config files.
+//
+// mindstudio.json is the source of truth for the app — it declares methods,
+// tables, interfaces, and the appId. The CLI reads it on startup to know
+// what to transpile, which dev server to start, and what to send to the platform.
+//
+// Web interface config (e.g. dist/interfaces/web/web.json) provides devPort
+// and devCommand for the frontend dev server.
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';

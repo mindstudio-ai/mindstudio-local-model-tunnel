@@ -1,4 +1,18 @@
-// Hook managing the dev session lifecycle, including dev server and proxy.
+// Orchestrates the full dev session lifecycle in TUI mode.
+//
+// Startup sequence (triggered by phase state machine):
+//   detecting → detect web config from mindstudio.json
+//   needs_port → prompt user for dev server port (if not in config)
+//   ready → auto-triggers start()
+//   starting → npm install (if needed) → start dev server → start platform
+//              session → sync schema → start proxy
+//   running → poll loop active, proxy serving, ready for requests
+//
+// On mindstudio.json change: fs.watch detects it, stops everything,
+// re-enters 'ready' phase which re-runs start() with fresh config.
+//
+// This hook is the TUI equivalent of src/headless.ts — same pieces
+// (DevRunner, DevProxy, schema sync) wired together with React state.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { execSync, spawn } from 'node:child_process';

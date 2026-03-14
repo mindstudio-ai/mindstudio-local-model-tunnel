@@ -1,5 +1,17 @@
 // Execute a transpiled method in an isolated child process.
-// Modeled after the cloud sandbox's buildIndexFile.ts pattern.
+//
+// Each method invocation gets its own Node.js process for isolation.
+// The process runs a bootstrap .mjs script that:
+// 1. Sets up globalThis.ai (auth + database context for the SDK)
+// 2. Intercepts console.log/warn/error into a buffer (so it doesn't
+//    corrupt our JSON result on stdout)
+// 3. Imports the transpiled method and calls it
+// 4. Writes the result as JSON to stdout
+//
+// This mirrors the cloud sandbox's buildIndexFile.ts pattern. The SDK
+// (@mindstudio-ai/agent) doesn't know it's running locally — it uses
+// the same env vars (CALLBACK_TOKEN, REMOTE_HOSTNAME) for db queries
+// and other platform callbacks.
 
 import { spawn } from 'node:child_process';
 import { writeFile, unlink } from 'node:fs/promises';
@@ -130,12 +142,17 @@ export async function executeMethod(
         cwd: opts.projectRoot,
         env: {
           ...process.env,
-          // Unset API key so SDK uses the callback token for auth
+          // Clear API key so SDK falls through to CALLBACK_TOKEN for auth.
+          // The SDK resolves auth as: MINDSTUDIO_API_KEY > ~/.mindstudio/config > CALLBACK_TOKEN.
+          // We need CALLBACK_TOKEN (the per-request hook token from the platform).
           MINDSTUDIO_API_KEY: '',
+          // These env vars are read by @mindstudio-ai/agent for db queries
+          // and other platform callbacks. Same names as the cloud sandbox.
           CALLBACK_TOKEN: opts.authorizationToken,
           REMOTE_HOSTNAME: opts.apiBaseUrl,
           MINDSTUDIO_CALLBACK_TOKEN: opts.authorizationToken,
           MINDSTUDIO_API_BASE_URL: opts.apiBaseUrl,
+          // STREAM_ID enables streaming responses via the platform's Redis pub/sub → SSE channel
           ...(opts.streamId ? { STREAM_ID: opts.streamId } : {}),
         },
         stdio: ['ignore', 'pipe', 'pipe'],

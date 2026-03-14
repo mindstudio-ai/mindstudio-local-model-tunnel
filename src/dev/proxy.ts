@@ -1,6 +1,19 @@
-// Transparent HTTP reverse proxy that sits in front of the local dev server.
-// Injects window.__MINDSTUDIO__ into HTML responses. Forwards everything else
-// (JS, CSS, images, WebSocket upgrades) unmodified. Framework-agnostic.
+// Local dev proxy — sits between the browser and the upstream dev server.
+//
+// Why: the MindStudio frontend SDK needs window.__MINDSTUDIO__ (session
+// token, API URL, method mappings) to function. In production, the platform
+// injects this into HTML served from S3. In dev mode, the proxy does it
+// locally so the browser gets the same context without a platform round-trip.
+//
+// How it works:
+// - HTML responses: buffered, __MINDSTUDIO__ injected before </head>, served
+// - Everything else (JS, CSS, images, fonts): piped through unmodified
+// - WebSocket upgrades: forwarded transparently (enables HMR for any framework)
+// - CORS/PNA headers: added so the proxy works inside iframes from app.mindstudio.ai
+// - Caching disabled on all responses (this is local dev, always fresh)
+//
+// The proxy is framework-agnostic — it doesn't know or care what dev server
+// is upstream. Detection is by content-type header, not URL patterns.
 
 import http from 'node:http';
 import type { Socket } from 'node:net';
@@ -86,7 +99,9 @@ export class DevProxy {
   ): void {
     const origin = clientReq.headers.origin;
 
-    // Handle CORS preflight for Private Network Access
+    // CORS preflight for Private Network Access (PNA). Chrome blocks
+    // public origins (like app.mindstudio.ai) from accessing localhost
+    // unless the server explicitly opts in via these headers.
     if (clientReq.method === 'OPTIONS' && origin) {
       clientRes.writeHead(204, {
         'Access-Control-Allow-Origin': origin,
@@ -122,7 +137,7 @@ export class DevProxy {
           const headers = { ...upstreamRes.headers };
           headers['content-length'] = String(Buffer.byteLength(html, 'utf-8'));
           headers['cache-control'] = 'no-store, no-cache, must-revalidate';
-          delete headers['content-encoding']; // injection invalidates gzip/br
+          delete headers['content-encoding']; // buffering + injection invalidates gzip/br
           delete headers['etag'];
           if (origin) {
             headers['access-control-allow-origin'] = origin;

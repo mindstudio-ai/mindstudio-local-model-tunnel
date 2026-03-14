@@ -1,4 +1,14 @@
-// DevRunner — manages the dev session poll loop and method execution.
+// DevRunner — the core of dev mode.
+//
+// Lifecycle: start() → pollLoop() → handleRequest() → stop()
+//
+// The runner polls the platform for method execution requests, transpiles
+// TypeScript on the fly, executes methods in isolated child processes, and
+// posts results back. It does NOT handle the frontend (that's the proxy).
+//
+// The poll loop runs continuously. Requests are handled in the background
+// so multiple methods can execute in parallel without blocking the poll.
+// Connection issues trigger exponential backoff; 404 = session expired.
 
 import {
   startDevSession,
@@ -32,6 +42,9 @@ export class DevRunner {
     } = {},
   ) {}
 
+  // proxyUrl is sent on every poll request so the platform dashboard can
+  // show the developer's preview URL. Also included in the start request
+  // so the dashboard sees it immediately without waiting for the first poll.
   setProxyUrl(url: string): void {
     this.proxyUrl = url;
     this.startOpts.proxyUrl = url;
@@ -143,7 +156,9 @@ export class DevRunner {
       log.debug('runner Transpiling', { path: request.methodPath });
       const transpiledPath = await this.transpiler!.transpile(request.methodPath);
 
-      // Use role override if present, otherwise default session auth
+      // Role override lets the platform test methods as different users/roles
+      // without restarting the session. If present, we build a custom auth
+      // context with the overridden roles; otherwise use the session default.
       const auth = request.roleOverride
         ? {
             userId: this.session!.auth.userId,

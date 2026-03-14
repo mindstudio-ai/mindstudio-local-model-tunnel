@@ -1,4 +1,12 @@
-// esbuild-based TypeScript transpiler. No caching — always fresh for local dev.
+// esbuild-based TypeScript transpiler. Always transpiles fresh (no mtime cache).
+//
+// Output goes to {nearest node_modules}/.cache/mindstudio-dev/ so that:
+// 1. Node's ESM resolver can find @mindstudio-ai/agent (walks up to node_modules)
+// 2. The repo stays clean (.cache/ is conventionally gitignored)
+//
+// @mindstudio-ai/agent is marked external so it resolves from the project's
+// installed version at runtime, not bundled into the output. This is critical
+// because the SDK reads globalThis.ai and env vars set by the executor.
 
 import { unlink, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';

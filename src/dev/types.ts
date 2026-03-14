@@ -35,7 +35,10 @@ export interface WebInterfaceConfig {
   devCommand?: string;
 }
 
-/** Response from POST /_internal/v2/apps/{appId}/dev/manage/start */
+/** Response from POST /_internal/v2/apps/{appId}/dev/manage/start.
+ *  The dev session IS a release — sessionId and releaseId are the same UUID.
+ *  Start resumes an existing dev release if one exists (no duplicate sessions).
+ *  Databases are scoped to this release and persist across connect/disconnect. */
 export interface DevSession {
   sessionId: string;   // same value as releaseId (dev release UUID)
   releaseId: string;   // same value as sessionId

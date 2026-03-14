@@ -230,7 +230,10 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
       }
     }
 
-    // Start proxy
+    // Start proxy — sits in front of the dev server, injects __MINDSTUDIO__.
+    // Only started if we have a dev server port and the platform returned clientContext.
+    // In headless mode we don't start the dev server (caller manages it), but we
+    // do start the proxy so the preview URL works.
     let proxyPort: number | null = null;
     if (devPort !== null && session.clientContext) {
       proxy = new DevProxy(devPort, session.clientContext, bindAddress);

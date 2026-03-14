@@ -1,5 +1,11 @@
-// Event emitter for dev mode request tracking.
-// Follows the same pattern as src/events.ts.
+// Event bridge between the DevRunner (backend) and the TUI/headless UI.
+//
+// The runner emits events as methods execute. The TUI hooks subscribe
+// to update the request log. Headless mode subscribes to relay events
+// as JSON to stdout. This decoupling means the runner doesn't need to
+// know whether it's running in a TUI or headless context.
+//
+// Singleton — one emitter shared across the process.
 
 import { EventEmitter } from 'events';
 

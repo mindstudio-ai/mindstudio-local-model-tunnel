@@ -1,4 +1,8 @@
-// API functions for dev session lifecycle.
+// Platform API client for dev sessions.
+//
+// All endpoints are under /_internal/v2/apps/{appId}/dev/.
+// Auth: Bearer token (API key) for start, x-dev-session header for everything else.
+// The dev session IS a release — sessionId and releaseId are the same UUID.
 
 import { getApiKey, getApiBaseUrl, getUserId } from '../config';
 import { log } from './logger';
