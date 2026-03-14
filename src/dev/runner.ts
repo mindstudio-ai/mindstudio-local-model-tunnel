@@ -17,6 +17,7 @@ import {
   submitDevResult,
   resetDevDatabase,
   impersonate,
+  fetchCallbackToken,
   DevPollError,
 } from './api';
 import { devRequestEvents } from './events';
@@ -142,6 +143,11 @@ export class DevRunner {
       log.debug('runner Transpiling scenario', { path: scenario.path });
       const transpiledPath = await this.transpiler.transpile(scenario.path);
 
+      // Fetch a callback token for the seed execution — same scoping as
+      // poll-based tokens, but not tied to a poll request.
+      log.debug('runner Fetching callback token for scenario');
+      const authorizationToken = await fetchCallbackToken(this.appId);
+
       log.debug('runner Executing scenario seed', { export: scenario.export });
       const result = await executeMethod({
         transpiledPath,
@@ -149,7 +155,7 @@ export class DevRunner {
         input: {},
         auth: this.session.auth,
         databases: this.session.databases,
-        authorizationToken: '', // Seed uses the session's auth, not a per-request token
+        authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
         projectRoot: this.projectRoot,
       });

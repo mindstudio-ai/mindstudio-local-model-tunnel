@@ -245,6 +245,33 @@ export async function impersonate(
   return data;
 }
 
+// Fetch a callback token for one-off executions (scenarios, etc.)
+// that don't come from the poll loop. The token is scoped to the dev
+// release with the same context as poll-based tokens.
+export async function fetchCallbackToken(
+  appId: string,
+): Promise<string> {
+  const start = Date.now();
+  log.debug('api POST /dev/manage/token', { appId });
+
+  const response = await fetch(`${basePath(appId)}/manage/token`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+
+  const duration = Date.now() - start;
+
+  if (!response.ok) {
+    const error = await response.text();
+    log.error(`api POST /dev/manage/token → ${response.status} (${duration}ms)`, { error });
+    throw new Error(`Token fetch failed: ${response.status} ${error}`);
+  }
+
+  const data = (await response.json()) as { authorizationToken: string };
+  log.info(`api POST /dev/manage/token → ${response.status} (${duration}ms)`);
+  return data.authorizationToken;
+}
+
 /** Custom error class to expose HTTP status code from poll failures. */
 export class DevPollError extends Error {
   constructor(
