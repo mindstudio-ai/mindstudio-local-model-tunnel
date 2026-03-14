@@ -1,7 +1,7 @@
 // API functions for dev session lifecycle.
-// Follows patterns from src/api.ts.
 
 import { getApiKey, getApiBaseUrl, getUserId } from '../config';
+import { log } from './logger';
 import type { DevSession, DevRequest, DevResult, SyncSchemaResponse } from './types';
 
 function getHeaders(): Record<string, string> {
@@ -47,33 +47,49 @@ export async function startDevSession(
   if (opts?.proxyUrl) body.proxyUrl = opts.proxyUrl;
   if (opts?.methods) body.methods = opts.methods;
 
+  const start = Date.now();
+  log.debug('api POST /dev/manage/start', { appId, branch: opts?.branch, methodCount: opts?.methods?.length });
+
   const response = await fetch(`${basePath(appId)}/manage/start`, {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify(body),
   });
 
+  const duration = Date.now() - start;
+
   if (!response.ok) {
     const error = await response.text();
+    log.error(`api POST /dev/manage/start → ${response.status} (${duration}ms)`, { error });
     throw new Error(`Failed to start dev session: ${response.status} ${error}`);
   }
 
-  return (await response.json()) as DevSession;
+  const data = (await response.json()) as DevSession;
+  log.info(`api POST /dev/manage/start → ${response.status} (${duration}ms)`, { sessionId: data.sessionId, branch: data.branch });
+  return data;
 }
 
 export async function stopDevSession(
   appId: string,
   sessionId: string,
 ): Promise<void> {
+  const start = Date.now();
+  log.debug('api POST /dev/manage/stop', { appId, sessionId });
+
   const response = await fetch(`${basePath(appId)}/manage/stop`, {
     method: 'POST',
     headers: getDevHeaders(sessionId),
   });
 
+  const duration = Date.now() - start;
+
   if (!response.ok) {
     const error = await response.text();
+    log.error(`api POST /dev/manage/stop → ${response.status} (${duration}ms)`, { error });
     throw new Error(`Failed to stop dev session: ${response.status} ${error}`);
   }
+
+  log.info(`api POST /dev/manage/stop → ${response.status} (${duration}ms)`);
 }
 
 export async function pollDevRequest(
@@ -84,24 +100,33 @@ export async function pollDevRequest(
   const url = proxyUrl
     ? `${basePath(appId)}/poll?proxyUrl=${encodeURIComponent(proxyUrl)}`
     : `${basePath(appId)}/poll`;
+
+  const start = Date.now();
+
   const response = await fetch(url, {
     method: 'GET',
     headers: getDevHeaders(sessionId),
   });
 
+  const duration = Date.now() - start;
+
   if (response.status === 204) {
+    log.debug(`api GET /dev/poll → 204 (${duration}ms)`);
     return null;
   }
 
   if (!response.ok) {
     const error = await response.text();
+    log.error(`api GET /dev/poll → ${response.status} (${duration}ms)`, { error });
     throw new DevPollError(
       `Poll failed: ${response.status} ${error}`,
       response.status,
     );
   }
 
-  return (await response.json()) as DevRequest;
+  const data = (await response.json()) as DevRequest;
+  log.info(`api GET /dev/poll → 200 (${duration}ms)`, { requestId: data.requestId, method: data.methodExport });
+  return data;
 }
 
 export async function submitDevResult(
@@ -110,18 +135,26 @@ export async function submitDevResult(
   requestId: string,
   result: DevResult,
 ): Promise<void> {
+  const start = Date.now();
+  log.debug('api POST /dev/result', { requestId, success: result.success });
+
   const response = await fetch(`${basePath(appId)}/result/${requestId}`, {
     method: 'POST',
     headers: getDevHeaders(sessionId),
     body: JSON.stringify(result),
   });
 
+  const duration = Date.now() - start;
+
   if (!response.ok) {
     const error = await response.text();
+    log.error(`api POST /dev/result/${requestId} → ${response.status} (${duration}ms)`, { error });
     throw new Error(
       `Result submission failed: ${response.status} ${error}`,
     );
   }
+
+  log.info(`api POST /dev/result → ${response.status} (${duration}ms)`, { requestId, success: result.success });
 }
 
 export async function syncSchema(
@@ -129,18 +162,30 @@ export async function syncSchema(
   sessionId: string,
   tables: Array<{ name: string; source: string }>,
 ): Promise<SyncSchemaResponse> {
+  const start = Date.now();
+  log.debug('api POST /dev/manage/sync-schema', { tableCount: tables.length, names: tables.map((t) => t.name) });
+
   const response = await fetch(`${basePath(appId)}/manage/sync-schema`, {
     method: 'POST',
     headers: getDevHeaders(sessionId),
     body: JSON.stringify({ tables }),
   });
 
+  const duration = Date.now() - start;
+
   if (!response.ok) {
     const error = await response.text();
+    log.error(`api POST /dev/manage/sync-schema → ${response.status} (${duration}ms)`, { error });
     throw new Error(`Schema sync failed: ${response.status} ${error}`);
   }
 
-  return (await response.json()) as SyncSchemaResponse;
+  const data = (await response.json()) as SyncSchemaResponse;
+  log.info(`api POST /dev/manage/sync-schema → ${response.status} (${duration}ms)`, {
+    created: data.created,
+    altered: data.altered,
+    errors: data.errors,
+  });
+  return data;
 }
 
 /** Custom error class to expose HTTP status code from poll failures. */

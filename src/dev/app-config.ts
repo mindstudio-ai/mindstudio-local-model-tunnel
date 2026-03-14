@@ -3,6 +3,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { execSync } from 'node:child_process';
+import { log } from './logger';
 import type { AppConfig, WebInterfaceConfig } from './types';
 
 /**
@@ -12,6 +13,7 @@ import type { AppConfig, WebInterfaceConfig } from './types';
 export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
   const appJsonPath = join(cwd, 'mindstudio.json');
   if (!existsSync(appJsonPath)) {
+    log.debug('config mindstudio.json not found', { path: appJsonPath });
     return null;
   }
 
@@ -24,7 +26,7 @@ export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
       return null;
     }
 
-    return {
+    const config = {
       appId: parsed.appId,
       name: parsed.name,
       description: parsed.description,
@@ -32,7 +34,15 @@ export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
       methods: parsed.methods,
       interfaces: parsed.interfaces ?? [],
     };
-  } catch {
+    log.debug('config Detected mindstudio.json', {
+      appId: config.appId,
+      methods: config.methods.length,
+      tables: config.tables.length,
+      interfaces: config.interfaces.length,
+    });
+    return config;
+  } catch (err) {
+    log.warn('config Failed to parse mindstudio.json', { error: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }

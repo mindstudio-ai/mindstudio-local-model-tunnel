@@ -11,6 +11,7 @@ import { devRequestEvents } from './events';
 import { Transpiler } from './transpiler';
 import { executeMethod } from './executor';
 import { getApiBaseUrl } from '../config';
+import { log } from './logger';
 import type { DevSession, DevRequest, DevResult } from './types';
 
 export class DevRunner {
@@ -41,11 +42,14 @@ export class DevRunner {
       throw new Error('DevRunner is already running');
     }
 
+    log.info('runner Starting session', { appId: this.appId, branch: this.startOpts.branch });
     const session = await startDevSession(this.appId, this.startOpts);
     this.session = session;
     this.transpiler = new Transpiler(this.projectRoot);
     this.isRunning = true;
     this.backoffMs = 1000;
+
+    log.info('runner Session started', { sessionId: session.sessionId, branch: session.branch });
 
     // Start poll loop in background
     this.pollLoop();
@@ -54,13 +58,14 @@ export class DevRunner {
   }
 
   async stop(): Promise<void> {
+    log.info('runner Stopping session');
     this.isRunning = false;
 
     if (this.session) {
       try {
         await stopDevSession(this.appId, this.session.sessionId);
-      } catch {
-        // Best effort cleanup
+      } catch (err) {
+        log.warn('runner Failed to stop session cleanly', { error: err instanceof Error ? err.message : String(err) });
       }
       this.session = null;
     }
@@ -86,6 +91,7 @@ export class DevRunner {
 
         if (this.hadConnectionWarning) {
           this.hadConnectionWarning = false;
+          log.info('runner Connection restored');
           devRequestEvents.emitConnectionRestored();
         }
 
@@ -98,6 +104,7 @@ export class DevRunner {
       } catch (error) {
         // Session expired
         if (error instanceof DevPollError && error.statusCode === 404) {
+          log.error('runner Session expired (404)');
           devRequestEvents.emitSessionExpired();
           this.isRunning = false;
           return;
@@ -106,11 +113,13 @@ export class DevRunner {
         // Connection issue — backoff and retry
         if (!this.hadConnectionWarning) {
           this.hadConnectionWarning = true;
+          log.warn('runner Connection lost, retrying...');
           devRequestEvents.emitConnectionWarning(
             'Lost connection to platform, retrying...',
           );
         }
 
+        log.debug('runner Backing off', { ms: this.backoffMs });
         await this.sleep(this.backoffMs);
         this.backoffMs = Math.min(this.backoffMs * 2, 30_000);
       }
@@ -127,8 +136,11 @@ export class DevRunner {
       timestamp: startTime,
     });
 
+    log.info('runner Request received', { requestId: request.requestId, method: request.methodExport });
+
     try {
       // Transpile
+      log.debug('runner Transpiling', { path: request.methodPath });
       const transpiledPath = await this.transpiler!.transpile(request.methodPath);
 
       // Use role override if present, otherwise default session auth
@@ -171,15 +183,20 @@ export class DevRunner {
         devResult,
       );
 
+      const duration = Date.now() - startTime;
+      log.info('runner Request complete', { requestId: request.requestId, success: result.success, duration });
+
       devRequestEvents.emitComplete({
         id: request.requestId,
         success: result.success,
-        duration: Date.now() - startTime,
+        duration,
         error: result.error ? formatErrorForDisplay(result.error) : undefined,
       });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unknown error';
+      const duration = Date.now() - startTime;
+      log.error('runner Request failed', { requestId: request.requestId, duration, error: message });
 
       try {
         await submitDevResult(
@@ -192,8 +209,8 @@ export class DevRunner {
             error: { message },
           },
         );
-      } catch {
-        // If we can't even submit the error, just log it
+      } catch (submitErr) {
+        log.error('runner Failed to submit error result', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
       }
 
       devRequestEvents.emitComplete({

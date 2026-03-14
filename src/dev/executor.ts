@@ -6,6 +6,7 @@ import { writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { log } from './logger';
 import type { DevSession } from './types';
 
 const EXECUTION_TIMEOUT_MS = 30_000;
@@ -119,6 +120,7 @@ export async function executeMethod(
 
   try {
     await writeFile(tempFile, script, 'utf-8');
+    log.debug('executor Spawning node process', { methodExport: opts.methodExport, cwd: opts.projectRoot, tempFile });
 
     return await new Promise<ExecuteMethodResult>((resolve, reject) => {
       const stdoutChunks: Buffer[] = [];
@@ -143,6 +145,7 @@ export async function executeMethod(
       child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
 
       const timeout = setTimeout(() => {
+        log.warn('executor Timeout after 30s, sending SIGKILL', { methodExport: opts.methodExport });
         child.kill('SIGKILL');
         reject(new Error('Method execution timed out after 30s'));
       }, EXECUTION_TIMEOUT_MS);
@@ -153,12 +156,14 @@ export async function executeMethod(
         const stdout = Buffer.concat(stdoutChunks).toString('utf-8').trim();
         const stderr = Buffer.concat(stderrChunks).toString('utf-8').trim();
 
+        log.debug('executor Process exited', { code, stdoutLen: stdout.length, stderrLen: stderr.length });
+
         if (stdout) {
           try {
             resolve(JSON.parse(stdout) as ExecuteMethodResult);
             return;
           } catch {
-            // stdout wasn't valid JSON — fall through to error handling
+            log.warn('executor Invalid JSON from stdout', { stdout: stdout.slice(0, 200) });
           }
         }
 
@@ -176,6 +181,7 @@ export async function executeMethod(
 
       child.on('error', (err) => {
         clearTimeout(timeout);
+        log.error('executor Process error', { error: err.message });
         reject(err);
       });
     });

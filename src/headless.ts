@@ -66,6 +66,7 @@ import {
   getEnvironment,
   getConfigPath,
 } from './config';
+import { initLoggerHeadless, log, type LogLevel } from './dev/logger';
 import { execSync } from 'node:child_process';
 
 /**
@@ -80,6 +81,8 @@ export interface HeadlessOptions {
   proxyPort?: number;
   /** Bind address for the proxy server. Use '0.0.0.0' for hosted sandboxes. Defaults to '127.0.0.1'. */
   bindAddress?: string;
+  /** Log level for stderr output. Defaults to 'info'. */
+  logLevel?: LogLevel;
 }
 
 /** Write a JSON event to stdout. */
@@ -132,6 +135,8 @@ function detectGitBranch(): string | undefined {
  * ```
  */
 export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
+  initLoggerHeadless(opts.logLevel ?? 'info');
+
   const cwd = opts.cwd ?? process.cwd();
 
   // Read mindstudio.json
@@ -146,10 +151,10 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     return;
   }
 
-  // Debug: log auth config so sandbox operators can diagnose 403s
+  // Log auth config so sandbox operators can diagnose issues
   const apiKey = getApiKey();
   const userId = getUserId();
-  emit('debug', {
+  log.info('headless Auth config', {
     configPath: getConfigPath(),
     environment: getEnvironment(),
     apiBaseUrl: getApiBaseUrl(),

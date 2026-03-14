@@ -15,6 +15,7 @@ import {
   findDirsNeedingInstall,
 } from '../../../dev/app-config';
 import { syncSchema } from '../../../dev/api';
+import { initLoggerInteractive } from '../../../dev/logger';
 import { useDevServer } from './useDevServer';
 import type { AppConfig, DevSession, WebInterfaceConfig, SyncSchemaResponse } from '../../../dev/types';
 
@@ -66,6 +67,13 @@ export type DevPhase =
   | 'expired';
 
 export function useDevSession(appConfig: AppConfig) {
+  // Init logger once on first render (TUI mode → file-based)
+  const logInitRef = useRef(false);
+  if (!logInitRef.current) {
+    initLoggerInteractive('error');
+    logInitRef.current = true;
+  }
+
   const [phase, setPhase] = useState<DevPhase>('detecting');
   const [session, setSession] = useState<DevSession | null>(null);
   const [error, setError] = useState<string | null>(null);

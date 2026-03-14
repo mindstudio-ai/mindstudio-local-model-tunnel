@@ -4,6 +4,7 @@
 
 import http from 'node:http';
 import type { Socket } from 'node:net';
+import { log } from './logger';
 
 export class DevProxy {
   private server: http.Server | null = null;
@@ -35,8 +36,10 @@ export class DevProxy {
         const assignedPort = await this.listenOnPort(server, port);
         this.server = server;
         this.proxyPort = assignedPort;
+        log.info('proxy Started', { port: assignedPort, bind: this.bindAddress });
         return assignedPort;
       } catch {
+        log.warn('proxy Port in use, trying next', { port });
         // Port in use — try next
       }
     }
@@ -66,6 +69,7 @@ export class DevProxy {
 
   stop(): void {
     if (this.server) {
+      log.info('proxy Stopping');
       this.server.close();
       this.server = null;
       this.proxyPort = null;
@@ -125,6 +129,7 @@ export class DevProxy {
             headers['access-control-allow-private-network'] = 'true';
           }
 
+          log.debug('proxy HTML injected', { path: clientReq.url, size: html.length });
           clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
           clientRes.end(html);
         });
@@ -143,6 +148,7 @@ export class DevProxy {
     });
 
     upstreamReq.on('error', (err) => {
+      log.warn('proxy Upstream error', { path: clientReq.url, error: err.message });
       clientRes.writeHead(502);
       clientRes.end(`Proxy error: ${err.message}`);
     });
@@ -156,6 +162,7 @@ export class DevProxy {
     clientSocket: Socket,
     head: Buffer,
   ): void {
+    log.debug('proxy WebSocket upgrade', { path: clientReq.url });
     const options: http.RequestOptions = {
       hostname: '127.0.0.1',
       port: this.upstreamPort,
