@@ -37,8 +37,10 @@ export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
       appId: parsed.appId,
       name: parsed.name,
       description: parsed.description,
+      roles: parsed.roles ?? [],
       tables: parsed.tables ?? [],
       methods: parsed.methods,
+      scenarios: parsed.scenarios ?? [],
       interfaces: parsed.interfaces ?? [],
     };
     log.debug('config Detected mindstudio.json', {

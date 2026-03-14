@@ -192,6 +192,59 @@ export async function syncSchema(
   return data;
 }
 
+// Reset uses Bearer auth (login middleware), not x-dev-session
+export async function resetDevDatabase(
+  appId: string,
+  mode: 'snapshot' | 'truncate' = 'snapshot',
+): Promise<DevSession['databases']> {
+  const start = Date.now();
+  log.debug('api POST /dev/manage/reset', { appId, mode });
+
+  const response = await fetch(`${basePath(appId)}/manage/reset?mode=${mode}`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+
+  const duration = Date.now() - start;
+
+  if (!response.ok) {
+    const error = await response.text();
+    log.error(`api POST /dev/manage/reset → ${response.status} (${duration}ms)`, { error });
+    throw new Error(`Reset failed: ${response.status} ${error}`);
+  }
+
+  const data = (await response.json()) as { databases: DevSession['databases'] };
+  log.info(`api POST /dev/manage/reset → ${response.status} (${duration}ms)`, { mode });
+  return data.databases;
+}
+
+// Impersonate uses Bearer auth (login middleware), not x-dev-session
+export async function impersonate(
+  appId: string,
+  roles: string[] | null,
+): Promise<{ roles: string[] | null }> {
+  const start = Date.now();
+  log.debug('api POST /dev/manage/impersonate', { appId, roles });
+
+  const response = await fetch(`${basePath(appId)}/manage/impersonate`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ roles: roles && roles.length > 0 ? roles : null }),
+  });
+
+  const duration = Date.now() - start;
+
+  if (!response.ok) {
+    const error = await response.text();
+    log.error(`api POST /dev/manage/impersonate → ${response.status} (${duration}ms)`, { error });
+    throw new Error(`Impersonate failed: ${response.status} ${error}`);
+  }
+
+  const data = (await response.json()) as { roles: string[] | null };
+  log.info(`api POST /dev/manage/impersonate → ${response.status} (${duration}ms)`, { roles: data.roles });
+  return data;
+}
+
 /** Custom error class to expose HTTP status code from poll failures. */
 export class DevPollError extends Error {
   constructor(

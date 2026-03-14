@@ -32,24 +32,40 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
     proxyPort,
     devServer,
     syncResult,
+    scenarioResult,
+    roleOverride,
     installStatus,
     start,
     stop,
     resync,
+    runScenario,
+    setImpersonation,
+    clearImpersonation,
     submitPort,
     skipFrontend,
   } = useDevSession(appConfig);
   const { requests, activeCount } = useDevRequests();
   const [activeTab, setActiveTab] = useState('info');
+  const [showScenarioPicker, setShowScenarioPicker] = useState(false);
+  const [showRolePicker, setShowRolePicker] = useState(false);
+
+  const hasScenarios = appConfig.scenarios.length > 0;
+  const hasRoles = appConfig.roles.length > 0;
 
   const runningMenuItems: MenuItem[] = useMemo(
     () => [
+      ...(hasScenarios
+        ? [{ id: 'scenario', label: 'Run Scenario', description: 'Seed database with test data' }]
+        : []),
+      ...(hasRoles
+        ? [{ id: 'impersonate', label: 'Impersonate', description: roleOverride ? `Active: ${roleOverride.join(', ')}` : 'Test as a different role' }]
+        : []),
       { id: 'sync', label: 'Sync Schema', description: 'Re-sync table definitions from disk' },
       { id: 'stop', label: 'Stop Session', description: 'Stop the dev session and clean up' },
       { id: 'dashboard', label: 'Local Models', description: 'Switch to local models view' },
       { id: 'quit', label: 'Quit', description: 'Exit the application' },
     ],
-    [],
+    [hasScenarios, hasRoles, roleOverride],
   );
 
   // Tab navigation with left/right arrows (only when running)
@@ -230,6 +246,8 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
             devServerPhase={devServer.phase}
             requests={requests}
             syncResult={syncResult}
+            scenarioResult={scenarioResult}
+            roleOverride={roleOverride}
             contentHeight={contentHeight}
           />
         )}
@@ -250,15 +268,58 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
         )}
       </Box>
 
-      {/* Menu */}
-      <NavigationMenu
-        items={runningMenuItems}
-        onSelect={(id) => {
-          if (id === 'sync') resync();
-          else if (id === 'stop') stop();
-          else onNavigate(id);
-        }}
-      />
+      {/* Menu, scenario picker, or role picker */}
+      {showScenarioPicker ? (
+        <NavigationMenu
+          title="Select Scenario"
+          items={[
+            ...appConfig.scenarios.map((s) => ({
+              id: `scenario:${s.id}`,
+              label: s.name ?? s.id,
+              description: s.description ?? `Roles: ${s.roles.length > 0 ? s.roles.join(', ') : 'none'}`,
+            })),
+            { id: 'back', label: 'Back', description: 'Return to actions' },
+          ]}
+          onSelect={(id) => {
+            setShowScenarioPicker(false);
+            if (id.startsWith('scenario:')) {
+              runScenario(id.slice('scenario:'.length));
+            }
+          }}
+        />
+      ) : showRolePicker ? (
+        <NavigationMenu
+          title="Impersonate Role"
+          items={[
+            ...appConfig.roles.map((r) => ({
+              id: `role:${r.id}`,
+              label: r.name ?? r.id,
+              description: r.description ?? r.id,
+            })),
+            ...(roleOverride ? [{ id: 'clear', label: 'Clear Override', description: 'Revert to default session roles' }] : []),
+            { id: 'back', label: 'Back', description: 'Return to actions' },
+          ]}
+          onSelect={(id) => {
+            setShowRolePicker(false);
+            if (id === 'clear') {
+              clearImpersonation();
+            } else if (id.startsWith('role:')) {
+              setImpersonation([id.slice('role:'.length)]);
+            }
+          }}
+        />
+      ) : (
+        <NavigationMenu
+          items={runningMenuItems}
+          onSelect={(id) => {
+            if (id === 'scenario') setShowScenarioPicker(true);
+            else if (id === 'impersonate') setShowRolePicker(true);
+            else if (id === 'sync') resync();
+            else if (id === 'stop') stop();
+            else onNavigate(id);
+          }}
+        />
+      )}
 
       {/* Tab bar */}
       <TabBar tabs={TABS} activeTab={activeTab} />
@@ -300,6 +361,8 @@ function InfoTab({
   devServerPhase,
   requests,
   syncResult,
+  scenarioResult,
+  roleOverride,
   contentHeight,
 }: {
   appConfig: AppConfig;
@@ -309,6 +372,8 @@ function InfoTab({
   devServerPhase: string;
   requests: import('../../../dev/types').DevRequestLogEntry[];
   syncResult: import('../../../dev/types').SyncSchemaResponse | null;
+  scenarioResult: { id: string; name?: string; success: boolean; roles: string[]; error?: string } | null;
+  roleOverride: string[] | null;
   contentHeight: number;
 }) {
   return (
@@ -354,6 +419,13 @@ function InfoTab({
         <Text color="gray" dimColor>Backend-only mode (no frontend)</Text>
       )}
 
+      {roleOverride && (
+        <Box marginTop={1} flexDirection="column">
+          <Text bold color="white" underline>Impersonation</Text>
+          <Text color="yellow">  ● Active: {roleOverride.join(', ')}</Text>
+        </Box>
+      )}
+
       <Box marginTop={1}><Text bold color="white" underline>Databases</Text></Box>
       {(session?.databases ?? []).length === 0 ? (
         <Text color="gray" dimColor>No databases</Text>
@@ -382,6 +454,20 @@ function InfoTab({
           ))}
           {syncResult.created.length === 0 && syncResult.altered.length === 0 && syncResult.errors.length === 0 && (
             <Text color="gray" dimColor>  No changes</Text>
+          )}
+        </Box>
+      )}
+
+      {scenarioResult && (
+        <Box marginTop={1} flexDirection="column">
+          <Text bold color="white" underline>Last Scenario</Text>
+          {scenarioResult.success ? (
+            <Text color="green">  ✓ &quot;{scenarioResult.name ?? scenarioResult.id}&quot; applied</Text>
+          ) : (
+            <Text color="red">  ✖ &quot;{scenarioResult.name ?? scenarioResult.id}&quot; failed: {scenarioResult.error}</Text>
+          )}
+          {scenarioResult.roles.length > 0 && (
+            <Text color="gray" dimColor>  Roles: {scenarioResult.roles.join(', ')}</Text>
           )}
         </Box>
       )}

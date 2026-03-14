@@ -15,6 +15,8 @@ import {
   stopDevSession,
   pollDevRequest,
   submitDevResult,
+  resetDevDatabase,
+  impersonate,
   DevPollError,
 } from './api';
 import { devRequestEvents } from './events';
@@ -22,7 +24,7 @@ import { Transpiler } from './transpiler';
 import { executeMethod } from './executor';
 import { getApiBaseUrl } from '../config';
 import { log } from './logger';
-import type { DevSession, DevRequest, DevResult } from './types';
+import type { DevSession, DevRequest, DevResult, AppScenario } from './types';
 
 export class DevRunner {
   private isRunning = false;
@@ -91,6 +93,108 @@ export class DevRunner {
 
   getSession(): DevSession | null {
     return this.session;
+  }
+
+  // Set role override — platform stores it in Redis, subsequent poll
+  // requests include roleOverride[] on execute requests.
+  async setImpersonation(roles: string[]): Promise<void> {
+    if (!this.session) return;
+    log.info('runner Impersonating', { roles });
+    const result = await impersonate(this.appId, roles);
+    devRequestEvents.emitImpersonate({ roles: result.roles });
+  }
+
+  // Clear role override — revert to session's default roles.
+  async clearImpersonation(): Promise<void> {
+    if (!this.session) return;
+    log.info('runner Clearing impersonation');
+    const result = await impersonate(this.appId, null);
+    devRequestEvents.emitImpersonate({ roles: result.roles });
+  }
+
+  // Run a scenario: truncate tables → execute seed → impersonate roles.
+  // Called directly (not via poll loop) by the TUI or headless stdin.
+  async runScenario(scenario: AppScenario): Promise<{
+    success: boolean;
+    databases: DevSession['databases'];
+    error?: string;
+  }> {
+    if (!this.session || !this.transpiler) {
+      return { success: false, databases: [], error: 'Session not started' };
+    }
+
+    const startTime = Date.now();
+    devRequestEvents.emitScenarioStart({
+      id: scenario.id,
+      name: scenario.name,
+      timestamp: startTime,
+    });
+
+    log.info('runner Running scenario', { id: scenario.id, name: scenario.name });
+
+    try {
+      // 1. Truncate all tables (clean slate)
+      log.debug('runner Truncating database for scenario');
+      const databases = await resetDevDatabase(this.appId, 'truncate');
+      this.session.databases = databases;
+
+      // 2. Transpile and execute the seed function
+      log.debug('runner Transpiling scenario', { path: scenario.path });
+      const transpiledPath = await this.transpiler.transpile(scenario.path);
+
+      log.debug('runner Executing scenario seed', { export: scenario.export });
+      const result = await executeMethod({
+        transpiledPath,
+        methodExport: scenario.export,
+        input: {},
+        auth: this.session.auth,
+        databases: this.session.databases,
+        authorizationToken: '', // Seed uses the session's auth, not a per-request token
+        apiBaseUrl: getApiBaseUrl(),
+        projectRoot: this.projectRoot,
+      });
+
+      if (!result.success) {
+        const error = result.error?.message ?? 'Scenario seed failed';
+        log.error('runner Scenario seed failed', { id: scenario.id, error });
+        devRequestEvents.emitScenarioComplete({
+          id: scenario.id,
+          success: false,
+          duration: Date.now() - startTime,
+          roles: scenario.roles,
+          error,
+        });
+        return { success: false, databases, error };
+      }
+
+      // 3. Impersonate the scenario's roles
+      if (scenario.roles.length > 0) {
+        log.debug('runner Impersonating for scenario', { roles: scenario.roles });
+        await impersonate(this.appId, scenario.roles);
+      }
+
+      const duration = Date.now() - startTime;
+      log.info('runner Scenario complete', { id: scenario.id, duration, roles: scenario.roles });
+      devRequestEvents.emitScenarioComplete({
+        id: scenario.id,
+        success: true,
+        duration,
+        roles: scenario.roles,
+      });
+
+      return { success: true, databases };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Unknown error';
+      log.error('runner Scenario failed', { id: scenario.id, error });
+      devRequestEvents.emitScenarioComplete({
+        id: scenario.id,
+        success: false,
+        duration: Date.now() - startTime,
+        roles: scenario.roles,
+        error,
+      });
+      return { success: false, databases: this.session.databases, error };
+    }
   }
 
   private async pollLoop(): Promise<void> {

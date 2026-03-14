@@ -95,6 +95,8 @@ export function useDevSession(appConfig: AppConfig) {
   const [proxyPort, setProxyPort] = useState<number | null>(null);
   const [webConfig, setWebConfig] = useState<WebInterfaceConfig | null>(null);
   const [syncResult, setSyncResult] = useState<SyncSchemaResponse | null>(null);
+  const [scenarioResult, setScenarioResult] = useState<{ id: string; name?: string; success: boolean; duration: number; roles: string[]; error?: string } | null>(null);
+  const [roleOverride, setRoleOverride] = useState<string[] | null>(null);
   const [installStatus, setInstallStatus] = useState<string | null>(null);
   const runnerRef = useRef<DevRunner | null>(null);
   const proxyRef = useRef<DevProxy | null>(null);
@@ -126,13 +128,18 @@ export function useDevSession(appConfig: AppConfig) {
 
   // Listen for session expiry
   useEffect(() => {
-    const unsub = devRequestEvents.onSessionExpired(() => {
+    const unsubExpired = devRequestEvents.onSessionExpired(() => {
       if (mountedRef.current) {
         setPhase('expired');
         runnerRef.current = null;
       }
     });
-    return unsub;
+    const unsubImpersonate = devRequestEvents.onImpersonate((event) => {
+      if (mountedRef.current) {
+        setRoleOverride(event.roles);
+      }
+    });
+    return () => { unsubExpired(); unsubImpersonate(); };
   }, []);
 
   // Watch mindstudio.json for changes — restart session on edit
@@ -337,6 +344,38 @@ export function useDevSession(appConfig: AppConfig) {
     }
   }, [appConfig, session]);
 
+  const setImpersonation = useCallback(async (roles: string[]) => {
+    if (!runnerRef.current) return;
+    await runnerRef.current.setImpersonation(roles);
+  }, []);
+
+  const clearImpersonation = useCallback(async () => {
+    if (!runnerRef.current) return;
+    await runnerRef.current.clearImpersonation();
+  }, []);
+
+  const runScenario = useCallback(async (scenarioId: string) => {
+    if (!runnerRef.current) return;
+    const freshConfig = detectAppConfig() ?? appConfig;
+    const scenario = freshConfig.scenarios.find((s) => s.id === scenarioId);
+    if (!scenario) return;
+
+    const result = await runnerRef.current.runScenario(scenario);
+    if (mountedRef.current) {
+      setSession((prev) =>
+        prev ? { ...prev, databases: result.databases } : prev,
+      );
+      setScenarioResult({
+        id: scenario.id,
+        name: scenario.name,
+        success: result.success,
+        duration: 0, // filled by event listener if needed
+        roles: scenario.roles,
+        error: result.error,
+      });
+    }
+  }, [appConfig]);
+
   const submitPort = useCallback(
     (port: number) => {
       setDevPort(port);
@@ -359,10 +398,15 @@ export function useDevSession(appConfig: AppConfig) {
     webConfig,
     devServer,
     syncResult,
+    scenarioResult,
+    roleOverride,
     installStatus,
     start,
     stop,
     resync,
+    runScenario,
+    setImpersonation,
+    clearImpersonation,
     submitPort,
     skipFrontend,
   };

@@ -122,6 +122,23 @@ poll). The process will exit with code 1.
 {"event":"session-expired"}
 ```
 
+### Scenario Events
+
+**`scenario-start`** — A scenario is being applied (truncate + seed).
+```json
+{"event":"scenario-start","id":"sample-haikus","name":"Sample Haikus"}
+```
+
+**`scenario-complete`** — Scenario finished.
+```json
+{"event":"scenario-complete","id":"sample-haikus","success":true,"duration":234,"roles":[]}
+```
+
+**`scenarios-list`** — Response to a `listScenarios` stdin command.
+```json
+{"event":"scenarios-list","scenarios":[{"id":"sample-haikus","name":"Sample Haikus","roles":[]}]}
+```
+
 ### Error Events
 
 **`error`** — A fatal error occurred during startup. The process will
@@ -129,6 +146,120 @@ exit.
 ```json
 {"event":"error","message":"Missing \"appId\" in mindstudio.json"}
 ```
+
+---
+
+## Stdin Commands
+
+The parent process can send NDJSON commands to stdin to control the
+tunnel. Each command is a JSON object with an `action` field, one per
+line.
+
+### `runScenario`
+
+Run a scenario by ID. Truncates all tables, executes the seed
+function, and impersonates the scenario's roles.
+
+```json
+{"action":"runScenario","scenarioId":"sample-haikus"}
+```
+
+Emits `scenario-start` and `scenario-complete` events on stdout.
+
+### `syncSchema`
+
+Re-sync table definitions from disk (re-reads mindstudio.json).
+
+```json
+{"action":"syncSchema"}
+```
+
+Emits `schema-synced` on stdout.
+
+### `impersonate`
+
+Set a role override. Subsequent method executions will use these roles
+instead of the session's default.
+
+```json
+{"action":"impersonate","roles":["ap","admin"]}
+```
+
+Emits `impersonated` event on stdout.
+
+### `clearImpersonation`
+
+Clear the role override. Reverts to the session's default roles.
+
+```json
+{"action":"clearImpersonation"}
+```
+
+Emits `impersonated` event with `roles: null`.
+
+### `listRoles`
+
+Return the available roles from mindstudio.json.
+
+```json
+{"action":"listRoles"}
+```
+
+Emits `roles-list` on stdout.
+
+### `listScenarios`
+
+Return the current list of scenarios (re-reads mindstudio.json).
+
+```json
+{"action":"listScenarios"}
+```
+
+Emits `scenarios-list` on stdout.
+
+### Example Session
+
+```
+→ stdin:  (tunnel starts, emits events automatically)
+← stdout: {"event":"starting","appId":"7c4d99f7-...","name":"Haiku Generator"}
+← stdout: {"event":"session-started","sessionId":"...","scenarios":[{"id":"sample-haikus","name":"Sample Haikus","roles":[]},...]}
+→ stdin:  {"action":"listScenarios"}
+← stdout: {"event":"scenarios-list","scenarios":[{"id":"sample-haikus","name":"Sample Haikus","roles":[]},{"id":"empty-state","name":"Empty State","roles":[]}]}
+→ stdin:  {"action":"runScenario","scenarioId":"sample-haikus"}
+← stdout: {"event":"scenario-start","id":"sample-haikus","name":"Sample Haikus"}
+← stdout: {"event":"scenario-complete","id":"sample-haikus","success":true,"duration":234,"roles":[]}
+→ stdin:  {"action":"syncSchema"}
+← stdout: {"event":"schema-synced","created":[],"altered":[],"errors":[]}
+→ stdin:  {"action":"listRoles"}
+← stdout: {"event":"roles-list","roles":[{"id":"ap","name":"Accounts Payable"},{"id":"admin","name":"Administrator"}]}
+→ stdin:  {"action":"impersonate","roles":["ap"]}
+← stdout: {"event":"impersonated","roles":["ap"]}
+→ stdin:  {"action":"clearImpersonation"}
+← stdout: {"event":"impersonated","roles":null}
+```
+
+`→` = stdin (parent → tunnel), `←` = stdout (tunnel → parent)
+
+---
+
+## Scenario Discovery
+
+Available scenarios are included in the `session-started` event:
+
+```json
+{
+  "event": "session-started",
+  "sessionId": "...",
+  "scenarios": [
+    { "id": "sample-haikus", "name": "Sample Haikus", "description": "...", "roles": [] },
+    { "id": "empty-state", "name": "Empty State", "description": "...", "roles": [] }
+  ]
+}
+```
+
+The parent process can use this to populate a scenario picker UI
+without needing to read `mindstudio.json` itself. Use `listScenarios`
+to refresh the list if `mindstudio.json` changes during the session.
 
 ---
 

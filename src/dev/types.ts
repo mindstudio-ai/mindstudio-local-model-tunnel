@@ -5,9 +5,17 @@ export interface AppConfig {
   appId?: string;
   name: string;
   description?: string;
+  roles: AppRole[];
   tables: AppTable[];
   methods: AppMethod[];
+  scenarios: AppScenario[];
   interfaces: AppInterface[];
+}
+
+export interface AppRole {
+  id: string;
+  name?: string;
+  description?: string;
 }
 
 export interface AppMethod {
@@ -21,6 +29,15 @@ export interface AppMethod {
 export interface AppTable {
   path: string;
   export: string;
+}
+
+export interface AppScenario {
+  id: string;
+  name?: string;
+  description?: string;
+  path: string;
+  export: string;
+  roles: string[];
 }
 
 export interface AppInterface {

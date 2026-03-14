@@ -59,6 +59,7 @@ import {
   getWebInterfaceConfig,
   readTableSources,
 } from './dev/app-config';
+import type { AppConfig } from './dev/types';
 import {
   getApiKey,
   getApiBaseUrl,
@@ -251,6 +252,13 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
         ? `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}/`
         : null,
       webInterfaceUrl: session.webInterfaceUrl,
+      roles: appConfig.roles.map((r) => ({ id: r.id, name: r.name, description: r.description })),
+      scenarios: appConfig.scenarios.map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        roles: s.roles,
+      })),
     });
 
     // Subscribe to events and relay as JSON
@@ -280,6 +288,27 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
       shutdown().then(() => process.exit(1));
     });
 
+    devRequestEvents.onImpersonate((event) => {
+      emit('impersonated', { roles: event.roles });
+    });
+
+    devRequestEvents.onScenarioStart((event) => {
+      emit('scenario-start', { id: event.id, name: event.name });
+    });
+
+    devRequestEvents.onScenarioComplete((event) => {
+      emit('scenario-complete', {
+        id: event.id,
+        success: event.success,
+        duration: event.duration,
+        roles: event.roles,
+        ...(event.error ? { error: event.error } : {}),
+      });
+    });
+
+    // Stdin command loop — parent process can send NDJSON actions
+    setupStdinCommands(runner, appConfig, cwd);
+
     // Keep the process alive — the poll loop runs in DevRunner
     await new Promise<void>(() => {});
   } catch (err) {
@@ -287,5 +316,115 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
       message: err instanceof Error ? err.message : 'Unknown error',
     });
     await shutdown();
+  }
+}
+
+/**
+ * Read NDJSON commands from stdin and dispatch them.
+ * Actions: runScenario, syncSchema, listScenarios
+ */
+function setupStdinCommands(runner: DevRunner, appConfig: AppConfig, cwd: string): void {
+  if (!process.stdin.readable) return;
+
+  let buffer = '';
+  process.stdin.setEncoding('utf-8');
+  process.stdin.on('data', (chunk: string) => {
+    buffer += chunk;
+    let idx: number;
+    while ((idx = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line) continue;
+
+      try {
+        const cmd = JSON.parse(line) as { action: string; [key: string]: unknown };
+        handleStdinCommand(cmd, runner, appConfig, cwd);
+      } catch {
+        emit('error', { message: `Invalid JSON on stdin: ${line.slice(0, 100)}` });
+      }
+    }
+  });
+}
+
+async function handleStdinCommand(
+  cmd: { action: string; [key: string]: unknown },
+  runner: DevRunner,
+  appConfig: AppConfig,
+  cwd: string,
+): Promise<void> {
+  switch (cmd.action) {
+    case 'runScenario': {
+      const freshConfig = detectAppConfig(cwd) ?? appConfig;
+      const scenario = freshConfig.scenarios.find((s) => s.id === cmd.scenarioId);
+      if (!scenario) {
+        emit('error', { message: `Unknown scenario: ${cmd.scenarioId}` });
+        return;
+      }
+      // Runner emits scenario-start/complete events which are already relayed
+      await runner.runScenario(scenario);
+      break;
+    }
+
+    case 'syncSchema': {
+      const freshConfig = detectAppConfig(cwd) ?? appConfig;
+      const session = runner.getSession();
+      if (!session || !freshConfig.appId) {
+        emit('error', { message: 'No active session for schema sync' });
+        return;
+      }
+      try {
+        const tableSources = readTableSources(freshConfig, cwd);
+        if (tableSources.length > 0) {
+          const result = await syncSchema(freshConfig.appId, session.sessionId, tableSources);
+          emit('schema-synced', {
+            created: result.created,
+            altered: result.altered,
+            errors: result.errors,
+          });
+        }
+      } catch (err) {
+        emit('error', { message: err instanceof Error ? err.message : 'Schema sync failed' });
+      }
+      break;
+    }
+
+    case 'impersonate': {
+      const roles = cmd.roles as string[];
+      if (!Array.isArray(roles)) {
+        emit('error', { message: 'impersonate requires roles array' });
+        return;
+      }
+      await runner.setImpersonation(roles);
+      break;
+    }
+
+    case 'clearImpersonation': {
+      await runner.clearImpersonation();
+      break;
+    }
+
+    case 'listRoles': {
+      const freshConfig = detectAppConfig(cwd) ?? appConfig;
+      emit('roles-list', {
+        roles: freshConfig.roles.map((r) => ({ id: r.id, name: r.name, description: r.description })),
+      });
+      break;
+    }
+
+    case 'listScenarios': {
+      const freshConfig = detectAppConfig(cwd) ?? appConfig;
+      emit('scenarios-list', {
+        scenarios: freshConfig.scenarios.map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          roles: s.roles,
+        })),
+      });
+      break;
+    }
+
+    default:
+      emit('error', { message: `Unknown action: ${cmd.action}` });
   }
 }
