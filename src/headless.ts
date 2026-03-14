@@ -257,6 +257,7 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
         id: s.id,
         name: s.name,
         description: s.description,
+        path: s.path,
         roles: s.roles,
       })),
     });
