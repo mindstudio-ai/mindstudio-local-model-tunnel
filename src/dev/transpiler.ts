@@ -8,7 +8,7 @@
 // installed version at runtime, not bundled into the output. This is critical
 // because the SDK reads globalThis.ai and env vars set by the executor.
 
-import { unlink, mkdir } from 'node:fs/promises';
+import { unlink, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve, dirname, basename, join } from 'node:path';
 import { build } from 'esbuild';
@@ -20,6 +20,18 @@ export class Transpiler {
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
+    // Clean up orphaned .__ms_dev__.mjs files from previous runs
+    // (or from the old transpiler that wrote next to source files)
+    this.cleanupOrphans();
+  }
+
+  /** Remove any .__ms_dev__.mjs files found in the project source tree (not in node_modules/.cache). */
+  private async cleanupOrphans(): Promise<void> {
+    try {
+      await removeOrphanedDevFiles(this.projectRoot);
+    } catch {
+      // Best effort
+    }
   }
 
   /**
@@ -76,6 +88,24 @@ export class Transpiler {
       await unlink(file).catch(() => {});
     }
     this.outputFiles.clear();
+  }
+}
+
+/**
+ * Recursively remove .__ms_dev__.mjs files from the project tree,
+ * skipping node_modules (where they belong if in .cache/).
+ */
+async function removeOrphanedDevFiles(dir: string): Promise<void> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === 'node_modules' || entry.name === '.git') continue;
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await removeOrphanedDevFiles(fullPath);
+    } else if (entry.name.endsWith('.__ms_dev__.mjs')) {
+      log.debug('transpiler Removing orphaned file', { path: fullPath });
+      await unlink(fullPath).catch(() => {});
+    }
   }
 }
 
