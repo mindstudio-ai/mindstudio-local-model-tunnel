@@ -84,8 +84,10 @@ jobs:
 
       - name: Build standalone binary
         run: |
+          VERSION=$(node -p "require('./package.json').version")
           bun build src/cli.ts \
             --compile \
+            --define __APP_VERSION__="\"$VERSION\"" \
             --target=${{ matrix.target }} \
             --outfile=${{ matrix.artifact }}
 
