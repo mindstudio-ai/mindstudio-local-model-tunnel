@@ -218,9 +218,9 @@ export async function resetDevDatabase(
   return data.databases;
 }
 
-// Impersonate uses Bearer auth (login middleware), not x-dev-session
 export async function impersonate(
   appId: string,
+  sessionId: string,
   roles: string[] | null,
 ): Promise<{ roles: string[] | null }> {
   const start = Date.now();
@@ -228,7 +228,7 @@ export async function impersonate(
 
   const response = await fetch(`${basePath(appId)}/manage/impersonate`, {
     method: 'POST',
-    headers: getHeaders(),
+    headers: getDevHeaders(sessionId),
     body: JSON.stringify({ roles: roles && roles.length > 0 ? roles : null }),
   });
 

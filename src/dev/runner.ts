@@ -101,7 +101,7 @@ export class DevRunner {
   async setImpersonation(roles: string[]): Promise<void> {
     if (!this.session) return;
     log.info('runner Impersonating', { roles });
-    const result = await impersonate(this.appId, roles);
+    const result = await impersonate(this.appId, this.session.sessionId, roles);
     devRequestEvents.emitImpersonate({ roles: result.roles });
   }
 
@@ -109,7 +109,7 @@ export class DevRunner {
   async clearImpersonation(): Promise<void> {
     if (!this.session) return;
     log.info('runner Clearing impersonation');
-    const result = await impersonate(this.appId, null);
+    const result = await impersonate(this.appId, this.session.sessionId, null);
     devRequestEvents.emitImpersonate({ roles: result.roles });
   }
 
@@ -176,7 +176,7 @@ export class DevRunner {
       // 3. Impersonate the scenario's roles
       if (scenario.roles.length > 0) {
         log.debug('runner Impersonating for scenario', { roles: scenario.roles });
-        await impersonate(this.appId, scenario.roles);
+        await impersonate(this.appId, this.session.sessionId, scenario.roles);
       }
 
       const duration = Date.now() - startTime;
