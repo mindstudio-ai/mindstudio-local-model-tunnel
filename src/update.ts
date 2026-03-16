@@ -1,7 +1,4 @@
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const pkg = require('../package.json') as { version: string };
+declare const __APP_VERSION__: string;
 
 const CDN_BASE_URL = 'https://f.mscdn.ai/local-model-tunnel';
 
@@ -22,7 +19,7 @@ export function getInstallMethod(): InstallMethod {
 }
 
 export function getCurrentVersion(): string {
-  return pkg.version;
+  return __APP_VERSION__;
 }
 
 export async function fetchLatestVersion(): Promise<string | null> {

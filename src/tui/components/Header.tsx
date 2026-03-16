@@ -3,7 +3,7 @@ import os from 'node:os';
 import { Box, Text } from 'ink';
 import chalk from 'chalk';
 import type { ConnectionStatus } from '../types';
-import { createRequire } from 'node:module';
+declare const __APP_VERSION__: string;
 
 interface HeaderProps {
   connection: ConnectionStatus;
@@ -13,9 +13,6 @@ interface HeaderProps {
   compact?: boolean;
   hasActiveRequest?: boolean;
 }
-
-const require = createRequire(import.meta.url);
-const pkg = require('../package.json') as { version: string };
 
 export const LogoString = `       .=+-.     :++.
       *@@@@@+  :%@@@@%:
@@ -135,7 +132,7 @@ export function Header({
           <Text bold color="white">
             MindStudio Local Tunnel
           </Text>
-          {compact && <Text color="gray"> v{pkg.version}</Text>}
+          {compact && <Text color="gray"> v{__APP_VERSION__}</Text>}
           {environment !== 'prod' && (
             <>
               <Text> </Text>
@@ -150,7 +147,7 @@ export function Header({
         <Text color="gray">
           Config: {configPath.replace(os.homedir(), '~')}
         </Text>
-        {!compact && <Text color="gray">v{pkg.version}</Text>}
+        {!compact && <Text color="gray">v{__APP_VERSION__}</Text>}
       </Box>
     </Box>
   );

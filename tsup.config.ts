@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup';
+import pkg from './package.json';
 
 export default defineConfig({
   entry: ['src/cli.ts', 'src/index.ts', 'src/headless.ts'],
@@ -10,6 +11,9 @@ export default defineConfig({
   dts: true,
   clean: true,
   loader: { '.md': 'text' },
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   // Keep dependencies external (installed via npm)
   external: [/^[^./]/],
 });
