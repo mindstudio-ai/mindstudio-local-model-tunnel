@@ -25,6 +25,8 @@
  * | `connection-warning` | Lost connection to platform, retrying     | `message`                                     |
  * | `connection-restored`| Reconnected after connection loss         |                                               |
  * | `session-expired`    | Platform expired the dev session          |                                               |
+ * | `config-changed`     | mindstudio.json changed, restarting       |                                               |
+ * | `config-error`       | Config invalid during restart             | `message`                                     |
  * | `error`              | Fatal error, headless mode will exit      | `message`                                     |
  * | `stopping`           | Graceful shutdown initiated               |                                               |
  * | `stopped`            | All resources cleaned up, exiting         |                                               |
@@ -69,6 +71,8 @@ import {
 } from './config';
 import { initLoggerHeadless, log, type LogLevel } from './dev/logger';
 import { execSync } from 'node:child_process';
+import { watch, type FSWatcher } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * Options for headless dev mode.
@@ -84,6 +88,15 @@ export interface HeadlessOptions {
   bindAddress?: string;
   /** Log level for stderr output. Defaults to 'info'. */
   logLevel?: LogLevel;
+}
+
+/** Mutable state shared across the session lifecycle, stdin commands, and file watcher. */
+interface SessionState {
+  runner: DevRunner | null;
+  proxy: DevProxy | null;
+  appConfig: AppConfig | null;
+  proxyPort: number | null;
+  unsubscribers: Array<() => void>;
 }
 
 /** Write a JSON event to stdout. */
@@ -113,60 +126,31 @@ function detectGitBranch(): string | undefined {
 }
 
 /**
- * Start the dev tunnel in headless mode.
- *
- * Reads mindstudio.json, starts a platform session, syncs schema,
- * starts the local proxy, and enters the poll loop. Outputs JSON
- * events to stdout. Does not return until shutdown (SIGTERM/SIGINT).
- *
- * Does NOT start a dev server — the caller is responsible for that.
- *
- * @param opts - Configuration options
- *
- * @example
- * ```typescript
- * // From a C&C server — spawn and read events
- * import { startHeadless } from '@mindstudio-ai/local-model-tunnel';
- *
- * await startHeadless({
- *   cwd: '/workspace/my-app',
- *   devPort: 5173,
- *   bindAddress: '0.0.0.0',
- * });
- * ```
+ * Start a dev session: read config, start runner, sync schema, start proxy,
+ * subscribe to events. Returns true on success, false on config/startup error
+ * (non-fatal — caller can retry on next config change).
  */
-export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
-  initLoggerHeadless(opts.logLevel ?? 'info');
+async function startSession(
+  cwd: string,
+  opts: HeadlessOptions,
+  state: SessionState,
+  shutdown: () => Promise<void>,
+): Promise<boolean> {
+  const bindAddress = opts.bindAddress ?? '127.0.0.1';
 
-  const cwd = opts.cwd ?? process.cwd();
-
-  // Read mindstudio.json
+  // Read fresh config
   const appConfig = detectAppConfig(cwd);
   if (!appConfig) {
-    emit('error', { message: 'No valid mindstudio.json found in ' + cwd });
-    return;
+    emit('config-error', { message: 'No valid mindstudio.json found in ' + cwd });
+    return false;
   }
 
   if (!appConfig.appId) {
-    emit('error', { message: 'Missing "appId" in mindstudio.json' });
-    return;
+    emit('config-error', { message: 'Missing "appId" in mindstudio.json' });
+    return false;
   }
 
-  // Log auth config so sandbox operators can diagnose issues
-  const apiKey = getApiKey();
-  const userId = getUserId();
-  log.info('headless Auth config', {
-    configPath: getConfigPath(),
-    environment: getEnvironment(),
-    apiBaseUrl: getApiBaseUrl(),
-    hasApiKey: !!apiKey,
-    apiKeyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : null,
-    hasUserId: !!userId,
-    userId: userId ?? null,
-    cwd,
-  });
-
-  emit('starting', { appId: appConfig.appId, name: appConfig.name });
+  state.appConfig = appConfig;
 
   // Resolve dev port
   let devPort = opts.devPort ?? null;
@@ -175,35 +159,17 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     devPort = webConfig?.devPort ?? null;
   }
 
-  const bindAddress = opts.bindAddress ?? '127.0.0.1';
-
-  let runner: DevRunner | null = null;
-  let proxy: DevProxy | null = null;
-
-  // Graceful shutdown
-  let stopping = false;
-  const shutdown = async () => {
-    if (stopping) return;
-    stopping = true;
-    emit('stopping');
-    proxy?.stop();
-    if (runner) {
-      await runner.stop().catch(() => {});
-    }
-    emit('stopped');
-  };
-
-  process.on('SIGTERM', () => { shutdown().then(() => process.exit(0)); });
-  process.on('SIGINT', () => { shutdown().then(() => process.exit(0)); });
+  emit('starting', { appId: appConfig.appId, name: appConfig.name });
 
   try {
     // Start platform session
     const branch = detectGitBranch();
-    runner = new DevRunner(appConfig.appId, cwd, {
+    const runner = new DevRunner(appConfig.appId, cwd, {
       branch,
       methods: appConfig.methods.map((m) => ({ id: m.id, export: m.export, path: m.path })),
     });
     const session = await runner.start();
+    state.runner = runner;
 
     // Sync schema
     if (appConfig.tables.length > 0) {
@@ -237,11 +203,14 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     // do start the proxy so the preview URL works.
     let proxyPort: number | null = null;
     if (devPort !== null && session.clientContext) {
-      proxy = new DevProxy(devPort, session.clientContext, bindAddress);
+      const proxy = new DevProxy(devPort, session.clientContext, bindAddress);
       const preferred = opts.proxyPort ?? stablePort(appConfig.appId);
       proxyPort = await proxy.start(preferred);
       runner.setProxyUrl(`http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}`);
+      runner.setProxy(proxy);
+      state.proxy = proxy;
     }
+    state.proxyPort = proxyPort;
 
     emit('session-started', {
       sessionId: session.sessionId,
@@ -262,42 +231,45 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
       })),
     });
 
-    // Subscribe to events and relay as JSON
-    devRequestEvents.onStart((event) => {
-      emit('method-start', { id: event.id, method: event.method });
-    });
+    // Subscribe to events and relay as JSON.
+    // Store unsubscribe functions so we can clean up on restart.
+    const unsubs = state.unsubscribers;
 
-    devRequestEvents.onComplete((event) => {
+    unsubs.push(devRequestEvents.onStart((event) => {
+      emit('method-start', { id: event.id, method: event.method });
+    }));
+
+    unsubs.push(devRequestEvents.onComplete((event) => {
       emit('method-complete', {
         id: event.id,
         success: event.success,
         duration: event.duration,
         ...(event.error ? { error: event.error } : {}),
       });
-    });
+    }));
 
-    devRequestEvents.onConnectionWarning((message) => {
+    unsubs.push(devRequestEvents.onConnectionWarning((message) => {
       emit('connection-warning', { message });
-    });
+    }));
 
-    devRequestEvents.onConnectionRestored(() => {
+    unsubs.push(devRequestEvents.onConnectionRestored(() => {
       emit('connection-restored');
-    });
+    }));
 
-    devRequestEvents.onSessionExpired(() => {
+    unsubs.push(devRequestEvents.onSessionExpired(() => {
       emit('session-expired');
       shutdown().then(() => process.exit(1));
-    });
+    }));
 
-    devRequestEvents.onImpersonate((event) => {
+    unsubs.push(devRequestEvents.onImpersonate((event) => {
       emit('impersonated', { roles: event.roles });
-    });
+    }));
 
-    devRequestEvents.onScenarioStart((event) => {
+    unsubs.push(devRequestEvents.onScenarioStart((event) => {
       emit('scenario-start', { id: event.id, name: event.name });
-    });
+    }));
 
-    devRequestEvents.onScenarioComplete((event) => {
+    unsubs.push(devRequestEvents.onScenarioComplete((event) => {
       emit('scenario-complete', {
         id: event.id,
         success: event.success,
@@ -305,26 +277,148 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
         roles: event.roles,
         ...(event.error ? { error: event.error } : {}),
       });
-    });
+    }));
 
-    // Stdin command loop — parent process can send NDJSON actions
-    setupStdinCommands(runner, appConfig, cwd);
-
-    // Keep the process alive — the poll loop runs in DevRunner
-    await new Promise<void>(() => {});
+    return true;
   } catch (err) {
-    emit('error', {
-      message: err instanceof Error ? err.message : 'Unknown error',
+    emit('config-error', {
+      message: err instanceof Error ? err.message : 'Failed to start session',
     });
-    await shutdown();
+    return false;
+  }
+}
+
+/** Tear down the current session: unsubscribe events, stop proxy, stop runner. */
+async function teardownSession(state: SessionState): Promise<void> {
+  for (const unsub of state.unsubscribers) unsub();
+  state.unsubscribers = [];
+
+  state.proxy?.stop();
+  state.proxy = null;
+  state.proxyPort = null;
+
+  if (state.runner) {
+    await state.runner.stop().catch(() => {});
+    state.runner = null;
   }
 }
 
 /**
- * Read NDJSON commands from stdin and dispatch them.
- * Actions: runScenario, syncSchema, listScenarios
+ * Start the dev tunnel in headless mode.
+ *
+ * Reads mindstudio.json, starts a platform session, syncs schema,
+ * starts the local proxy, and enters the poll loop. Outputs JSON
+ * events to stdout. Does not return until shutdown (SIGTERM/SIGINT).
+ *
+ * Watches mindstudio.json for changes and automatically restarts the
+ * session when the config is updated (same behavior as the TUI).
+ *
+ * Does NOT start a dev server — the caller is responsible for that.
+ *
+ * @param opts - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // From a C&C server — spawn and read events
+ * import { startHeadless } from '@mindstudio-ai/local-model-tunnel';
+ *
+ * await startHeadless({
+ *   cwd: '/workspace/my-app',
+ *   devPort: 5173,
+ *   bindAddress: '0.0.0.0',
+ * });
+ * ```
  */
-function setupStdinCommands(runner: DevRunner, appConfig: AppConfig, cwd: string): void {
+export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
+  initLoggerHeadless(opts.logLevel ?? 'info');
+
+  const cwd = opts.cwd ?? process.cwd();
+
+  // Log auth config so sandbox operators can diagnose issues
+  const apiKey = getApiKey();
+  const userId = getUserId();
+  log.info('headless Auth config', {
+    configPath: getConfigPath(),
+    environment: getEnvironment(),
+    apiBaseUrl: getApiBaseUrl(),
+    hasApiKey: !!apiKey,
+    apiKeyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : null,
+    hasUserId: !!userId,
+    userId: userId ?? null,
+    cwd,
+  });
+
+  const state: SessionState = {
+    runner: null,
+    proxy: null,
+    appConfig: null,
+    proxyPort: null,
+    unsubscribers: [],
+  };
+
+  // File watcher state
+  let restartTimer: ReturnType<typeof setTimeout> | undefined;
+  let restarting = false;
+  let watcher: FSWatcher | undefined;
+
+  // Graceful shutdown
+  let stopping = false;
+  const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
+    emit('stopping');
+    clearTimeout(restartTimer);
+    watcher?.close();
+    await teardownSession(state);
+    emit('stopped');
+  };
+
+  process.on('SIGTERM', () => { shutdown().then(() => process.exit(0)); });
+  process.on('SIGINT', () => { shutdown().then(() => process.exit(0)); });
+
+  // Initial session start
+  const ok = await startSession(cwd, opts, state, shutdown);
+  if (!ok && !state.appConfig) {
+    // No valid config at all on first try — emit fatal error.
+    // The watcher below will still start if the file exists, so the
+    // process stays alive to retry on config fix.
+    emit('error', { message: 'No valid mindstudio.json found in ' + cwd });
+  }
+
+  // Stdin command loop — reads from state so it always sees current runner/config
+  setupStdinCommands(state, cwd);
+
+  // Watch mindstudio.json for changes — restart session on edit (500ms debounce)
+  try {
+    const configPath = join(cwd, 'mindstudio.json');
+    watcher = watch(configPath, () => {
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(async () => {
+        if (stopping || restarting) return;
+        restarting = true;
+        try {
+          log.info('headless Config changed, restarting session');
+          emit('config-changed');
+          await teardownSession(state);
+          await startSession(cwd, opts, state, shutdown);
+        } finally {
+          restarting = false;
+        }
+      }, 500);
+    });
+  } catch {
+    // File might not exist yet or watch not supported
+  }
+
+  // Keep the process alive — the poll loop runs in DevRunner
+  await new Promise<void>(() => {});
+}
+
+/**
+ * Read NDJSON commands from stdin and dispatch them.
+ * Uses the shared state object so commands always reference the current session.
+ */
+function setupStdinCommands(state: SessionState, cwd: string): void {
   if (!process.stdin.readable) return;
 
   let buffer = '';
@@ -339,7 +433,7 @@ function setupStdinCommands(runner: DevRunner, appConfig: AppConfig, cwd: string
 
       try {
         const cmd = JSON.parse(line) as { action: string; [key: string]: unknown };
-        handleStdinCommand(cmd, runner, appConfig, cwd);
+        handleStdinCommand(cmd, state, cwd);
       } catch {
         emit('error', { message: `Invalid JSON on stdin: ${line.slice(0, 100)}` });
       }
@@ -349,27 +443,34 @@ function setupStdinCommands(runner: DevRunner, appConfig: AppConfig, cwd: string
 
 async function handleStdinCommand(
   cmd: { action: string; [key: string]: unknown },
-  runner: DevRunner,
-  appConfig: AppConfig,
+  state: SessionState,
   cwd: string,
 ): Promise<void> {
   switch (cmd.action) {
     case 'runScenario': {
-      const freshConfig = detectAppConfig(cwd) ?? appConfig;
-      const scenario = freshConfig.scenarios.find((s) => s.id === cmd.scenarioId);
+      if (!state.runner) {
+        emit('error', { message: 'No active session' });
+        return;
+      }
+      const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
+      const scenario = freshConfig?.scenarios.find((s) => s.id === cmd.scenarioId);
       if (!scenario) {
         emit('error', { message: `Unknown scenario: ${cmd.scenarioId}` });
         return;
       }
       // Runner emits scenario-start/complete events which are already relayed
-      await runner.runScenario(scenario);
+      await state.runner.runScenario(scenario);
       break;
     }
 
     case 'syncSchema': {
-      const freshConfig = detectAppConfig(cwd) ?? appConfig;
-      const session = runner.getSession();
-      if (!session || !freshConfig.appId) {
+      if (!state.runner) {
+        emit('error', { message: 'No active session' });
+        return;
+      }
+      const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
+      const session = state.runner.getSession();
+      if (!session || !freshConfig?.appId) {
         emit('error', { message: 'No active session for schema sync' });
         return;
       }
@@ -390,32 +491,40 @@ async function handleStdinCommand(
     }
 
     case 'impersonate': {
+      if (!state.runner) {
+        emit('error', { message: 'No active session' });
+        return;
+      }
       const roles = cmd.roles as string[];
       if (!Array.isArray(roles)) {
         emit('error', { message: 'impersonate requires roles array' });
         return;
       }
-      await runner.setImpersonation(roles);
+      await state.runner.setImpersonation(roles);
       break;
     }
 
     case 'clearImpersonation': {
-      await runner.clearImpersonation();
+      if (!state.runner) {
+        emit('error', { message: 'No active session' });
+        return;
+      }
+      await state.runner.clearImpersonation();
       break;
     }
 
     case 'listRoles': {
-      const freshConfig = detectAppConfig(cwd) ?? appConfig;
+      const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
       emit('roles-list', {
-        roles: freshConfig.roles.map((r) => ({ id: r.id, name: r.name, description: r.description })),
+        roles: (freshConfig?.roles ?? []).map((r) => ({ id: r.id, name: r.name, description: r.description })),
       });
       break;
     }
 
     case 'listScenarios': {
-      const freshConfig = detectAppConfig(cwd) ?? appConfig;
+      const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
       emit('scenarios-list', {
-        scenarios: freshConfig.scenarios.map((s) => ({
+        scenarios: (freshConfig?.scenarios ?? []).map((s) => ({
           id: s.id,
           name: s.name,
           description: s.description,

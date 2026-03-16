@@ -278,6 +278,7 @@ export function useDevSession(appConfig: AppConfig) {
           const pPort = await proxy.start(preferredProxyPort);
           proxyRef.current = proxy;
           runner.setProxyUrl(`http://localhost:${pPort}`);
+          runner.setProxy(proxy);
           if (mountedRef.current) {
             setProxyPort(pPort);
           }

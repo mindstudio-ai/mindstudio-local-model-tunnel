@@ -25,9 +25,14 @@ export class DevProxy {
 
   constructor(
     private readonly upstreamPort: number,
-    private readonly clientContext: Record<string, unknown>,
+    private clientContext: Record<string, unknown>,
     private readonly bindAddress: string = '127.0.0.1',
   ) {}
+
+  updateClientContext(context: Record<string, unknown>): void {
+    this.clientContext = context;
+    log.info('proxy Client context updated');
+  }
 
   async start(preferredPort?: number): Promise<number> {
     const server = http.createServer((req, res) => {

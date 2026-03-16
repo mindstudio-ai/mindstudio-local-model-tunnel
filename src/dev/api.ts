@@ -245,6 +245,31 @@ export async function impersonate(
   return data;
 }
 
+export async function refreshContext(
+  appId: string,
+  sessionId: string,
+): Promise<Record<string, unknown>> {
+  const start = Date.now();
+  log.debug('api POST /dev/manage/refresh-context', { appId });
+
+  const response = await fetch(`${basePath(appId)}/manage/refresh-context`, {
+    method: 'POST',
+    headers: getDevHeaders(sessionId),
+  });
+
+  const duration = Date.now() - start;
+
+  if (!response.ok) {
+    const error = await response.text();
+    log.error(`api POST /dev/manage/refresh-context → ${response.status} (${duration}ms)`, { error });
+    throw new Error(`Refresh context failed: ${response.status} ${error}`);
+  }
+
+  const data = (await response.json()) as { clientContext: Record<string, unknown> };
+  log.info(`api POST /dev/manage/refresh-context → ${response.status} (${duration}ms)`);
+  return data.clientContext;
+}
+
 // Fetch a callback token for one-off executions (scenarios, etc.)
 // that don't come from the poll loop. The token is scoped to the dev
 // release with the same context as poll-based tokens.

@@ -17,6 +17,7 @@ import {
   submitDevResult,
   resetDevDatabase,
   impersonate,
+  refreshContext,
   fetchCallbackToken,
   DevPollError,
 } from './api';
@@ -25,6 +26,7 @@ import { Transpiler } from './transpiler';
 import { executeMethod } from './executor';
 import { getApiBaseUrl } from '../config';
 import { log } from './logger';
+import type { DevProxy } from './proxy';
 import type { DevSession, DevRequest, DevResult, AppScenario } from './types';
 
 export class DevRunner {
@@ -34,6 +36,7 @@ export class DevRunner {
   private backoffMs = 1000;
   private hadConnectionWarning = false;
   private proxyUrl: string | undefined;
+  private proxy: DevProxy | null = null;
 
   constructor(
     private readonly appId: string,
@@ -51,6 +54,10 @@ export class DevRunner {
   setProxyUrl(url: string): void {
     this.proxyUrl = url;
     this.startOpts.proxyUrl = url;
+  }
+
+  setProxy(proxy: DevProxy): void {
+    this.proxy = proxy;
   }
 
   async start(): Promise<DevSession> {
@@ -102,6 +109,7 @@ export class DevRunner {
     if (!this.session) return;
     log.info('runner Impersonating', { roles });
     const result = await impersonate(this.appId, this.session.sessionId, roles);
+    await this.refreshClientContext();
     devRequestEvents.emitImpersonate({ roles: result.roles });
   }
 
@@ -110,7 +118,21 @@ export class DevRunner {
     if (!this.session) return;
     log.info('runner Clearing impersonation');
     const result = await impersonate(this.appId, this.session.sessionId, null);
+    await this.refreshClientContext();
     devRequestEvents.emitImpersonate({ roles: result.roles });
+  }
+
+  // Fetch fresh clientContext from platform and update the proxy.
+  // Called after impersonation changes so the browser gets a new ms_iface token.
+  private async refreshClientContext(): Promise<void> {
+    if (!this.session || !this.proxy) return;
+    try {
+      const context = await refreshContext(this.appId, this.session.sessionId);
+      this.session.clientContext = context;
+      this.proxy.updateClientContext(context);
+    } catch (err) {
+      log.warn('runner Failed to refresh client context', { error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   // Run a scenario: truncate tables → execute seed → impersonate roles.
@@ -177,6 +199,7 @@ export class DevRunner {
       if (scenario.roles.length > 0) {
         log.debug('runner Impersonating for scenario', { roles: scenario.roles });
         await impersonate(this.appId, this.session.sessionId, scenario.roles);
+        await this.refreshClientContext();
       }
 
       const duration = Date.now() - startTime;
