@@ -103,8 +103,7 @@ export class DevRunner {
     return this.session;
   }
 
-  // Set role override — platform stores it in Redis, subsequent poll
-  // requests include roleOverride[] on execute requests.
+  // Set role override for subsequent method executions.
   async setImpersonation(roles: string[]): Promise<void> {
     if (!this.session) return;
     log.info('runner Impersonating', { roles });
@@ -147,18 +146,19 @@ export class DevRunner {
     }
 
     const startTime = Date.now();
+    const scenarioName = scenario.name ?? scenario.export;
     devRequestEvents.emitScenarioStart({
       id: scenario.id,
-      name: scenario.name,
+      name: scenarioName,
       timestamp: startTime,
     });
 
-    log.info('runner Running scenario', { id: scenario.id, name: scenario.name });
+    log.info('runner Running scenario', { id: scenario.id, name: scenarioName });
 
     try {
       // 1. Truncate all tables (clean slate)
       log.debug('runner Truncating database for scenario');
-      const databases = await resetDevDatabase(this.appId, 'truncate');
+      const databases = await resetDevDatabase(this.appId, this.session.sessionId, 'truncate');
       this.session.databases = databases;
 
       // 2. Transpile and execute the seed function
@@ -168,7 +168,7 @@ export class DevRunner {
       // Fetch a callback token for the seed execution — same scoping as
       // poll-based tokens, but not tied to a poll request.
       log.debug('runner Fetching callback token for scenario');
-      const authorizationToken = await fetchCallbackToken(this.appId);
+      const authorizationToken = await fetchCallbackToken(this.appId, this.session.sessionId);
 
       log.debug('runner Executing scenario seed', { export: scenario.export });
       const result = await executeMethod({

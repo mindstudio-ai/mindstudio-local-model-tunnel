@@ -1,14 +1,18 @@
 // Platform API client for dev sessions.
 //
 // All endpoints are under /_internal/v2/apps/{appId}/dev/.
-// Auth: Bearer token (API key) for start, x-dev-session header for everything else.
+// Auth: Bearer token (API key), plus x-dev-session header for session-scoped endpoints.
 // The dev session IS a release — sessionId and releaseId are the same UUID.
 
-import { getApiKey, getApiBaseUrl, getUserId } from '../config';
+import { getApiKey, getApiBaseUrl } from '../config';
 import { log } from './logger';
 import type { DevSession, DevRequest, DevResult, SyncSchemaResponse } from './types';
 
-function getHeaders(): Record<string, string> {
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+function getHeaders(sessionId?: string): Record<string, string> {
   const apiKey = getApiKey();
   if (!apiKey) {
     throw new Error('Not authenticated. Run mindstudio-local to set up.');
@@ -19,24 +23,55 @@ function getHeaders(): Record<string, string> {
     'Content-Type': 'application/json',
   };
 
-  const userId = getUserId();
-  if (userId) {
-    headers['x-user-id'] = userId;
-  }
+  if (sessionId) headers['x-dev-session'] = sessionId;
 
   return headers;
-}
-
-function getDevHeaders(sessionId: string): Record<string, string> {
-  return {
-    ...getHeaders(),
-    'x-dev-session': sessionId,
-  };
 }
 
 function basePath(appId: string): string {
   return `${getApiBaseUrl()}/_internal/v2/apps/${appId}/dev`;
 }
+
+/**
+ * Generic API request with consistent logging, timing, and error handling.
+ * Returns null for 204 responses. Throws on non-ok status.
+ */
+async function apiRequest<T>(
+  method: string,
+  url: string,
+  headers: Record<string, string>,
+  body?: unknown,
+): Promise<T> {
+  const start = Date.now();
+  const logTag = `${method} ${url.replace(getApiBaseUrl(), '')}`;
+
+  const response = await fetch(url, {
+    method,
+    headers,
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+
+  const duration = Date.now() - start;
+
+  if (response.status === 204) {
+    log.debug(`api ${logTag} → 204 (${duration}ms)`);
+    return null as T;
+  }
+
+  if (!response.ok) {
+    const error = await response.text();
+    log.error(`api ${logTag} → ${response.status} (${duration}ms)`, { error });
+    throw new ApiError(`${logTag} failed: ${response.status} ${error}`, response.status);
+  }
+
+  const data = (await response.json()) as T;
+  log.info(`api ${logTag} → ${response.status} (${duration}ms)`);
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export async function startDevSession(
   appId: string,
@@ -51,49 +86,14 @@ export async function startDevSession(
   if (opts?.proxyUrl) body.proxyUrl = opts.proxyUrl;
   if (opts?.methods) body.methods = opts.methods;
 
-  const start = Date.now();
-  log.debug('api POST /dev/manage/start', { appId, branch: opts?.branch, methodCount: opts?.methods?.length });
-
-  const response = await fetch(`${basePath(appId)}/manage/start`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(body),
-  });
-
-  const duration = Date.now() - start;
-
-  if (!response.ok) {
-    const error = await response.text();
-    log.error(`api POST /dev/manage/start → ${response.status} (${duration}ms)`, { error });
-    throw new Error(`Failed to start dev session: ${response.status} ${error}`);
-  }
-
-  const data = (await response.json()) as DevSession;
-  log.info(`api POST /dev/manage/start → ${response.status} (${duration}ms)`, { sessionId: data.sessionId, branch: data.branch });
-  return data;
+  return apiRequest<DevSession>('POST', `${basePath(appId)}/manage/start`, getHeaders(), body);
 }
 
 export async function stopDevSession(
   appId: string,
   sessionId: string,
 ): Promise<void> {
-  const start = Date.now();
-  log.debug('api POST /dev/manage/stop', { appId, sessionId });
-
-  const response = await fetch(`${basePath(appId)}/manage/stop`, {
-    method: 'POST',
-    headers: getDevHeaders(sessionId),
-  });
-
-  const duration = Date.now() - start;
-
-  if (!response.ok) {
-    const error = await response.text();
-    log.error(`api POST /dev/manage/stop → ${response.status} (${duration}ms)`, { error });
-    throw new Error(`Failed to stop dev session: ${response.status} ${error}`);
-  }
-
-  log.info(`api POST /dev/manage/stop → ${response.status} (${duration}ms)`);
+  await apiRequest<void>('POST', `${basePath(appId)}/manage/stop`, getHeaders(sessionId));
 }
 
 export async function pollDevRequest(
@@ -105,32 +105,15 @@ export async function pollDevRequest(
     ? `${basePath(appId)}/poll?proxyUrl=${encodeURIComponent(proxyUrl)}`
     : `${basePath(appId)}/poll`;
 
-  const start = Date.now();
-
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: getDevHeaders(sessionId),
-  });
-
-  const duration = Date.now() - start;
-
-  if (response.status === 204) {
-    log.debug(`api GET /dev/poll → 204 (${duration}ms)`);
-    return null;
+  try {
+    return await apiRequest<DevRequest | null>('GET', url, getHeaders(sessionId));
+  } catch (err) {
+    // Re-throw as DevPollError so the runner can detect session expiry (404)
+    if (err instanceof ApiError) {
+      throw new DevPollError(err.message, err.statusCode);
+    }
+    throw err;
   }
-
-  if (!response.ok) {
-    const error = await response.text();
-    log.error(`api GET /dev/poll → ${response.status} (${duration}ms)`, { error });
-    throw new DevPollError(
-      `Poll failed: ${response.status} ${error}`,
-      response.status,
-    );
-  }
-
-  const data = (await response.json()) as DevRequest;
-  log.info(`api GET /dev/poll → 200 (${duration}ms)`, { requestId: data.requestId, method: data.methodExport });
-  return data;
 }
 
 export async function submitDevResult(
@@ -139,26 +122,12 @@ export async function submitDevResult(
   requestId: string,
   result: DevResult,
 ): Promise<void> {
-  const start = Date.now();
-  log.debug('api POST /dev/result', { requestId, success: result.success });
-
-  const response = await fetch(`${basePath(appId)}/result/${requestId}`, {
-    method: 'POST',
-    headers: getDevHeaders(sessionId),
-    body: JSON.stringify(result),
-  });
-
-  const duration = Date.now() - start;
-
-  if (!response.ok) {
-    const error = await response.text();
-    log.error(`api POST /dev/result/${requestId} → ${response.status} (${duration}ms)`, { error });
-    throw new Error(
-      `Result submission failed: ${response.status} ${error}`,
-    );
-  }
-
-  log.info(`api POST /dev/result → ${response.status} (${duration}ms)`, { requestId, success: result.success });
+  await apiRequest<void>(
+    'POST',
+    `${basePath(appId)}/result/${requestId}`,
+    getHeaders(sessionId),
+    result,
+  );
 }
 
 export async function syncSchema(
@@ -166,55 +135,24 @@ export async function syncSchema(
   sessionId: string,
   tables: Array<{ name: string; source: string }>,
 ): Promise<SyncSchemaResponse> {
-  const start = Date.now();
-  log.debug('api POST /dev/manage/sync-schema', { tableCount: tables.length, names: tables.map((t) => t.name) });
-
-  const response = await fetch(`${basePath(appId)}/manage/sync-schema`, {
-    method: 'POST',
-    headers: getDevHeaders(sessionId),
-    body: JSON.stringify({ tables }),
-  });
-
-  const duration = Date.now() - start;
-
-  if (!response.ok) {
-    const error = await response.text();
-    log.error(`api POST /dev/manage/sync-schema → ${response.status} (${duration}ms)`, { error });
-    throw new Error(`Schema sync failed: ${response.status} ${error}`);
-  }
-
-  const data = (await response.json()) as SyncSchemaResponse;
-  log.info(`api POST /dev/manage/sync-schema → ${response.status} (${duration}ms)`, {
-    created: data.created,
-    altered: data.altered,
-    errors: data.errors,
-  });
-  return data;
+  return apiRequest<SyncSchemaResponse>(
+    'POST',
+    `${basePath(appId)}/manage/sync-schema`,
+    getHeaders(sessionId),
+    { tables },
+  );
 }
 
-// Reset uses Bearer auth (login middleware), not x-dev-session
 export async function resetDevDatabase(
   appId: string,
+  sessionId: string,
   mode: 'snapshot' | 'truncate' = 'snapshot',
 ): Promise<DevSession['databases']> {
-  const start = Date.now();
-  log.debug('api POST /dev/manage/reset', { appId, mode });
-
-  const response = await fetch(`${basePath(appId)}/manage/reset?mode=${mode}`, {
-    method: 'POST',
-    headers: getHeaders(),
-  });
-
-  const duration = Date.now() - start;
-
-  if (!response.ok) {
-    const error = await response.text();
-    log.error(`api POST /dev/manage/reset → ${response.status} (${duration}ms)`, { error });
-    throw new Error(`Reset failed: ${response.status} ${error}`);
-  }
-
-  const data = (await response.json()) as { databases: DevSession['databases'] };
-  log.info(`api POST /dev/manage/reset → ${response.status} (${duration}ms)`, { mode });
+  const data = await apiRequest<{ databases: DevSession['databases'] }>(
+    'POST',
+    `${basePath(appId)}/manage/reset?mode=${mode}`,
+    getHeaders(sessionId),
+  );
   return data.databases;
 }
 
@@ -223,81 +161,56 @@ export async function impersonate(
   sessionId: string,
   roles: string[] | null,
 ): Promise<{ roles: string[] | null }> {
-  const start = Date.now();
-  log.debug('api POST /dev/manage/impersonate', { appId, roles });
-
-  const response = await fetch(`${basePath(appId)}/manage/impersonate`, {
-    method: 'POST',
-    headers: getDevHeaders(sessionId),
-    body: JSON.stringify({ roles: roles && roles.length > 0 ? roles : null }),
-  });
-
-  const duration = Date.now() - start;
-
-  if (!response.ok) {
-    const error = await response.text();
-    log.error(`api POST /dev/manage/impersonate → ${response.status} (${duration}ms)`, { error });
-    throw new Error(`Impersonate failed: ${response.status} ${error}`);
-  }
-
-  const data = (await response.json()) as { roles: string[] | null };
-  log.info(`api POST /dev/manage/impersonate → ${response.status} (${duration}ms)`, { roles: data.roles });
-  return data;
+  return apiRequest<{ roles: string[] | null }>(
+    'POST',
+    `${basePath(appId)}/manage/impersonate`,
+    getHeaders(sessionId),
+    { roles: roles && roles.length > 0 ? roles : null },
+  );
 }
 
 export async function refreshContext(
   appId: string,
   sessionId: string,
 ): Promise<Record<string, unknown>> {
-  const start = Date.now();
-  log.debug('api POST /dev/manage/refresh-context', { appId });
-
-  const response = await fetch(`${basePath(appId)}/manage/refresh-context`, {
-    method: 'POST',
-    headers: getDevHeaders(sessionId),
-  });
-
-  const duration = Date.now() - start;
-
-  if (!response.ok) {
-    const error = await response.text();
-    log.error(`api POST /dev/manage/refresh-context → ${response.status} (${duration}ms)`, { error });
-    throw new Error(`Refresh context failed: ${response.status} ${error}`);
-  }
-
-  const data = (await response.json()) as { clientContext: Record<string, unknown> };
-  log.info(`api POST /dev/manage/refresh-context → ${response.status} (${duration}ms)`);
+  const data = await apiRequest<{ clientContext: Record<string, unknown> }>(
+    'POST',
+    `${basePath(appId)}/manage/refresh-context`,
+    getHeaders(sessionId),
+  );
   return data.clientContext;
 }
 
 // Fetch a callback token for one-off executions (scenarios, etc.)
-// that don't come from the poll loop. The token is scoped to the dev
-// release with the same context as poll-based tokens.
+// that don't come from the poll loop.
 export async function fetchCallbackToken(
   appId: string,
+  sessionId: string,
 ): Promise<string> {
-  const start = Date.now();
-  log.debug('api POST /dev/manage/token', { appId });
-
-  const response = await fetch(`${basePath(appId)}/manage/token`, {
-    method: 'POST',
-    headers: getHeaders(),
-  });
-
-  const duration = Date.now() - start;
-
-  if (!response.ok) {
-    const error = await response.text();
-    log.error(`api POST /dev/manage/token → ${response.status} (${duration}ms)`, { error });
-    throw new Error(`Token fetch failed: ${response.status} ${error}`);
-  }
-
-  const data = (await response.json()) as { authorizationToken: string };
-  log.info(`api POST /dev/manage/token → ${response.status} (${duration}ms)`);
+  const data = await apiRequest<{ authorizationToken: string }>(
+    'POST',
+    `${basePath(appId)}/manage/token`,
+    getHeaders(sessionId),
+  );
   return data.authorizationToken;
 }
 
-/** Custom error class to expose HTTP status code from poll failures. */
+// ---------------------------------------------------------------------------
+// Error classes
+// ---------------------------------------------------------------------------
+
+/** API request error with HTTP status code. */
+class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/** Poll-specific error — runner checks statusCode to detect session expiry (404). */
 export class DevPollError extends Error {
   constructor(
     message: string,

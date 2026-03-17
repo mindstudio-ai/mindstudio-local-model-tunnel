@@ -15,7 +15,7 @@
 // (DevRunner, DevProxy, schema sync) wired together with React state.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { execSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { DevRunner } from '../../../dev/runner';
@@ -30,17 +30,10 @@ import {
 } from '../../../dev/app-config';
 import { syncSchema } from '../../../dev/api';
 import { initLoggerInteractive } from '../../../dev/logger';
+import { stablePort, detectGitBranch } from '../../../dev/utils';
+import { watchTableFiles } from '../../../dev/table-watcher';
 import { useDevServer } from './useDevServer';
 import type { AppConfig, DevSession, WebInterfaceConfig, SyncSchemaResponse } from '../../../dev/types';
-
-/** Derive a stable port number (3100-3999) from the app ID so the proxy URL is consistent. */
-function stablePort(appId: string): number {
-  let hash = 0;
-  for (let i = 0; i < appId.length; i++) {
-    hash = ((hash << 5) - hash + appId.charCodeAt(i)) | 0;
-  }
-  return 3100 + (Math.abs(hash) % 900);
-}
 
 function runNpmInstall(cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -57,17 +50,6 @@ function runNpmInstall(cwd: string): Promise<void> {
     });
     proc.on('error', reject);
   });
-}
-
-function detectGitBranch(): string | undefined {
-  try {
-    return execSync('git rev-parse --abbrev-ref HEAD', {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim() || undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 export type DevPhase =
@@ -100,9 +82,24 @@ export function useDevSession(appConfig: AppConfig) {
   const [installStatus, setInstallStatus] = useState<string | null>(null);
   const runnerRef = useRef<DevRunner | null>(null);
   const proxyRef = useRef<DevProxy | null>(null);
+  const tableWatcherCleanupRef = useRef<() => void>(() => {});
   const mountedRef = useRef(true);
 
   const devServer = useDevServer();
+
+  const cleanupTableWatchers = useCallback(() => {
+    tableWatcherCleanupRef.current();
+    tableWatcherCleanupRef.current = () => {};
+  }, []);
+
+  const setupTableWatchers = useCallback((config: AppConfig) => {
+    cleanupTableWatchers();
+    tableWatcherCleanupRef.current = watchTableFiles(
+      config.tables,
+      process.cwd(),
+      () => { resyncRef.current?.(); },
+    );
+  }, [cleanupTableWatchers]);
 
   // Detect web interface config on mount
   useEffect(() => {
@@ -154,6 +151,7 @@ export function useDevSession(appConfig: AppConfig) {
         restartTimerRef.current = setTimeout(async () => {
           if (!mountedRef.current || phase !== 'running') return;
           // Stop current session, re-enter ready phase (auto-starts)
+          cleanupTableWatchers();
           proxyRef.current?.stop();
           proxyRef.current = null;
           devServer.stop();
@@ -183,6 +181,7 @@ export function useDevSession(appConfig: AppConfig) {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      cleanupTableWatchers();
       runnerRef.current?.stop().catch(() => {});
       proxyRef.current?.stop();
       devServer.stop();
@@ -284,6 +283,9 @@ export function useDevSession(appConfig: AppConfig) {
           }
         }
 
+        // Watch table source directories for changes — auto-sync schema
+        setupTableWatchers(currentConfig);
+
         if (mountedRef.current) {
           setSession(devSession);
           setPhase('running');
@@ -297,10 +299,11 @@ export function useDevSession(appConfig: AppConfig) {
         }
       }
     },
-    [appConfig, devPort, webConfig, devServer],
+    [appConfig, devPort, webConfig, devServer, setupTableWatchers],
   );
 
   const stop = useCallback(async () => {
+    cleanupTableWatchers();
     proxyRef.current?.stop();
     proxyRef.current = null;
     devServer.stop();
@@ -313,7 +316,10 @@ export function useDevSession(appConfig: AppConfig) {
       setProxyPort(null);
       setPhase('stopped');
     }
-  }, [devServer]);
+  }, [devServer, cleanupTableWatchers]);
+
+  // Ref to latest resync so table watchers don't capture a stale closure
+  const resyncRef = useRef<() => Promise<void>>();
 
   const resync = useCallback(async () => {
     if (!session) return;
@@ -344,6 +350,7 @@ export function useDevSession(appConfig: AppConfig) {
       }
     }
   }, [appConfig, session]);
+  resyncRef.current = resync;
 
   const setImpersonation = useCallback(async (roles: string[]) => {
     if (!runnerRef.current) return;

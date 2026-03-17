@@ -142,17 +142,10 @@ export async function executeMethod(
         cwd: opts.projectRoot,
         env: {
           ...process.env,
-          // Clear API key so SDK falls through to CALLBACK_TOKEN for auth.
-          // The SDK resolves auth as: MINDSTUDIO_API_KEY > ~/.mindstudio/config > CALLBACK_TOKEN.
-          // We need CALLBACK_TOKEN (the per-request hook token from the platform).
-          MINDSTUDIO_API_KEY: '',
-          // These env vars are read by @mindstudio-ai/agent for db queries
-          // and other platform callbacks. Same names as the cloud sandbox.
+          // Auth + config env vars read by @mindstudio-ai/agent SDK
+          // for platform callbacks (db queries, etc.)
           CALLBACK_TOKEN: opts.authorizationToken,
           REMOTE_HOSTNAME: opts.apiBaseUrl,
-          MINDSTUDIO_CALLBACK_TOKEN: opts.authorizationToken,
-          MINDSTUDIO_API_BASE_URL: opts.apiBaseUrl,
-          // STREAM_ID enables streaming responses via the platform's Redis pub/sub → SSE channel
           ...(opts.streamId ? { STREAM_ID: opts.streamId } : {}),
         },
         stdio: ['ignore', 'pipe', 'pipe'],

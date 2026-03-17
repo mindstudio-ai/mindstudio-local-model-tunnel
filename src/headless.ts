@@ -15,21 +15,26 @@
  *
  * Every line written to stdout is a JSON object with an `event` field:
  *
- * | Event                | When                                      | Key Fields                                    |
- * |----------------------|-------------------------------------------|-----------------------------------------------|
- * | `starting`           | Headless mode initializing                | `appId`, `name`                               |
- * | `session-started`    | Platform session active, proxy running    | `sessionId`, `branch`, `proxyPort`, `proxyUrl`|
- * | `schema-synced`      | Table schema synced to platform           | `created`, `altered`, `errors`                |
- * | `method-start`       | Method execution request received         | `id`, `method`                                |
- * | `method-complete`    | Method execution finished                 | `id`, `success`, `duration`, `error?`         |
- * | `connection-warning` | Lost connection to platform, retrying     | `message`                                     |
- * | `connection-restored`| Reconnected after connection loss         |                                               |
- * | `session-expired`    | Platform expired the dev session          |                                               |
- * | `config-changed`     | mindstudio.json changed, restarting       |                                               |
- * | `config-error`       | Config invalid during restart             | `message`                                     |
- * | `error`              | Fatal error, headless mode will exit      | `message`                                     |
- * | `stopping`           | Graceful shutdown initiated               |                                               |
- * | `stopped`            | All resources cleaned up, exiting         |                                               |
+ * | Event                  | When                                    | Key Fields                                    |
+ * |------------------------|-----------------------------------------|-----------------------------------------------|
+ * | `session-starting`     | Session initializing                    | `appId`, `name`                               |
+ * | `session-started`      | Platform session active, proxy running  | `sessionId`, `branch`, `proxyPort`, `proxyUrl`|
+ * | `session-stopping`     | Graceful shutdown initiated             |                                               |
+ * | `session-stopped`      | All resources cleaned up                |                                               |
+ * | `session-expired`      | Platform expired the dev session        |                                               |
+ * | `method-started`       | Method execution request received       | `id`, `method`                                |
+ * | `method-completed`     | Method execution finished               | `id`, `success`, `duration`, `error?`         |
+ * | `scenario-started`     | Scenario execution started              | `id`, `name`                                  |
+ * | `scenario-completed`   | Scenario execution finished             | `id`, `success`, `duration`, `roles`, `error?`|
+ * | `schema-sync-started`  | Table file changed, syncing schema      |                                               |
+ * | `schema-sync-completed`| Schema synced to platform               | `created`, `altered`, `errors`                |
+ * | `impersonation-changed`| Role override set or cleared            | `roles`                                       |
+ * | `connection-lost`      | Lost connection, retrying with backoff  | `message`                                     |
+ * | `connection-restored`  | Reconnected after connection loss       |                                               |
+ * | `config-changed`       | mindstudio.json changed, restarting     |                                               |
+ * | `config-error`         | Config invalid (non-fatal)              | `message`                                     |
+ * | `command-error`        | Stdin command failed (non-fatal)        | `message`                                     |
+ * | `error`                | Fatal startup error                     | `message`                                     |
  *
  * ## Usage
  *
@@ -70,7 +75,8 @@ import {
   getConfigPath,
 } from './config';
 import { initLoggerHeadless, log, type LogLevel } from './dev/logger';
-import { execSync } from 'node:child_process';
+import { stablePort, detectGitBranch } from './dev/utils';
+import { watchTableFiles } from './dev/table-watcher';
 import { watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 
@@ -102,27 +108,6 @@ interface SessionState {
 /** Write a JSON event to stdout. */
 function emit(event: string, data?: Record<string, unknown>): void {
   process.stdout.write(JSON.stringify({ event, ...data }) + '\n');
-}
-
-/** Derive a stable port number (3100-3999) from the app ID. */
-function stablePort(appId: string): number {
-  let hash = 0;
-  for (let i = 0; i < appId.length; i++) {
-    hash = ((hash << 5) - hash + appId.charCodeAt(i)) | 0;
-  }
-  return 3100 + (Math.abs(hash) % 900);
-}
-
-/** Detect current git branch, or undefined if not in a git repo. */
-function detectGitBranch(): string | undefined {
-  try {
-    return execSync('git rev-parse --abbrev-ref HEAD', {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim() || undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -159,7 +144,7 @@ async function startSession(
     devPort = webConfig?.devPort ?? null;
   }
 
-  emit('starting', { appId: appConfig.appId, name: appConfig.name });
+  emit('session-starting', { appId: appConfig.appId, name: appConfig.name });
 
   try {
     // Start platform session
@@ -182,14 +167,14 @@ async function startSession(
             tableSources,
           );
           session.databases = syncResult.databases;
-          emit('schema-synced', {
+          emit('schema-sync-completed', {
             created: syncResult.created,
             altered: syncResult.altered,
             errors: syncResult.errors,
           });
         }
       } catch (err) {
-        emit('schema-synced', {
+        emit('schema-sync-completed', {
           created: [],
           altered: [],
           errors: [err instanceof Error ? err.message : 'Schema sync failed'],
@@ -221,10 +206,10 @@ async function startSession(
         ? `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}/`
         : null,
       webInterfaceUrl: session.webInterfaceUrl,
-      roles: appConfig.roles.map((r) => ({ id: r.id, name: r.name, description: r.description })),
+      roles: appConfig.roles.map((r) => ({ id: r.id, name: r.name ?? r.id, description: r.description })),
       scenarios: appConfig.scenarios.map((s) => ({
         id: s.id,
-        name: s.name,
+        name: s.name ?? s.export,
         description: s.description,
         path: s.path,
         roles: s.roles,
@@ -236,11 +221,11 @@ async function startSession(
     const unsubs = state.unsubscribers;
 
     unsubs.push(devRequestEvents.onStart((event) => {
-      emit('method-start', { id: event.id, method: event.method });
+      emit('method-started', { id: event.id, method: event.method });
     }));
 
     unsubs.push(devRequestEvents.onComplete((event) => {
-      emit('method-complete', {
+      emit('method-completed', {
         id: event.id,
         success: event.success,
         duration: event.duration,
@@ -249,7 +234,7 @@ async function startSession(
     }));
 
     unsubs.push(devRequestEvents.onConnectionWarning((message) => {
-      emit('connection-warning', { message });
+      emit('connection-lost', { message });
     }));
 
     unsubs.push(devRequestEvents.onConnectionRestored(() => {
@@ -262,15 +247,15 @@ async function startSession(
     }));
 
     unsubs.push(devRequestEvents.onImpersonate((event) => {
-      emit('impersonated', { roles: event.roles });
+      emit('impersonation-changed', { roles: event.roles });
     }));
 
     unsubs.push(devRequestEvents.onScenarioStart((event) => {
-      emit('scenario-start', { id: event.id, name: event.name });
+      emit('scenario-started', { id: event.id, name: event.name });
     }));
 
     unsubs.push(devRequestEvents.onScenarioComplete((event) => {
-      emit('scenario-complete', {
+      emit('scenario-completed', {
         id: event.id,
         success: event.success,
         duration: event.duration,
@@ -279,6 +264,9 @@ async function startSession(
       });
     }));
 
+    // Watch table source files for changes — auto-sync without session restart
+    setupTableWatchers(cwd, state);
+
     return true;
   } catch (err) {
     emit('config-error', {
@@ -286,6 +274,40 @@ async function startSession(
     });
     return false;
   }
+}
+
+/** Set up table file watchers that auto-sync schema on change. */
+function setupTableWatchers(cwd: string, state: SessionState): void {
+  if (!state.appConfig || state.appConfig.tables.length === 0) return;
+
+  const cleanup = watchTableFiles(state.appConfig.tables, cwd, async () => {
+    if (!state.runner || !state.appConfig?.appId) return;
+    const session = state.runner.getSession();
+    if (!session) return;
+
+    emit('schema-sync-started');
+    log.info('headless Table file changed, syncing schema');
+
+    try {
+      const tableSources = readTableSources(state.appConfig, cwd);
+      if (tableSources.length > 0) {
+        const result = await syncSchema(state.appConfig.appId, session.sessionId, tableSources);
+        session.databases = result.databases;
+        emit('schema-sync-completed', {
+          created: result.created,
+          altered: result.altered,
+          errors: result.errors,
+        });
+        log.info('headless Schema synced', { created: result.created, altered: result.altered });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Schema sync failed';
+      emit('command-error', { message });
+      log.warn('headless Schema sync failed', { error: message });
+    }
+  });
+
+  state.unsubscribers.push(cleanup);
 }
 
 /** Tear down the current session: unsubscribe events, stop proxy, stop runner. */
@@ -366,11 +388,11 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   const shutdown = async () => {
     if (stopping) return;
     stopping = true;
-    emit('stopping');
+    emit('session-stopping');
     clearTimeout(restartTimer);
     watcher?.close();
     await teardownSession(state);
-    emit('stopped');
+    emit('session-stopped');
   };
 
   process.on('SIGTERM', () => { shutdown().then(() => process.exit(0)); });
@@ -435,7 +457,7 @@ function setupStdinCommands(state: SessionState, cwd: string): void {
         const cmd = JSON.parse(line) as { action: string; [key: string]: unknown };
         handleStdinCommand(cmd, state, cwd);
       } catch {
-        emit('error', { message: `Invalid JSON on stdin: ${line.slice(0, 100)}` });
+        emit('command-error', { message: `Invalid JSON on stdin: ${line.slice(0, 100)}` });
       }
     }
   });
@@ -447,15 +469,15 @@ async function handleStdinCommand(
   cwd: string,
 ): Promise<void> {
   switch (cmd.action) {
-    case 'runScenario': {
+    case 'run-scenario': {
       if (!state.runner) {
-        emit('error', { message: 'No active session' });
+        emit('command-error', { message: 'No active session' });
         return;
       }
       const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
       const scenario = freshConfig?.scenarios.find((s) => s.id === cmd.scenarioId);
       if (!scenario) {
-        emit('error', { message: `Unknown scenario: ${cmd.scenarioId}` });
+        emit('command-error', { message: `Unknown scenario: ${cmd.scenarioId}` });
         return;
       }
       // Runner emits scenario-start/complete events which are already relayed
@@ -463,78 +485,30 @@ async function handleStdinCommand(
       break;
     }
 
-    case 'syncSchema': {
-      if (!state.runner) {
-        emit('error', { message: 'No active session' });
-        return;
-      }
-      const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
-      const session = state.runner.getSession();
-      if (!session || !freshConfig?.appId) {
-        emit('error', { message: 'No active session for schema sync' });
-        return;
-      }
-      try {
-        const tableSources = readTableSources(freshConfig, cwd);
-        if (tableSources.length > 0) {
-          const result = await syncSchema(freshConfig.appId, session.sessionId, tableSources);
-          emit('schema-synced', {
-            created: result.created,
-            altered: result.altered,
-            errors: result.errors,
-          });
-        }
-      } catch (err) {
-        emit('error', { message: err instanceof Error ? err.message : 'Schema sync failed' });
-      }
-      break;
-    }
-
     case 'impersonate': {
       if (!state.runner) {
-        emit('error', { message: 'No active session' });
+        emit('command-error', { message: 'No active session' });
         return;
       }
       const roles = cmd.roles as string[];
       if (!Array.isArray(roles)) {
-        emit('error', { message: 'impersonate requires roles array' });
+        emit('command-error', { message: 'impersonate requires roles array' });
         return;
       }
       await state.runner.setImpersonation(roles);
       break;
     }
 
-    case 'clearImpersonation': {
+    case 'clear-impersonation': {
       if (!state.runner) {
-        emit('error', { message: 'No active session' });
+        emit('command-error', { message: 'No active session' });
         return;
       }
       await state.runner.clearImpersonation();
       break;
     }
 
-    case 'listRoles': {
-      const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
-      emit('roles-list', {
-        roles: (freshConfig?.roles ?? []).map((r) => ({ id: r.id, name: r.name, description: r.description })),
-      });
-      break;
-    }
-
-    case 'listScenarios': {
-      const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
-      emit('scenarios-list', {
-        scenarios: (freshConfig?.scenarios ?? []).map((s) => ({
-          id: s.id,
-          name: s.name,
-          description: s.description,
-          roles: s.roles,
-        })),
-      });
-      break;
-    }
-
     default:
-      emit('error', { message: `Unknown action: ${cmd.action}` });
+      emit('command-error', { message: `Unknown action: ${cmd.action}` });
   }
 }
