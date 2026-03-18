@@ -246,6 +246,18 @@ async function startSession(
       shutdown().then(() => process.exit(1));
     }));
 
+    unsubs.push(devRequestEvents.onAuthRefreshStart((url) => {
+      emit('auth-refresh-start', { url });
+    }));
+
+    unsubs.push(devRequestEvents.onAuthRefreshSuccess(() => {
+      emit('auth-refresh-success');
+    }));
+
+    unsubs.push(devRequestEvents.onAuthRefreshFailed(() => {
+      emit('auth-refresh-failed');
+    }));
+
     unsubs.push(devRequestEvents.onImpersonate((event) => {
       emit('impersonation-changed', { roles: event.roles });
     }));

@@ -19,12 +19,15 @@ import {
   impersonate,
   refreshContext,
   fetchCallbackToken,
+  ApiError,
   DevPollError,
 } from './api';
 import { devRequestEvents } from './events';
 import { Transpiler } from './transpiler';
 import { executeMethod } from './executor';
 import { getApiBaseUrl } from '../config';
+import { requestDeviceAuth, pollDeviceAuth } from '../api';
+import { setApiKey, setUserId } from '../config';
 import { log } from './logger';
 import type { DevProxy } from './proxy';
 import type { DevSession, DevRequest, DevResult, AppScenario } from './types';
@@ -256,6 +259,25 @@ export class DevRunner {
           return;
         }
 
+        // Auth token expired — attempt automatic refresh
+        if (
+          (error instanceof DevPollError || error instanceof ApiError) &&
+          error.statusCode === 401
+        ) {
+          log.warn('runner Auth token expired (401), attempting refresh');
+          const refreshed = await this.refreshAuth();
+          if (refreshed) {
+            // Token refreshed — reset backoff and continue polling
+            this.backoffMs = 1000;
+            continue;
+          }
+          // Refresh failed — treat as session expired
+          log.error('runner Auth refresh failed, stopping');
+          devRequestEvents.emitSessionExpired();
+          this.isRunning = false;
+          return;
+        }
+
         // Connection issue — backoff and retry
         if (!this.hadConnectionWarning) {
           this.hadConnectionWarning = true;
@@ -367,6 +389,60 @@ export class DevRunner {
         duration: Date.now() - startTime,
         error: message,
       });
+    }
+  }
+
+  /**
+   * Attempt to refresh expired auth credentials via the device auth flow.
+   * Opens the browser for the user to re-authorize, polls for the new token.
+   * Returns true if refresh succeeded.
+   */
+  private async refreshAuth(): Promise<boolean> {
+    const POLL_INTERVAL = 2000;
+    const MAX_ATTEMPTS = 30;
+
+    try {
+      log.info('runner Auth expired, requesting re-authentication');
+      const { url, token } = await requestDeviceAuth();
+
+      devRequestEvents.emitAuthRefreshStart(url);
+
+      // Try to open the browser — not fatal if it fails (headless, SSH, etc.)
+      try {
+        const open = (await import('open')).default;
+        await open(url);
+      } catch {
+        log.warn('runner Could not open browser for auth — user must visit URL manually');
+      }
+
+      for (let i = 0; i < MAX_ATTEMPTS; i++) {
+        await this.sleep(POLL_INTERVAL);
+        if (!this.isRunning) return false;
+
+        const result = await pollDeviceAuth(token);
+
+        if (result.status === 'completed' && result.apiKey) {
+          setApiKey(result.apiKey);
+          if (result.userId) {
+            setUserId(result.userId);
+          }
+          log.info('runner Auth refreshed successfully');
+          devRequestEvents.emitAuthRefreshSuccess();
+          return true;
+        }
+
+        if (result.status === 'expired') {
+          break;
+        }
+      }
+
+      log.error('runner Auth refresh timed out or was denied');
+      devRequestEvents.emitAuthRefreshFailed();
+      return false;
+    } catch (err) {
+      log.error('runner Auth refresh failed', { error: err instanceof Error ? err.message : String(err) });
+      devRequestEvents.emitAuthRefreshFailed();
+      return false;
     }
   }
 

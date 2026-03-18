@@ -80,6 +80,7 @@ export function useDevSession(appConfig: AppConfig) {
   const [scenarioResult, setScenarioResult] = useState<{ id: string; name?: string; success: boolean; duration: number; roles: string[]; error?: string } | null>(null);
   const [roleOverride, setRoleOverride] = useState<string[] | null>(null);
   const [installStatus, setInstallStatus] = useState<string | null>(null);
+  const [authRefreshUrl, setAuthRefreshUrl] = useState<string | null>(null);
   const runnerRef = useRef<DevRunner | null>(null);
   const proxyRef = useRef<DevProxy | null>(null);
   const tableWatcherCleanupRef = useRef<() => void>(() => {});
@@ -123,11 +124,12 @@ export function useDevSession(appConfig: AppConfig) {
     }
   }, [appConfig]);
 
-  // Listen for session expiry
+  // Listen for session expiry and auth refresh
   useEffect(() => {
     const unsubExpired = devRequestEvents.onSessionExpired(() => {
       if (mountedRef.current) {
         setPhase('expired');
+        setAuthRefreshUrl(null);
         runnerRef.current = null;
       }
     });
@@ -136,7 +138,22 @@ export function useDevSession(appConfig: AppConfig) {
         setRoleOverride(event.roles);
       }
     });
-    return () => { unsubExpired(); unsubImpersonate(); };
+    const unsubAuthStart = devRequestEvents.onAuthRefreshStart((url) => {
+      if (mountedRef.current) {
+        setAuthRefreshUrl(url);
+      }
+    });
+    const unsubAuthSuccess = devRequestEvents.onAuthRefreshSuccess(() => {
+      if (mountedRef.current) {
+        setAuthRefreshUrl(null);
+      }
+    });
+    const unsubAuthFailed = devRequestEvents.onAuthRefreshFailed(() => {
+      if (mountedRef.current) {
+        setAuthRefreshUrl(null);
+      }
+    });
+    return () => { unsubExpired(); unsubImpersonate(); unsubAuthStart(); unsubAuthSuccess(); unsubAuthFailed(); };
   }, []);
 
   // Watch mindstudio.json for changes — restart session on edit
@@ -409,6 +426,7 @@ export function useDevSession(appConfig: AppConfig) {
     scenarioResult,
     roleOverride,
     installStatus,
+    authRefreshUrl,
     start,
     stop,
     resync,

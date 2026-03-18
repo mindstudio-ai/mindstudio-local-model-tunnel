@@ -200,7 +200,7 @@ export async function fetchCallbackToken(
 // ---------------------------------------------------------------------------
 
 /** API request error with HTTP status code. */
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     message: string,
     public readonly statusCode: number,
