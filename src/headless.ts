@@ -126,7 +126,9 @@ async function startSession(
   // Read fresh config
   const appConfig = detectAppConfig(cwd);
   if (!appConfig) {
-    emit('config-error', { message: 'No valid mindstudio.json found in ' + cwd });
+    emit('config-error', {
+      message: 'No valid mindstudio.json found in ' + cwd,
+    });
     return false;
   }
 
@@ -151,7 +153,11 @@ async function startSession(
     const branch = detectGitBranch();
     const runner = new DevRunner(appConfig.appId, cwd, {
       branch,
-      methods: appConfig.methods.map((m) => ({ id: m.id, export: m.export, path: m.path })),
+      methods: appConfig.methods.map((m) => ({
+        id: m.id,
+        export: m.export,
+        path: m.path,
+      })),
     });
     const session = await runner.start();
     state.runner = runner;
@@ -191,7 +197,9 @@ async function startSession(
       const proxy = new DevProxy(devPort, session.clientContext, bindAddress);
       const preferred = opts.proxyPort ?? stablePort(appConfig.appId);
       proxyPort = await proxy.start(preferred);
-      runner.setProxyUrl(`http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}`);
+      runner.setProxyUrl(
+        `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}`,
+      );
       runner.setProxy(proxy);
       state.proxy = proxy;
     }
@@ -206,7 +214,11 @@ async function startSession(
         ? `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}/`
         : null,
       webInterfaceUrl: session.webInterfaceUrl,
-      roles: appConfig.roles.map((r) => ({ id: r.id, name: r.name ?? r.id, description: r.description })),
+      roles: appConfig.roles.map((r) => ({
+        id: r.id,
+        name: r.name ?? r.id,
+        description: r.description,
+      })),
       scenarios: appConfig.scenarios.map((s) => ({
         id: s.id,
         name: s.name ?? s.export,
@@ -220,61 +232,83 @@ async function startSession(
     // Store unsubscribe functions so we can clean up on restart.
     const unsubs = state.unsubscribers;
 
-    unsubs.push(devRequestEvents.onStart((event) => {
-      emit('method-started', { id: event.id, method: event.method });
-    }));
+    unsubs.push(
+      devRequestEvents.onStart((event) => {
+        emit('method-started', { id: event.id, method: event.method });
+      }),
+    );
 
-    unsubs.push(devRequestEvents.onComplete((event) => {
-      emit('method-completed', {
-        id: event.id,
-        success: event.success,
-        duration: event.duration,
-        ...(event.error ? { error: event.error } : {}),
-      });
-    }));
+    unsubs.push(
+      devRequestEvents.onComplete((event) => {
+        emit('method-completed', {
+          id: event.id,
+          success: event.success,
+          duration: event.duration,
+          ...(event.error ? { error: event.error } : {}),
+        });
+      }),
+    );
 
-    unsubs.push(devRequestEvents.onConnectionWarning((message) => {
-      emit('connection-lost', { message });
-    }));
+    unsubs.push(
+      devRequestEvents.onConnectionWarning((message) => {
+        emit('connection-lost', { message });
+      }),
+    );
 
-    unsubs.push(devRequestEvents.onConnectionRestored(() => {
-      emit('connection-restored');
-    }));
+    unsubs.push(
+      devRequestEvents.onConnectionRestored(() => {
+        emit('connection-restored');
+      }),
+    );
 
-    unsubs.push(devRequestEvents.onSessionExpired(() => {
-      emit('session-expired');
-      shutdown().then(() => process.exit(1));
-    }));
+    unsubs.push(
+      devRequestEvents.onSessionExpired(() => {
+        emit('session-expired');
+        shutdown().then(() => process.exit(1));
+      }),
+    );
 
-    unsubs.push(devRequestEvents.onAuthRefreshStart((url) => {
-      emit('auth-refresh-start', { url });
-    }));
+    unsubs.push(
+      devRequestEvents.onAuthRefreshStart((url) => {
+        emit('auth-refresh-start', { url });
+      }),
+    );
 
-    unsubs.push(devRequestEvents.onAuthRefreshSuccess(() => {
-      emit('auth-refresh-success');
-    }));
+    unsubs.push(
+      devRequestEvents.onAuthRefreshSuccess(() => {
+        emit('auth-refresh-success');
+      }),
+    );
 
-    unsubs.push(devRequestEvents.onAuthRefreshFailed(() => {
-      emit('auth-refresh-failed');
-    }));
+    unsubs.push(
+      devRequestEvents.onAuthRefreshFailed(() => {
+        emit('auth-refresh-failed');
+      }),
+    );
 
-    unsubs.push(devRequestEvents.onImpersonate((event) => {
-      emit('impersonation-changed', { roles: event.roles });
-    }));
+    unsubs.push(
+      devRequestEvents.onImpersonate((event) => {
+        emit('impersonation-changed', { roles: event.roles });
+      }),
+    );
 
-    unsubs.push(devRequestEvents.onScenarioStart((event) => {
-      emit('scenario-started', { id: event.id, name: event.name });
-    }));
+    unsubs.push(
+      devRequestEvents.onScenarioStart((event) => {
+        emit('scenario-started', { id: event.id, name: event.name });
+      }),
+    );
 
-    unsubs.push(devRequestEvents.onScenarioComplete((event) => {
-      emit('scenario-completed', {
-        id: event.id,
-        success: event.success,
-        duration: event.duration,
-        roles: event.roles,
-        ...(event.error ? { error: event.error } : {}),
-      });
-    }));
+    unsubs.push(
+      devRequestEvents.onScenarioComplete((event) => {
+        emit('scenario-completed', {
+          id: event.id,
+          success: event.success,
+          duration: event.duration,
+          roles: event.roles,
+          ...(event.error ? { error: event.error } : {}),
+        });
+      }),
+    );
 
     // Watch table source files for changes — auto-sync without session restart
     setupTableWatchers(cwd, state);
@@ -303,14 +337,21 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
     try {
       const tableSources = readTableSources(state.appConfig, cwd);
       if (tableSources.length > 0) {
-        const result = await syncSchema(state.appConfig.appId, session.sessionId, tableSources);
+        const result = await syncSchema(
+          state.appConfig.appId,
+          session.sessionId,
+          tableSources,
+        );
         session.databases = result.databases;
         emit('schema-sync-completed', {
           created: result.created,
           altered: result.altered,
           errors: result.errors,
         });
-        log.info('headless Schema synced', { created: result.created, altered: result.altered });
+        log.info('headless Schema synced', {
+          created: result.created,
+          altered: result.altered,
+        });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Schema sync failed';
@@ -407,8 +448,12 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     emit('session-stopped');
   };
 
-  process.on('SIGTERM', () => { shutdown().then(() => process.exit(0)); });
-  process.on('SIGINT', () => { shutdown().then(() => process.exit(0)); });
+  process.on('SIGTERM', () => {
+    shutdown().then(() => process.exit(0));
+  });
+  process.on('SIGINT', () => {
+    shutdown().then(() => process.exit(0));
+  });
 
   // Initial session start
   const ok = await startSession(cwd, opts, state, shutdown);
@@ -466,10 +511,15 @@ function setupStdinCommands(state: SessionState, cwd: string): void {
       if (!line) continue;
 
       try {
-        const cmd = JSON.parse(line) as { action: string; [key: string]: unknown };
+        const cmd = JSON.parse(line) as {
+          action: string;
+          [key: string]: unknown;
+        };
         handleStdinCommand(cmd, state, cwd);
       } catch {
-        emit('command-error', { message: `Invalid JSON on stdin: ${line.slice(0, 100)}` });
+        emit('command-error', {
+          message: `Invalid JSON on stdin: ${line.slice(0, 100)}`,
+        });
       }
     }
   });
@@ -487,9 +537,13 @@ async function handleStdinCommand(
         return;
       }
       const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
-      const scenario = freshConfig?.scenarios.find((s) => s.id === cmd.scenarioId);
+      const scenario = freshConfig?.scenarios.find(
+        (s) => s.id === cmd.scenarioId,
+      );
       if (!scenario) {
-        emit('command-error', { message: `Unknown scenario: ${cmd.scenarioId}` });
+        emit('command-error', {
+          message: `Unknown scenario: ${cmd.scenarioId}`,
+        });
         return;
       }
       // Runner emits scenario-start/complete events which are already relayed
