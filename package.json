@@ -1,6 +1,6 @@
 {
   "name": "@mindstudio-ai/local-model-tunnel",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "description": "Run local AI models with MindStudio",
   "type": "module",
   "main": "dist/index.js",
@@ -11,6 +11,7 @@
     "build": "tsup",
     "dev": "tsup && node dist/cli.js",
     "start": "node dist/cli.js",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build",
     "local-update": "npm run build && npm link",
     "clean:destructive": "bash scripts/clean-destructive.sh"
@@ -34,6 +35,7 @@
     "url": "https://github.com/mindstudio-ai/mindstudio-local-model-tunnel"
   },
   "dependencies": {
+    "esbuild": "^0.24.0",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
     "conf": "^12.0.0",

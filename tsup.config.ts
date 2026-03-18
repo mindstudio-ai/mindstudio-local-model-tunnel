@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 import pkg from './package.json';
 
 export default defineConfig({
-  entry: ['src/cli.ts', 'src/index.ts'],
+  entry: ['src/cli.ts', 'src/index.ts', 'src/headless.ts'],
   format: ['esm'],
   target: 'node18',
   outDir: 'dist',
