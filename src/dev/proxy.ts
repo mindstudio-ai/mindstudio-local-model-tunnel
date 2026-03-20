@@ -63,9 +63,12 @@ export class DevProxy {
   ): Promise<Record<string, unknown>> {
     const id = randomBytes(4).toString('hex');
 
+    log.info('Browser command queued', { id, stepCount: steps.length, commands: steps.map((s) => s.command) });
+
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingResults.delete(id);
+        log.warn('Browser command timed out', { id, pendingCount: this.pendingResults.size, queueLength: this.commandQueue.length });
         reject(new Error('Browser command timed out'));
       }, timeoutMs);
 
@@ -283,6 +286,7 @@ export class DevProxy {
 
     const command = this.commandQueue.shift();
     if (command) {
+      log.info('Browser command dispatched to agent', { id: command.id, commands: command.steps.map((s) => s.command) });
       headers['content-type'] = 'application/json';
       clientRes.writeHead(200, headers);
       clientRes.end(JSON.stringify(command));
@@ -309,13 +313,18 @@ export class DevProxy {
         if (result?.id) {
           const pending = this.pendingResults.get(result.id);
           if (pending) {
+            log.info('Browser command result received', { id: result.id, stepCount: result.steps?.length, duration: result.duration });
             clearTimeout(pending.timeout);
             this.pendingResults.delete(result.id);
             pending.resolve(result);
+          } else {
+            log.warn('Browser command result received but no pending command found', { id: result.id, pendingIds: [...this.pendingResults.keys()] });
           }
+        } else {
+          log.warn('Browser command result received with no id', { bodyLength: body.length });
         }
-      } catch {
-        // Malformed payload — ignore
+      } catch (err) {
+        log.warn('Browser command result parse error', { error: err instanceof Error ? err.message : String(err) });
       }
 
       const origin = clientReq.headers.origin;
