@@ -24,7 +24,7 @@ import {
 } from './api';
 import { devRequestEvents } from './events';
 import { Transpiler } from './transpiler';
-import { executeMethod } from './executor';
+import { executeMethod, cleanupWorker } from './executor';
 import { getApiBaseUrl } from '../config';
 import { requestDeviceAuth, pollDeviceAuth } from '../api';
 import { setApiKey, setUserId } from '../config';
@@ -95,6 +95,8 @@ export class DevRunner {
       }
       this.session = null;
     }
+
+    await cleanupWorker();
 
     if (this.transpiler) {
       await this.transpiler.cleanup();

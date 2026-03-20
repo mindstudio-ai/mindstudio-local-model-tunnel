@@ -1,19 +1,16 @@
-// Execute a transpiled method in an isolated child process.
+// Execute transpiled methods in a persistent worker process.
 //
-// Each method invocation gets its own Node.js process for isolation.
-// The process runs a bootstrap .mjs script that:
-// 1. Sets up globalThis.ai (auth + database context for the SDK)
-// 2. Intercepts console.log/warn/error into a buffer (so it doesn't
-//    corrupt our JSON result on stdout)
-// 3. Imports the transpiled method and calls it
-// 4. Writes the result as JSON to stdout
+// Instead of spawning a new Node.js process per request (which costs ~1-2s in
+// cold start), we keep a single long-lived worker that receives requests over
+// IPC. The Node runtime and SDK modules stay warm across invocations.
 //
-// This mirrors the cloud sandbox's buildIndexFile.ts pattern. The SDK
-// (@mindstudio-ai/agent) doesn't know it's running locally — it uses
-// the same env vars (CALLBACK_TOKEN, REMOTE_HOSTNAME) for db queries
-// and other platform callbacks.
+// Concurrent requests are supported — the worker handles multiple async
+// invocations in parallel, matched by request ID.
+//
+// The worker is lazily spawned on first use, respawned if it dies, and killed
+// on cleanup. Per-request state (env vars, global.ai) is set before each call.
 
-import { spawn } from 'node:child_process';
+import { fork, type ChildProcess } from 'node:child_process';
 import { writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -43,17 +40,24 @@ export interface ExecuteMethodResult {
   stats?: { memoryUsedBytes: number; executionTimeMs: number };
 }
 
-/**
- * Build the bootstrap ESM script that sets up globalThis.ai,
- * imports the transpiled method, calls the export, and writes the result to stdout.
- */
-function buildBootstrapScript(opts: ExecuteMethodOptions): string {
-  return `
-global.ai = {
-  auth: ${JSON.stringify(opts.auth)},
-  databases: ${JSON.stringify(opts.databases)},
-};
+// ---------------------------------------------------------------------------
+// Worker management
+// ---------------------------------------------------------------------------
 
+/** Pending request waiting for a response from the worker. */
+interface PendingRequest {
+  resolve: (result: ExecuteMethodResult) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+let worker: ChildProcess | null = null;
+let workerScriptPath: string | null = null;
+let workerProjectRoot: string | null = null;
+const pending = new Map<string, PendingRequest>();
+
+/** Build the persistent worker script. */
+function buildWorkerScript(): string {
+  return `
 function serializeError(err) {
   if (!err) return { message: 'Unknown error' };
 
@@ -62,7 +66,6 @@ function serializeError(err) {
     stack: err.stack,
   };
 
-  // Capture common extra properties from SDK/HTTP errors
   if (err.code !== undefined) serialized.code = err.code;
   if (err.statusCode !== undefined) serialized.statusCode = err.statusCode;
   if (err.status !== undefined) serialized.status = err.status;
@@ -76,7 +79,6 @@ function serializeError(err) {
     serialized.cause = serializeError(err.cause);
   }
 
-  // Capture any other enumerable properties
   for (const key of Object.keys(err)) {
     if (!(key in serialized)) {
       try {
@@ -91,112 +93,197 @@ function serializeError(err) {
   return serialized;
 }
 
-// Capture console output from method code
-const _stdout = [];
-console.log = (...args) => _stdout.push(args.map(String).join(' '));
-console.warn = (...args) => _stdout.push(args.map(String).join(' '));
-console.error = (...args) => _stdout.push(args.map(String).join(' '));
+// Save original console methods so we can restore after each request
+const _origLog = console.log;
+const _origWarn = console.warn;
+const _origError = console.error;
 
-const _startTime = Date.now();
+process.on('message', async (msg) => {
+  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, streamId } = msg;
 
-const { ${opts.methodExport} } = await import(${JSON.stringify(opts.transpiledPath + '?t=' + Date.now())});
+  // Update per-request env vars
+  process.env.CALLBACK_TOKEN = authorizationToken;
+  process.env.REMOTE_HOSTNAME = apiBaseUrl;
+  if (streamId) process.env.STREAM_ID = streamId;
+  else delete process.env.STREAM_ID;
 
-try {
-  const returnValue = await ${opts.methodExport}(${JSON.stringify(opts.input)});
-  const _stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - _startTime };
-  process.stdout.write(JSON.stringify({ success: true, output: returnValue, stdout: _stdout, stats: _stats }));
-} catch (err) {
-  const _stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - _startTime };
-  process.stdout.write(JSON.stringify({
-    success: false,
-    error: serializeError(err),
-    stdout: _stdout,
-    stats: _stats,
-  }));
-}
+  // Update global context
+  global.ai = { auth, databases };
+
+  // Capture console output for this request
+  const stdout = [];
+  console.log = (...args) => stdout.push(args.map(String).join(' '));
+  console.warn = (...args) => stdout.push(args.map(String).join(' '));
+  console.error = (...args) => stdout.push(args.map(String).join(' '));
+
+  const startTime = Date.now();
+
+  try {
+    // Cache-bust so code changes are picked up
+    const mod = await import(transpiledPath + '?t=' + Date.now());
+    const fn = mod[methodExport];
+    if (typeof fn !== 'function') {
+      throw new Error(methodExport + ' is not a function (got ' + typeof fn + ')');
+    }
+    const returnValue = await fn(input);
+    const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
+    process.send({ id, success: true, output: returnValue, stdout, stats });
+  } catch (err) {
+    const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
+    process.send({ id, success: false, error: serializeError(err), stdout, stats });
+  } finally {
+    // Restore console
+    console.log = _origLog;
+    console.warn = _origWarn;
+    console.error = _origError;
+  }
+});
+
+// Signal ready
+process.send({ type: 'ready' });
 `;
 }
 
+/** Ensure a live worker process exists; spawn one if needed. */
+async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
+  // Respawn if worker died or project root changed
+  if (worker?.connected && workerProjectRoot === projectRoot) {
+    return worker;
+  }
+
+  // Clean up old worker
+  if (worker) {
+    worker.removeAllListeners();
+    worker.kill();
+    worker = null;
+  }
+
+  // Clean up old script
+  if (workerScriptPath) {
+    await unlink(workerScriptPath).catch(() => {});
+    workerScriptPath = null;
+  }
+
+  // Write worker script
+  const scriptPath = join(
+    tmpdir(),
+    `ms-dev-worker-${randomBytes(4).toString('hex')}.mjs`,
+  );
+  await writeFile(scriptPath, buildWorkerScript(), 'utf-8');
+  workerScriptPath = scriptPath;
+  workerProjectRoot = projectRoot;
+
+  log.debug('executor Spawning persistent worker', { cwd: projectRoot, scriptPath });
+
+  const child = fork(scriptPath, [], {
+    cwd: projectRoot,
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    env: { ...process.env },
+  });
+
+  // Wait for ready signal
+  await new Promise<void>((resolve, reject) => {
+    const onMessage = (msg: any) => {
+      if (msg?.type === 'ready') {
+        child.off('message', onMessage);
+        resolve();
+      }
+    };
+    child.on('message', onMessage);
+    child.on('error', reject);
+    child.on('exit', (code) => reject(new Error(`Worker exited during startup with code ${code}`)));
+  });
+
+  // Route responses to pending requests
+  child.on('message', (msg: any) => {
+    if (!msg?.id) return;
+    const req = pending.get(msg.id);
+    if (!req) return;
+    pending.delete(msg.id);
+    clearTimeout(req.timer);
+    req.resolve(msg as ExecuteMethodResult);
+  });
+
+  // If worker dies unexpectedly, reject all pending requests
+  child.on('exit', (code) => {
+    log.warn('executor Worker exited', { code });
+    for (const [id, req] of pending) {
+      clearTimeout(req.timer);
+      req.resolve({ success: false, error: { message: `Worker process exited with code ${code}` } });
+    }
+    pending.clear();
+    worker = null;
+  });
+
+  // Capture stderr for debugging
+  child.stderr?.on('data', (chunk: Buffer) => {
+    const text = chunk.toString().trim();
+    if (text) log.debug('executor Worker stderr', { text: text.slice(0, 500) });
+  });
+
+  worker = child;
+  log.info('executor Persistent worker ready', { pid: child.pid });
+  return child;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /**
- * Execute a transpiled method file in an isolated Node.js child process.
+ * Execute a transpiled method in the persistent worker process.
  */
 export async function executeMethod(
   opts: ExecuteMethodOptions,
 ): Promise<ExecuteMethodResult> {
-  // Write bootstrap script to a temp file
-  const tempFile = join(
-    tmpdir(),
-    `ms-dev-${randomBytes(8).toString('hex')}.mjs`,
-  );
-  const script = buildBootstrapScript(opts);
+  const w = await ensureWorker(opts.projectRoot);
 
-  try {
-    await writeFile(tempFile, script, 'utf-8');
-    log.debug('executor Spawning node process', { methodExport: opts.methodExport, cwd: opts.projectRoot, tempFile });
+  const id = randomBytes(8).toString('hex');
 
-    return await new Promise<ExecuteMethodResult>((resolve, reject) => {
-      const stdoutChunks: Buffer[] = [];
-      const stderrChunks: Buffer[] = [];
+  log.debug('executor Sending to worker', { id, methodExport: opts.methodExport });
 
-      const child = spawn('node', [tempFile], {
-        cwd: opts.projectRoot,
-        env: {
-          ...process.env,
-          // Auth + config env vars read by @mindstudio-ai/agent SDK
-          // for platform callbacks (db queries, etc.)
-          CALLBACK_TOKEN: opts.authorizationToken,
-          REMOTE_HOSTNAME: opts.apiBaseUrl,
-          ...(opts.streamId ? { STREAM_ID: opts.streamId } : {}),
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
+  return new Promise<ExecuteMethodResult>((resolve) => {
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      log.warn('executor Timeout after 30s', { id, methodExport: opts.methodExport });
+      resolve({
+        success: false,
+        error: { message: 'Method execution timed out after 30s' },
       });
+    }, EXECUTION_TIMEOUT_MS);
 
-      child.stdout.on('data', (chunk) => stdoutChunks.push(chunk));
-      child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
+    pending.set(id, { resolve, timer });
 
-      const timeout = setTimeout(() => {
-        log.warn('executor Timeout after 30s, sending SIGKILL', { methodExport: opts.methodExport });
-        child.kill('SIGKILL');
-        reject(new Error('Method execution timed out after 30s'));
-      }, EXECUTION_TIMEOUT_MS);
-
-      child.on('close', (code) => {
-        clearTimeout(timeout);
-
-        const stdout = Buffer.concat(stdoutChunks).toString('utf-8').trim();
-        const stderr = Buffer.concat(stderrChunks).toString('utf-8').trim();
-
-        log.debug('executor Process exited', { code, stdoutLen: stdout.length, stderrLen: stderr.length });
-
-        if (stdout) {
-          try {
-            resolve(JSON.parse(stdout) as ExecuteMethodResult);
-            return;
-          } catch {
-            log.warn('executor Invalid JSON from stdout', { stdout: stdout.slice(0, 200) });
-          }
-        }
-
-        // Process exited without writing valid JSON to stdout
-        const errorMessage =
-          stderr ||
-          stdout ||
-          `Method process exited with code ${code ?? 'unknown'}`;
-
-        resolve({
-          success: false,
-          error: { message: errorMessage },
-        });
-      });
-
-      child.on('error', (err) => {
-        clearTimeout(timeout);
-        log.error('executor Process error', { error: err.message });
-        reject(err);
-      });
+    w.send({
+      id,
+      transpiledPath: opts.transpiledPath,
+      methodExport: opts.methodExport,
+      input: opts.input,
+      auth: opts.auth,
+      databases: opts.databases,
+      authorizationToken: opts.authorizationToken,
+      apiBaseUrl: opts.apiBaseUrl,
+      streamId: opts.streamId,
     });
-  } finally {
-    // Clean up temp file
-    await unlink(tempFile).catch(() => {});
+  });
+}
+
+/**
+ * Kill the persistent worker. Called on session stop / cleanup.
+ */
+export async function cleanupWorker(): Promise<void> {
+  if (worker) {
+    worker.removeAllListeners();
+    worker.kill();
+    worker = null;
   }
+  if (workerScriptPath) {
+    await unlink(workerScriptPath).catch(() => {});
+    workerScriptPath = null;
+  }
+  workerProjectRoot = null;
+  for (const [, req] of pending) {
+    clearTimeout(req.timer);
+  }
+  pending.clear();
 }
