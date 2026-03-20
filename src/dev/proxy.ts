@@ -18,14 +18,27 @@
 
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import type { Socket } from 'node:net';
 import { log } from './logger';
 import { appendBrowserLogEntries } from './browser-log';
+
+interface PendingCommand {
+  id: string;
+  steps: Array<Record<string, unknown>>;
+}
+
+interface PendingResult {
+  resolve: (result: Record<string, unknown>) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
 
 export class DevProxy {
   private server: http.Server | null = null;
   private proxyPort: number | null = null;
   private agentScriptCache: string | null = null;
+  private commandQueue: PendingCommand[] = [];
+  private pendingResults = new Map<string, PendingResult>();
 
   constructor(
     private readonly upstreamPort: number,
@@ -37,6 +50,28 @@ export class DevProxy {
   updateClientContext(context: Record<string, unknown>): void {
     this.clientContext = context;
     log.info('Dev proxy context updated after role change');
+  }
+
+  /**
+   * Dispatch a browser command and wait for the result.
+   * The command is queued for the browser agent to pick up via polling.
+   * Returns a promise that resolves when the browser posts the result back.
+   */
+  dispatchBrowserCommand(
+    steps: Array<Record<string, unknown>>,
+    timeoutMs = 30_000,
+  ): Promise<Record<string, unknown>> {
+    const id = randomBytes(4).toString('hex');
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingResults.delete(id);
+        reject(new Error('Browser command timed out'));
+      }, timeoutMs);
+
+      this.pendingResults.set(id, { resolve, timeout });
+      this.commandQueue.push({ id, steps });
+    });
   }
 
   async start(preferredPort?: number): Promise<number> {
@@ -117,6 +152,14 @@ export class DevProxy {
       }
       if (clientReq.url === '/__mindstudio_dev__/agent.js' && clientReq.method === 'GET') {
         this.serveBrowserAgent(clientReq, clientRes);
+        return;
+      }
+      if (clientReq.url === '/__mindstudio_dev__/commands' && clientReq.method === 'GET') {
+        this.handleGetCommand(clientReq, clientRes);
+        return;
+      }
+      if (clientReq.url === '/__mindstudio_dev__/results' && clientReq.method === 'POST') {
+        this.handlePostResult(clientReq, clientRes);
         return;
       }
     }
@@ -206,6 +249,70 @@ export class DevProxy {
         const entries = JSON.parse(body);
         if (Array.isArray(entries)) {
           appendBrowserLogEntries(entries);
+        }
+      } catch {
+        // Malformed payload — ignore
+      }
+
+      const origin = clientReq.headers.origin;
+      const headers: Record<string, string> = {};
+      if (origin) {
+        headers['access-control-allow-origin'] = origin;
+        headers['access-control-allow-private-network'] = 'true';
+      }
+      clientRes.writeHead(204, headers);
+      clientRes.end();
+    });
+  }
+
+  /**
+   * Return the next pending command for the browser agent, or 204 if empty.
+   */
+  private handleGetCommand(
+    clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): void {
+    const origin = clientReq.headers.origin;
+    const headers: Record<string, string> = {
+      'Cache-Control': 'no-store',
+    };
+    if (origin) {
+      headers['access-control-allow-origin'] = origin;
+      headers['access-control-allow-private-network'] = 'true';
+    }
+
+    const command = this.commandQueue.shift();
+    if (command) {
+      headers['content-type'] = 'application/json';
+      clientRes.writeHead(200, headers);
+      clientRes.end(JSON.stringify(command));
+    } else {
+      clientRes.writeHead(204, headers);
+      clientRes.end();
+    }
+  }
+
+  /**
+   * Receive a command result from the browser agent.
+   * Resolves the pending promise from dispatchBrowserCommand().
+   */
+  private handlePostResult(
+    clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): void {
+    const chunks: Buffer[] = [];
+    clientReq.on('data', (chunk) => chunks.push(chunk));
+    clientReq.on('end', () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        const result = JSON.parse(body);
+        if (result?.id) {
+          const pending = this.pendingResults.get(result.id);
+          if (pending) {
+            clearTimeout(pending.timeout);
+            this.pendingResults.delete(result.id);
+            pending.resolve(result);
+          }
         }
       } catch {
         // Malformed payload — ignore

@@ -139,11 +139,48 @@ Looks up the method by export name (falls back to ID). Executes it directly with
 ```
 Resets the database, runs the seed function, and sets role overrides. Emits `scenario-started` and `scenario-completed` events.
 
+**Browser commands:**
+```json
+{"action": "browser", "steps": [{"command": "snapshot"}]}
+```
+Sends commands to the browser agent running in the app's preview iframe. The browser agent polls `GET /__mindstudio_dev__/commands` every 100ms (only in iframe mode -- detected via `?mode=iframe` in the page URL). Commands execute sequentially and the result is posted back to `POST /__mindstudio_dev__/results`. Returns a `browser-completed` event:
+```json
+{"event": "browser-completed", "steps": [{"index": 0, "command": "snapshot", "result": "navigation \"My App\" [ref=e1]\n  button \"Create\" [ref=e2]\n  ..."}], "duration": 250}
+```
+Times out after 30s if no browser is connected. Steps stop on first error.
+
+Available commands:
+- `snapshot` -- returns a compact accessibility-tree-style representation of the page DOM, with stable `[ref=eN]` identifiers on interactive elements. Waits for network requests to settle before walking.
+
 **Set/clear role override:**
 ```json
 {"action": "impersonate", "roles": ["admin"]}
 {"action": "clear-impersonation"}
 ```
+
+### Browser Agent
+
+The proxy injects a `<script>` tag into every HTML response that loads the browser agent (`@mindstudio-ai/browser-agent`). The agent captures browser events and provides a command interface for AI agents.
+
+**Log capture** -- always active, writes to `.logs/browser.ndjson`:
+- Console output (`console.log/info/warn/error/debug`)
+- JS errors (uncaught errors and unhandled promise rejections, with stack traces)
+- Network requests (all fetch and XMLHttpRequest calls, with status, duration, and response body for failures)
+- Click interactions (element role/name and text content)
+
+**DOM snapshots** -- compact, token-efficient accessibility tree:
+- Semantic roles and accessible names, not CSS classes (handles styled-components/CSS-in-JS)
+- Interactive elements get stable `[ref=eN]` identifiers
+- Cursor-interactive elements (`cursor: pointer` divs) are detected and included
+- Form values and placeholders shown
+- Hidden elements skipped, empty wrapper divs collapsed
+- Waits for network idle before walking (200ms settle period, 5s max)
+
+**Command channel** -- only active in iframe mode (`?mode=iframe` in URL):
+- Polls `GET /__mindstudio_dev__/commands` every 100ms
+- Executes commands and posts results to `POST /__mindstudio_dev__/results`
+
+The browser agent script URL defaults to `https://seankoji-msba.ngrok.io/index.js` (for dev). Override via `browserAgentUrl` in `HeadlessOptions` or the `DevProxy` constructor.
 
 ### File Watching
 
