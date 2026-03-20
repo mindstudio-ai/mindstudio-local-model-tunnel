@@ -11,12 +11,13 @@
 // - WebSocket upgrades: forwarded transparently (enables HMR for any framework)
 // - CORS/PNA headers: added so the proxy works inside iframes from app.mindstudio.ai
 // - Caching disabled on all responses (this is local dev, always fresh)
-// - /__mindstudio_dev__/logs: intercepted locally for browser log capture
+// - /__mindstudio_dev__/*: intercepted locally for browser agent communication
 //
 // The proxy is framework-agnostic — it doesn't know or care what dev server
 // is upstream. Detection is by content-type header, not URL patterns.
 
 import http from 'node:http';
+import { readFileSync } from 'node:fs';
 import type { Socket } from 'node:net';
 import { log } from './logger';
 import { appendBrowserLogEntries } from './browser-log';
@@ -24,11 +25,13 @@ import { appendBrowserLogEntries } from './browser-log';
 export class DevProxy {
   private server: http.Server | null = null;
   private proxyPort: number | null = null;
+  private agentScriptCache: string | null = null;
 
   constructor(
     private readonly upstreamPort: number,
     private clientContext: Record<string, unknown>,
     private readonly bindAddress: string = '127.0.0.1',
+    private readonly browserAgentUrl: string = 'https://seankoji-msba.ngrok.io/index.js',
   ) {}
 
   updateClientContext(context: Record<string, unknown>): void {
@@ -106,10 +109,16 @@ export class DevProxy {
   ): void {
     const origin = clientReq.headers.origin;
 
-    // Browser log capture endpoint — intercepted locally, never forwarded upstream
-    if (clientReq.url === '/__mindstudio_dev__/logs' && clientReq.method === 'POST') {
-      this.handleBrowserLogs(clientReq, clientRes);
-      return;
+    // Browser agent endpoints — intercepted locally, never forwarded upstream
+    if (clientReq.url?.startsWith('/__mindstudio_dev__/')) {
+      if (clientReq.url === '/__mindstudio_dev__/logs' && clientReq.method === 'POST') {
+        this.handleBrowserLogs(clientReq, clientRes);
+        return;
+      }
+      if (clientReq.url === '/__mindstudio_dev__/agent.js' && clientReq.method === 'GET') {
+        this.serveBrowserAgent(clientReq, clientRes);
+        return;
+      }
     }
 
     // CORS preflight for Private Network Access (PNA). Chrome blocks
@@ -144,7 +153,7 @@ export class DevProxy {
         upstreamRes.on('data', (chunk) => chunks.push(chunk));
         upstreamRes.on('end', () => {
           let html = Buffer.concat(chunks).toString('utf-8');
-          html = injectClientContext(html, this.clientContext);
+          html = this.injectScripts(html);
 
           // Copy headers but update content-length and disable caching
           const headers = { ...upstreamRes.headers };
@@ -213,6 +222,53 @@ export class DevProxy {
     });
   }
 
+  /**
+   * Serve the browser agent script. If a browserAgentUrl is configured,
+   * this endpoint won't be hit (the HTML points to the external URL).
+   * This serves the built file for self-hosted mode.
+   */
+  private serveBrowserAgent(
+    _clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): void {
+    try {
+      // Cache the script contents in memory
+      if (!this.agentScriptCache) {
+        // Try to load from the browser-agent package
+        this.agentScriptCache = readFileSync(
+          require.resolve('@mindstudio-ai/browser-agent/dist/index.js'),
+          'utf-8',
+        );
+      }
+      clientRes.writeHead(200, {
+        'Content-Type': 'application/javascript',
+        'Cache-Control': 'no-store',
+      });
+      clientRes.end(this.agentScriptCache);
+    } catch {
+      // Browser agent not installed — return empty script
+      clientRes.writeHead(200, {
+        'Content-Type': 'application/javascript',
+        'Cache-Control': 'no-store',
+      });
+      clientRes.end('/* browser agent not available */');
+    }
+  }
+
+  /**
+   * Inject window.__MINDSTUDIO__ context and browser agent script tag into HTML.
+   */
+  private injectScripts(html: string): string {
+    const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(this.clientContext)};</script>`;
+    const agentUrl = this.browserAgentUrl || '/__mindstudio_dev__/agent.js';
+    const agentScript = `<script async src="${agentUrl}"></script>`;
+    const injection = `${contextScript}\n${agentScript}`;
+    if (html.includes('</head>')) {
+      return html.replace('</head>', `${injection}\n</head>`);
+    }
+    return injection + '\n' + html;
+  }
+
   private handleUpgrade(
     clientReq: http.IncomingMessage,
     clientSocket: Socket,
@@ -264,171 +320,3 @@ export class DevProxy {
     upstreamReq.end();
   }
 }
-
-/**
- * Inject window.__MINDSTUDIO__ context and browser log capture script into HTML.
- */
-function injectClientContext(
-  html: string,
-  context: Record<string, unknown>,
-): string {
-  const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(context)};</script>`;
-  const captureScript = `<script>${BROWSER_CAPTURE_SCRIPT}</script>`;
-  const injection = `${contextScript}\n${captureScript}`;
-  if (html.includes('</head>')) {
-    return html.replace('</head>', `${injection}\n</head>`);
-  }
-  return injection + '\n' + html;
-}
-
-/**
- * Lightweight browser capture script injected into every HTML response.
- * Captures console output, JS errors, failed network requests, and user clicks.
- * Batches entries and POSTs them to the proxy's /__mindstudio_dev__/logs endpoint.
- */
-const BROWSER_CAPTURE_SCRIPT = `
-(function() {
-  if (window.__MINDSTUDIO_DEV__) return;
-  window.__MINDSTUDIO_DEV__ = true;
-
-  var buffer = [];
-  var flushTimer = null;
-  var FLUSH_INTERVAL = 2000;
-  var ENDPOINT = '/__mindstudio_dev__/logs';
-
-  function flush() {
-    if (buffer.length === 0) return;
-    var entries = buffer;
-    buffer = [];
-    try {
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', ENDPOINT, true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.send(JSON.stringify(entries));
-    } catch (e) {}
-  }
-
-  function scheduleFlush() {
-    if (flushTimer) return;
-    flushTimer = setTimeout(function() {
-      flushTimer = null;
-      flush();
-    }, FLUSH_INTERVAL);
-  }
-
-  function flushNow() {
-    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-    flush();
-  }
-
-  function push(entry) {
-    buffer.push(entry);
-    scheduleFlush();
-  }
-
-  function pushAndFlush(entry) {
-    buffer.push(entry);
-    flushNow();
-  }
-
-  function serialize(val) {
-    if (val === null) return 'null';
-    if (val === undefined) return 'undefined';
-    if (val instanceof Error) return val.stack || val.message || String(val);
-    if (typeof val === 'object') {
-      try { return JSON.stringify(val); } catch (e) { return String(val); }
-    }
-    return String(val);
-  }
-
-  function describeElement(el) {
-    if (!el || !el.tagName) return '';
-    var s = el.tagName.toLowerCase();
-    if (el.id) s += '#' + el.id;
-    if (el.className && typeof el.className === 'string') {
-      s += '.' + el.className.trim().split(/\\s+/).join('.');
-    }
-    return s;
-  }
-
-  // Console capture
-  var levels = ['log', 'info', 'warn', 'error', 'debug'];
-  levels.forEach(function(level) {
-    var orig = console[level];
-    console[level] = function() {
-      if (orig) orig.apply(console, arguments);
-      var args = [];
-      for (var i = 0; i < arguments.length; i++) args.push(serialize(arguments[i]));
-      push({ type: 'console', level: level, args: args, url: location.href });
-    };
-  });
-
-  // Uncaught errors
-  window.addEventListener('error', function(e) {
-    pushAndFlush({
-      type: 'error',
-      message: e.message,
-      stack: e.error ? (e.error.stack || '') : '',
-      source: e.filename,
-      line: e.lineno,
-      column: e.colno,
-      url: location.href
-    });
-  });
-
-  // Unhandled promise rejections
-  window.addEventListener('unhandledrejection', function(e) {
-    var reason = e.reason || {};
-    pushAndFlush({
-      type: 'error',
-      message: reason.message || String(reason),
-      stack: reason.stack || '',
-      url: location.href
-    });
-  });
-
-  // Network failure capture (fetch only)
-  if (window.fetch) {
-    var origFetch = window.fetch;
-    window.fetch = function(input, init) {
-      var method = (init && init.method) || 'GET';
-      var url = (typeof input === 'string') ? input : (input && input.url) || String(input);
-      return origFetch.apply(this, arguments).then(function(response) {
-        if (!response.ok) {
-          var entry = { type: 'network', method: method, url: url, status: response.status, statusText: response.statusText };
-          try {
-            response.clone().text().then(function(body) {
-              entry.body = body.slice(0, 1000);
-              push(entry);
-            }).catch(function() { push(entry); });
-          } catch (e) { push(entry); }
-        }
-        return response;
-      }).catch(function(err) {
-        push({ type: 'network', method: method, url: url, error: err.message || String(err) });
-        throw err;
-      });
-    };
-  }
-
-  // Click capture
-  document.addEventListener('click', function(e) {
-    var target = e.target;
-    var text = (target.textContent || '').trim().slice(0, 100);
-    push({
-      type: 'interaction',
-      event: 'click',
-      target: describeElement(target),
-      text: text,
-      url: location.href
-    });
-  }, true);
-
-  // Flush on page unload
-  window.addEventListener('beforeunload', function() {
-    if (buffer.length > 0 && navigator.sendBeacon) {
-      navigator.sendBeacon(ENDPOINT, JSON.stringify(buffer));
-    }
-  });
-})();
-`.trim();

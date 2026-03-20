@@ -95,6 +95,8 @@ export interface HeadlessOptions {
   bindAddress?: string;
   /** Log level for stderr output. Defaults to 'info'. */
   logLevel?: LogLevel;
+  /** URL for the browser agent script. Defaults to self-served at /__mindstudio_dev__/agent.js. Set to an ngrok URL for development. */
+  browserAgentUrl?: string;
 }
 
 /** Mutable state shared across the session lifecycle, stdin commands, and file watcher. */
@@ -203,7 +205,7 @@ async function startSession(
     // do start the proxy so the preview URL works.
     let proxyPort: number | null = null;
     if (devPort !== null && session.clientContext) {
-      const proxy = new DevProxy(devPort, session.clientContext, bindAddress);
+      const proxy = new DevProxy(devPort, session.clientContext, bindAddress, opts.browserAgentUrl);
       const preferred = opts.proxyPort ?? stablePort(appConfig.appId);
       proxyPort = await proxy.start(preferred);
       runner.setProxyUrl(
