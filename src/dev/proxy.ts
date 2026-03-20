@@ -31,7 +31,7 @@ export class DevProxy {
 
   updateClientContext(context: Record<string, unknown>): void {
     this.clientContext = context;
-    log.info('proxy Client context updated');
+    log.info('Dev proxy context updated after role change');
   }
 
   async start(preferredPort?: number): Promise<number> {
@@ -54,10 +54,10 @@ export class DevProxy {
         const assignedPort = await this.listenOnPort(server, port);
         this.server = server;
         this.proxyPort = assignedPort;
-        log.info('proxy Started', { port: assignedPort, bind: this.bindAddress });
+        log.info('Dev proxy started', { port: assignedPort, bind: this.bindAddress });
         return assignedPort;
       } catch {
-        log.warn('proxy Port in use, trying next', { port });
+        log.warn('Proxy port in use, trying next', { port });
         // Port in use — try next
       }
     }
@@ -87,7 +87,7 @@ export class DevProxy {
 
   stop(): void {
     if (this.server) {
-      log.info('proxy Stopping');
+      log.info('Dev proxy stopping');
       this.server.close();
       this.server = null;
       this.proxyPort = null;
@@ -149,7 +149,7 @@ export class DevProxy {
             headers['access-control-allow-private-network'] = 'true';
           }
 
-          log.debug('proxy HTML injected', { path: clientReq.url, size: html.length });
+          log.debug('Dev proxy injected context into HTML', { path: clientReq.url, size: html.length });
           clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
           clientRes.end(html);
         });
@@ -168,7 +168,7 @@ export class DevProxy {
     });
 
     upstreamReq.on('error', (err) => {
-      log.warn('proxy Upstream error', { path: clientReq.url, error: err.message });
+      log.warn('Dev proxy cannot reach dev server', { path: clientReq.url, error: err.message });
       clientRes.writeHead(502);
       clientRes.end(`Proxy error: ${err.message}`);
     });
@@ -182,7 +182,7 @@ export class DevProxy {
     clientSocket: Socket,
     head: Buffer,
   ): void {
-    log.debug('proxy WebSocket upgrade', { path: clientReq.url });
+    log.debug('Dev proxy WebSocket upgrade', { path: clientReq.url });
     const options: http.RequestOptions = {
       hostname: '127.0.0.1',
       port: this.upstreamPort,

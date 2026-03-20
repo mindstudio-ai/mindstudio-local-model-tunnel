@@ -177,6 +177,10 @@ async function startSession(
             altered: syncResult.altered,
             errors: syncResult.errors,
           });
+        } else {
+          log.warn('No table source files found, skipping schema sync', {
+            expected: appConfig.tables.map((t) => t.path),
+          });
         }
       } catch (err) {
         emit('schema-sync-completed', {
@@ -331,7 +335,7 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
     if (!session) return;
 
     emit('schema-sync-started');
-    log.info('headless Table file changed, syncing schema');
+    log.info('Table source file changed, syncing schema');
 
     try {
       const tableSources = readTableSources(state.appConfig, cwd);
@@ -347,15 +351,19 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
           altered: result.altered,
           errors: result.errors,
         });
-        log.info('headless Schema synced', {
+        log.info('Schema sync complete', {
           created: result.created,
           altered: result.altered,
+        });
+      } else {
+        log.warn('Table source file change detected but file(s) still missing', {
+          expected: state.appConfig.tables.map((t) => t.path),
         });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Schema sync failed';
       emit('command-error', { message });
-      log.warn('headless Schema sync failed', { error: message });
+      log.warn('Schema sync failed', { error: message });
     }
   });
 
@@ -411,7 +419,7 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   // Log auth config so sandbox operators can diagnose issues
   const apiKey = getApiKey();
   const userId = getUserId();
-  log.info('headless Auth config', {
+  log.info('Startup config', {
     configPath: getConfigPath(),
     environment: getEnvironment(),
     apiBaseUrl: getApiBaseUrl(),
@@ -469,7 +477,7 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     if (stopping || restarting) return;
     restarting = true;
     try {
-      log.info('headless Config changed, restarting session');
+      log.info('mindstudio.json changed, restarting dev session');
       emit('config-changed');
       await teardownSession(state);
       await startSession(cwd, opts, state, shutdown);
