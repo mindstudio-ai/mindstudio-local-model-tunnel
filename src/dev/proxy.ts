@@ -11,6 +11,7 @@
 // - WebSocket upgrades: forwarded transparently (enables HMR for any framework)
 // - CORS/PNA headers: added so the proxy works inside iframes from app.mindstudio.ai
 // - Caching disabled on all responses (this is local dev, always fresh)
+// - /__mindstudio_dev__/logs: intercepted locally for browser log capture
 //
 // The proxy is framework-agnostic — it doesn't know or care what dev server
 // is upstream. Detection is by content-type header, not URL patterns.
@@ -18,6 +19,7 @@
 import http from 'node:http';
 import type { Socket } from 'node:net';
 import { log } from './logger';
+import { appendBrowserLogEntries } from './browser-log';
 
 export class DevProxy {
   private server: http.Server | null = null;
@@ -104,6 +106,12 @@ export class DevProxy {
   ): void {
     const origin = clientReq.headers.origin;
 
+    // Browser log capture endpoint — intercepted locally, never forwarded upstream
+    if (clientReq.url === '/__mindstudio_dev__/logs' && clientReq.method === 'POST') {
+      this.handleBrowserLogs(clientReq, clientRes);
+      return;
+    }
+
     // CORS preflight for Private Network Access (PNA). Chrome blocks
     // public origins (like app.mindstudio.ai) from accessing localhost
     // unless the server explicitly opts in via these headers.
@@ -111,7 +119,7 @@ export class DevProxy {
       clientRes.writeHead(204, {
         'Access-Control-Allow-Origin': origin,
         'Access-Control-Allow-Private-Network': 'true',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': '*',
       });
       clientRes.end();
@@ -177,6 +185,34 @@ export class DevProxy {
     clientReq.pipe(upstreamReq);
   }
 
+  private handleBrowserLogs(
+    clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): void {
+    const chunks: Buffer[] = [];
+    clientReq.on('data', (chunk) => chunks.push(chunk));
+    clientReq.on('end', () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        const entries = JSON.parse(body);
+        if (Array.isArray(entries)) {
+          appendBrowserLogEntries(entries);
+        }
+      } catch {
+        // Malformed payload — ignore
+      }
+
+      const origin = clientReq.headers.origin;
+      const headers: Record<string, string> = {};
+      if (origin) {
+        headers['access-control-allow-origin'] = origin;
+        headers['access-control-allow-private-network'] = 'true';
+      }
+      clientRes.writeHead(204, headers);
+      clientRes.end();
+    });
+  }
+
   private handleUpgrade(
     clientReq: http.IncomingMessage,
     clientSocket: Socket,
@@ -230,16 +266,169 @@ export class DevProxy {
 }
 
 /**
- * Inject window.__MINDSTUDIO__ context into an HTML string.
- * Same logic as the platform's injectSessionContext.
+ * Inject window.__MINDSTUDIO__ context and browser log capture script into HTML.
  */
 function injectClientContext(
   html: string,
   context: Record<string, unknown>,
 ): string {
-  const script = `<script>window.__MINDSTUDIO__=${JSON.stringify(context)};</script>`;
+  const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(context)};</script>`;
+  const captureScript = `<script>${BROWSER_CAPTURE_SCRIPT}</script>`;
+  const injection = `${contextScript}\n${captureScript}`;
   if (html.includes('</head>')) {
-    return html.replace('</head>', `${script}\n</head>`);
+    return html.replace('</head>', `${injection}\n</head>`);
   }
-  return script + '\n' + html;
+  return injection + '\n' + html;
 }
+
+/**
+ * Lightweight browser capture script injected into every HTML response.
+ * Captures console output, JS errors, failed network requests, and user clicks.
+ * Batches entries and POSTs them to the proxy's /__mindstudio_dev__/logs endpoint.
+ */
+const BROWSER_CAPTURE_SCRIPT = `
+(function() {
+  if (window.__MINDSTUDIO_DEV__) return;
+  window.__MINDSTUDIO_DEV__ = true;
+
+  var buffer = [];
+  var flushTimer = null;
+  var FLUSH_INTERVAL = 2000;
+  var ENDPOINT = '/__mindstudio_dev__/logs';
+
+  function flush() {
+    if (buffer.length === 0) return;
+    var entries = buffer;
+    buffer = [];
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', ENDPOINT, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.send(JSON.stringify(entries));
+    } catch (e) {}
+  }
+
+  function scheduleFlush() {
+    if (flushTimer) return;
+    flushTimer = setTimeout(function() {
+      flushTimer = null;
+      flush();
+    }, FLUSH_INTERVAL);
+  }
+
+  function flushNow() {
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    flush();
+  }
+
+  function push(entry) {
+    buffer.push(entry);
+    scheduleFlush();
+  }
+
+  function pushAndFlush(entry) {
+    buffer.push(entry);
+    flushNow();
+  }
+
+  function serialize(val) {
+    if (val === null) return 'null';
+    if (val === undefined) return 'undefined';
+    if (val instanceof Error) return val.stack || val.message || String(val);
+    if (typeof val === 'object') {
+      try { return JSON.stringify(val); } catch (e) { return String(val); }
+    }
+    return String(val);
+  }
+
+  function describeElement(el) {
+    if (!el || !el.tagName) return '';
+    var s = el.tagName.toLowerCase();
+    if (el.id) s += '#' + el.id;
+    if (el.className && typeof el.className === 'string') {
+      s += '.' + el.className.trim().split(/\\s+/).join('.');
+    }
+    return s;
+  }
+
+  // Console capture
+  var levels = ['log', 'info', 'warn', 'error', 'debug'];
+  levels.forEach(function(level) {
+    var orig = console[level];
+    console[level] = function() {
+      if (orig) orig.apply(console, arguments);
+      var args = [];
+      for (var i = 0; i < arguments.length; i++) args.push(serialize(arguments[i]));
+      push({ type: 'console', level: level, args: args, url: location.href });
+    };
+  });
+
+  // Uncaught errors
+  window.addEventListener('error', function(e) {
+    pushAndFlush({
+      type: 'error',
+      message: e.message,
+      stack: e.error ? (e.error.stack || '') : '',
+      source: e.filename,
+      line: e.lineno,
+      column: e.colno,
+      url: location.href
+    });
+  });
+
+  // Unhandled promise rejections
+  window.addEventListener('unhandledrejection', function(e) {
+    var reason = e.reason || {};
+    pushAndFlush({
+      type: 'error',
+      message: reason.message || String(reason),
+      stack: reason.stack || '',
+      url: location.href
+    });
+  });
+
+  // Network failure capture (fetch only)
+  if (window.fetch) {
+    var origFetch = window.fetch;
+    window.fetch = function(input, init) {
+      var method = (init && init.method) || 'GET';
+      var url = (typeof input === 'string') ? input : (input && input.url) || String(input);
+      return origFetch.apply(this, arguments).then(function(response) {
+        if (!response.ok) {
+          var entry = { type: 'network', method: method, url: url, status: response.status, statusText: response.statusText };
+          try {
+            response.clone().text().then(function(body) {
+              entry.body = body.slice(0, 1000);
+              push(entry);
+            }).catch(function() { push(entry); });
+          } catch (e) { push(entry); }
+        }
+        return response;
+      }).catch(function(err) {
+        push({ type: 'network', method: method, url: url, error: err.message || String(err) });
+        throw err;
+      });
+    };
+  }
+
+  // Click capture
+  document.addEventListener('click', function(e) {
+    var target = e.target;
+    var text = (target.textContent || '').trim().slice(0, 100);
+    push({
+      type: 'interaction',
+      event: 'click',
+      target: describeElement(target),
+      text: text,
+      url: location.href
+    });
+  }, true);
+
+  // Flush on page unload
+  window.addEventListener('beforeunload', function() {
+    if (buffer.length > 0 && navigator.sendBeacon) {
+      navigator.sendBeacon(ENDPOINT, JSON.stringify(buffer));
+    }
+  });
+})();
+`.trim();

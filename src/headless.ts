@@ -67,6 +67,8 @@ import {
   readTableSources,
 } from './dev/app-config';
 import type { AppConfig } from './dev/types';
+import { initRequestLog, closeRequestLog } from './dev/request-log';
+import { initBrowserLog, closeBrowserLog } from './dev/browser-log';
 import {
   getApiKey,
   getApiBaseUrl,
@@ -160,6 +162,10 @@ async function startSession(
     });
     const session = await runner.start();
     state.runner = runner;
+
+    // Initialize logs for method execution tracking and browser capture
+    initRequestLog(cwd);
+    initBrowserLog(cwd);
 
     // Sync schema
     if (appConfig.tables.length > 0) {
@@ -383,6 +389,9 @@ async function teardownSession(state: SessionState): Promise<void> {
     await state.runner.stop().catch(() => {});
     state.runner = null;
   }
+
+  closeRequestLog();
+  closeBrowserLog();
 }
 
 /**
@@ -545,6 +554,39 @@ async function handleStdinCommand(
       }
       // Runner emits scenario-start/complete events which are already relayed
       await state.runner.runScenario(scenario);
+      break;
+    }
+
+    case 'run-method': {
+      if (!state.runner) {
+        emit('command-error', { message: 'No active session' });
+        return;
+      }
+      const methodName = cmd.method as string;
+      if (!methodName) {
+        emit('command-error', { message: 'run-method requires "method" (export name or ID)' });
+        return;
+      }
+      const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
+      const method = freshConfig?.methods.find((m) => m.export === methodName)
+        ?? freshConfig?.methods.find((m) => m.id === methodName);
+      if (!method) {
+        emit('command-error', { message: `Unknown method: ${methodName}` });
+        return;
+      }
+      const methodResult = await state.runner.runMethod({
+        methodExport: method.export,
+        methodPath: method.path,
+        input: cmd.input ?? {},
+      });
+      emit('method-run-completed', {
+        method: method.export,
+        success: methodResult.success,
+        output: methodResult.output ?? null,
+        error: methodResult.error ?? null,
+        stdout: methodResult.stdout ?? [],
+        duration: methodResult.duration,
+      });
       break;
     }
 

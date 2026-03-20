@@ -85,3 +85,76 @@ That's it -- the TUI, model discovery, and request handling all work off the `al
 - Use `getProviderBaseUrl()` and `getProviderInstallPath()` from `src/config.ts` for user-configurable paths/URLs
 - `commandExists()` from `src/providers/utils.ts` checks if a CLI tool is on PATH
 - Never check Python versions or other runtime details in `detect()` -- just check installed + running
+
+## Dev Mode (Headless)
+
+Headless mode (`--headless`) runs the dev tunnel without a TUI, outputting structured JSON events to stdout and logs to stderr. Used by sandbox environments and CI.
+
+### Logs
+
+Operational logs go to stderr at configurable levels (`error` > `warn` > `info` > `debug`). Default is `info`. Log messages use plain English without module-name prefixes (e.g. "Method failed", not "runner Request failed").
+
+### Request Log
+
+Every method and scenario execution is logged to `.logs/requests.ndjson` in the project root. Each line is a JSON object with full execution details, designed for AI agent consumption and frontend dashboards.
+
+**Method entries** (`type: "method"`) include:
+- `method`, `path` -- which method was called
+- `input` -- the exact input payload
+- `output` -- the return value (if successful)
+- `error` -- full error object with `message`, `stack`, `code`, `statusCode`, `response`, `body`, `cause` (if failed)
+- `stdout` -- captured `console.log`/`warn`/`error` output from the method
+- `databases` -- tables and schemas available at execution time
+- `duration` -- total time in ms
+- `stats` -- memory usage and execution time breakdown
+- `authorizationToken` -- the callback token for platform API calls
+
+**Scenario entries** (`type: "scenario"`) include the same fields, plus a `scenario` object with `id`, `name`, `export`, and `path`.
+
+The log auto-rotates to keep the most recent 300 entries.
+
+Useful commands:
+
+```bash
+tail -5 .logs/requests.ndjson | jq .          # last 5 executions
+grep '"success":false' .logs/requests.ndjson | jq .  # failed methods
+```
+
+### Stdin Commands
+
+Headless mode accepts NDJSON commands on stdin (one JSON object per line):
+
+**Run a method:**
+```json
+{"action": "run-method", "method": "listHaikus", "input": {"topic": "cats"}}
+```
+Looks up the method by export name (falls back to ID). Executes it directly with a fresh callback token -- the method's SDK calls (db queries, etc.) still go through the platform. Returns a `method-run-completed` event on stdout:
+```json
+{"event": "method-run-completed", "method": "listHaikus", "success": true, "output": {...}, "error": null, "duration": 145}
+```
+
+**Run a scenario:**
+```json
+{"action": "run-scenario", "scenarioId": "populated-boards"}
+```
+Resets the database, runs the seed function, and sets role overrides. Emits `scenario-started` and `scenario-completed` events.
+
+**Set/clear role override:**
+```json
+{"action": "impersonate", "roles": ["admin"]}
+{"action": "clear-impersonation"}
+```
+
+### File Watching
+
+- `mindstudio.json` is watched via chokidar. Changes trigger a full session restart (teardown + start).
+- Table source files declared in `mindstudio.json` are watched via chokidar. Changes trigger a schema sync without session restart.
+- Both watchers handle atomic file writes (write-tmp + rename) correctly on Linux.
+
+### Session Token Refresh
+
+If the platform returns a 401 during polling, the runner automatically initiates the device auth flow (opens browser for re-authorization). On success, the new token is saved and polling resumes. On failure, the session stops.
+
+### Method Execution
+
+Methods run in a persistent worker process (spawned via `fork()`) to avoid Node.js cold-start overhead on each invocation. The worker stays warm across method calls -- the Node runtime and SDK modules are loaded once. The worker is respawned if it crashes, and killed on session stop.

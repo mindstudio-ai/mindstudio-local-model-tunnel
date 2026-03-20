@@ -28,7 +28,9 @@ import { executeMethod, cleanupWorker } from './executor';
 import { getApiBaseUrl } from '../config';
 import { requestDeviceAuth, pollDeviceAuth } from '../api';
 import { setApiKey, setUserId } from '../config';
+import { randomBytes } from 'node:crypto';
 import { log } from './logger';
+import { logMethodExecution, logScenarioExecution } from './request-log';
 import type { DevProxy } from './proxy';
 import type { DevSession, DevRequest, DevResult, AppScenario } from './types';
 
@@ -139,6 +141,111 @@ export class DevRunner {
     }
   }
 
+  // Run a method directly (not via poll loop). Used by headless stdin commands
+  // and programmatic callers to test methods without a browser.
+  async runMethod(opts: {
+    methodExport: string;
+    methodPath: string;
+    input: unknown;
+  }): Promise<{ success: boolean; output?: unknown; error?: Record<string, unknown> | null; stdout?: string[]; duration: number }> {
+    if (!this.session || !this.transpiler) {
+      return { success: false, error: { message: 'Session not started' }, duration: 0 };
+    }
+
+    const requestId = randomBytes(8).toString('hex');
+    const startTime = Date.now();
+
+    devRequestEvents.emitStart({
+      id: requestId,
+      type: 'execute',
+      method: opts.methodExport,
+      timestamp: startTime,
+    });
+
+    log.info('Method received (direct)', { requestId, method: opts.methodExport });
+
+    try {
+      const authorizationToken = await fetchCallbackToken(this.appId, this.session.sessionId);
+      const transpiledPath = await this.transpiler.transpile(opts.methodPath);
+
+      const result = await executeMethod({
+        transpiledPath,
+        methodExport: opts.methodExport,
+        input: opts.input,
+        auth: this.session.auth,
+        databases: this.session.databases,
+        authorizationToken,
+        apiBaseUrl: getApiBaseUrl(),
+        projectRoot: this.projectRoot,
+      });
+
+      const duration = Date.now() - startTime;
+
+      if (result.success) {
+        log.info('Method complete', { requestId, method: opts.methodExport, duration });
+      } else {
+        log.warn('Method failed', {
+          requestId,
+          method: opts.methodExport,
+          duration,
+          error: result.error ? formatErrorForDisplay(result.error) : undefined,
+        });
+      }
+
+      logMethodExecution({
+        requestId,
+        sessionId: this.session.sessionId,
+        methodExport: opts.methodExport,
+        methodPath: opts.methodPath,
+        input: opts.input,
+        authorizationToken,
+        databases: this.session.databases,
+        result,
+        duration,
+      });
+
+      devRequestEvents.emitComplete({
+        id: requestId,
+        success: result.success,
+        duration,
+        error: result.error ? formatErrorForDisplay(result.error) : undefined,
+      });
+
+      return {
+        success: result.success,
+        output: result.output,
+        error: result.error ?? null,
+        stdout: result.stdout,
+        duration,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      const duration = Date.now() - startTime;
+      log.error('Method error', { requestId, method: opts.methodExport, duration, error: message });
+
+      logMethodExecution({
+        requestId,
+        sessionId: this.session.sessionId,
+        methodExport: opts.methodExport,
+        methodPath: opts.methodPath,
+        input: opts.input,
+        authorizationToken: '',
+        databases: this.session.databases,
+        result: { success: false, error: { message } },
+        duration,
+      });
+
+      devRequestEvents.emitComplete({
+        id: requestId,
+        success: false,
+        duration,
+        error: message,
+      });
+
+      return { success: false, error: { message }, duration };
+    }
+  }
+
   // Run a scenario: truncate tables → execute seed → impersonate roles.
   // Called directly (not via poll loop) by the TUI or headless stdin.
   async runScenario(scenario: AppScenario): Promise<{
@@ -189,6 +296,13 @@ export class DevRunner {
       if (!result.success) {
         const error = result.error?.message ?? 'Scenario seed failed';
         log.error('Scenario seed function failed', { id: scenario.id, error });
+        logScenarioExecution({
+          sessionId: this.session.sessionId,
+          scenario,
+          databases: this.session.databases,
+          result,
+          duration: Date.now() - startTime,
+        });
         devRequestEvents.emitScenarioComplete({
           id: scenario.id,
           success: false,
@@ -208,6 +322,13 @@ export class DevRunner {
 
       const duration = Date.now() - startTime;
       log.info('Scenario complete', { id: scenario.id, duration, roles: scenario.roles });
+      logScenarioExecution({
+        sessionId: this.session.sessionId,
+        scenario,
+        databases: this.session.databases,
+        result,
+        duration,
+      });
       devRequestEvents.emitScenarioComplete({
         id: scenario.id,
         success: true,
@@ -219,6 +340,14 @@ export class DevRunner {
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Unknown error';
       log.error('Scenario failed', { id: scenario.id, error });
+      logScenarioExecution({
+        sessionId: this.session.sessionId,
+        scenario,
+        databases: this.session.databases,
+        result: null,
+        infrastructureError: error,
+        duration: Date.now() - startTime,
+      });
       devRequestEvents.emitScenarioComplete({
         id: scenario.id,
         success: false,
@@ -366,6 +495,19 @@ export class DevRunner {
         });
       }
 
+      logMethodExecution({
+        requestId: request.requestId,
+        sessionId: this.session!.sessionId,
+        methodExport: request.methodExport,
+        methodPath: request.methodPath,
+        input: request.input,
+        roleOverride: request.roleOverride,
+        authorizationToken: request.authorizationToken,
+        databases: this.session!.databases,
+        result,
+        duration,
+      });
+
       devRequestEvents.emitComplete({
         id: request.requestId,
         success: result.success,
@@ -392,6 +534,19 @@ export class DevRunner {
       } catch (submitErr) {
         log.error('Failed to report method error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
       }
+
+      logMethodExecution({
+        requestId: request.requestId,
+        sessionId: this.session!.sessionId,
+        methodExport: request.methodExport,
+        methodPath: request.methodPath,
+        input: request.input,
+        roleOverride: request.roleOverride,
+        authorizationToken: request.authorizationToken,
+        databases: this.session!.databases,
+        result: { success: false, error: { message } },
+        duration: Date.now() - startTime,
+      });
 
       devRequestEvents.emitComplete({
         id: request.requestId,
