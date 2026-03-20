@@ -16,8 +16,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { spawn } from 'node:child_process';
-import { watch, type FSWatcher } from 'node:fs';
-import { join } from 'node:path';
+import { watchConfigFile } from '../../../dev/config-watcher';
 import { DevRunner } from '../../../dev/runner';
 import { DevProxy } from '../../../dev/proxy';
 import { devRequestEvents } from '../../../dev/events';
@@ -157,40 +156,26 @@ export function useDevSession(appConfig: AppConfig) {
   }, []);
 
   // Watch mindstudio.json for changes — restart session on edit
-  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
-    let watcher: FSWatcher | undefined;
-    try {
-      const configPath = join(process.cwd(), 'mindstudio.json');
-      watcher = watch(configPath, () => {
-        // Debounce — editors often write multiple times
-        clearTimeout(restartTimerRef.current);
-        restartTimerRef.current = setTimeout(async () => {
-          if (!mountedRef.current || phase !== 'running') return;
-          // Stop current session, re-enter ready phase (auto-starts)
-          cleanupTableWatchers();
-          proxyRef.current?.stop();
-          proxyRef.current = null;
-          devServer.stop();
-          if (runnerRef.current) {
-            await runnerRef.current.stop().catch(() => {});
-            runnerRef.current = null;
-          }
-          if (mountedRef.current) {
-            setSession(null);
-            setProxyPort(null);
-            setSyncResult(null);
-            setPhase('ready');
-          }
-        }, 500);
-      });
-    } catch {
-      // File might not exist yet
-    }
-    return () => {
-      clearTimeout(restartTimerRef.current);
-      watcher?.close();
-    };
+    const cleanup = watchConfigFile(process.cwd(), async () => {
+      if (!mountedRef.current || phase !== 'running') return;
+      // Stop current session, re-enter ready phase (auto-starts)
+      cleanupTableWatchers();
+      proxyRef.current?.stop();
+      proxyRef.current = null;
+      devServer.stop();
+      if (runnerRef.current) {
+        await runnerRef.current.stop().catch(() => {});
+        runnerRef.current = null;
+      }
+      if (mountedRef.current) {
+        setSession(null);
+        setProxyPort(null);
+        setSyncResult(null);
+        setPhase('ready');
+      }
+    });
+    return cleanup;
   }, [phase, devServer]);
 
   // Cleanup on unmount
