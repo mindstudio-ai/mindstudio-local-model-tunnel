@@ -53,7 +53,7 @@ export function watchTableFiles(
     dirToFiles.get(dir)!.add(file);
   }
 
-  log.info('table-watcher Watching files', {
+  log.info('Watching table source files', {
     dirs: dirToFiles.size,
     tables: tables.length,
   });

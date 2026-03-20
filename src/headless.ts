@@ -11,62 +11,21 @@
  * Does NOT start a dev server — the parent process manages that separately.
  * The tunnel just needs to know which port to proxy to.
  *
- * ## JSON Event Protocol
- *
- * Every line written to stdout is a JSON object with an `event` field:
- *
- * | Event                  | When                                    | Key Fields                                    |
- * |------------------------|-----------------------------------------|-----------------------------------------------|
- * | `session-starting`     | Session initializing                    | `appId`, `name`                               |
- * | `session-started`      | Platform session active, proxy running  | `sessionId`, `branch`, `proxyPort`, `proxyUrl`|
- * | `session-stopping`     | Graceful shutdown initiated             |                                               |
- * | `session-stopped`      | All resources cleaned up                |                                               |
- * | `session-expired`      | Platform expired the dev session        |                                               |
- * | `method-started`       | Method execution request received       | `id`, `method`                                |
- * | `method-completed`     | Method execution finished               | `id`, `success`, `duration`, `error?`         |
- * | `scenario-started`     | Scenario execution started              | `id`, `name`                                  |
- * | `scenario-completed`   | Scenario execution finished             | `id`, `success`, `duration`, `roles`, `error?`|
- * | `schema-sync-started`  | Table file changed, syncing schema      |                                               |
- * | `schema-sync-completed`| Schema synced to platform               | `created`, `altered`, `errors`                |
- * | `impersonation-changed`| Role override set or cleared            | `roles`                                       |
- * | `connection-lost`      | Lost connection, retrying with backoff  | `message`                                     |
- * | `connection-restored`  | Reconnected after connection loss       |                                               |
- * | `config-changed`       | mindstudio.json changed, restarting     |                                               |
- * | `config-error`         | Config invalid (non-fatal)              | `message`                                     |
- * | `command-error`        | Stdin command failed (non-fatal)        | `message`                                     |
- * | `error`                | Fatal startup error                     | `message`                                     |
- *
- * ## Usage
- *
- * CLI:
- * ```bash
- * mindstudio-local --headless --port 5173 --bind 0.0.0.0
- * ```
- *
- * Programmatic:
- * ```typescript
- * import { startHeadless } from '@mindstudio-ai/local-model-tunnel';
- *
- * await startHeadless({
- *   cwd: '/path/to/project',
- *   devPort: 5173,
- *   bindAddress: '0.0.0.0',
- * });
- * ```
- *
  * @module
  */
 
 import { DevRunner } from './dev/runner';
 import { DevProxy } from './dev/proxy';
-import { devRequestEvents } from './dev/events';
 import { syncSchema } from './dev/api';
 import {
   detectAppConfig,
   getWebInterfaceConfig,
   readTableSources,
 } from './dev/app-config';
-import type { AppConfig } from './dev/types';
+import { initRequestLog, closeRequestLog } from './dev/request-log';
+import { initBrowserLog, closeBrowserLog } from './dev/browser-log';
+import { subscribeDevEvents } from './dev/session-events';
+import { setupStdinCommands, type SessionState } from './dev/stdin-commands';
 import {
   getApiKey,
   getApiBaseUrl,
@@ -93,15 +52,8 @@ export interface HeadlessOptions {
   bindAddress?: string;
   /** Log level for stderr output. Defaults to 'info'. */
   logLevel?: LogLevel;
-}
-
-/** Mutable state shared across the session lifecycle, stdin commands, and file watcher. */
-interface SessionState {
-  runner: DevRunner | null;
-  proxy: DevProxy | null;
-  appConfig: AppConfig | null;
-  proxyPort: number | null;
-  unsubscribers: Array<() => void>;
+  /** URL for the browser agent script. Defaults to unpkg latest. Set to an ngrok URL for development. */
+  browserAgentUrl?: string;
 }
 
 /** Write a JSON event to stdout. */
@@ -109,11 +61,10 @@ function emit(event: string, data?: Record<string, unknown>): void {
   process.stdout.write(JSON.stringify({ event, ...data }) + '\n');
 }
 
-/**
- * Start a dev session: read config, start runner, sync schema, start proxy,
- * subscribe to events. Returns true on success, false on config/startup error
- * (non-fatal — caller can retry on next config change).
- */
+// ---------------------------------------------------------------------------
+// Session lifecycle
+// ---------------------------------------------------------------------------
+
 async function startSession(
   cwd: string,
   opts: HeadlessOptions,
@@ -125,9 +76,7 @@ async function startSession(
   // Read fresh config
   const appConfig = detectAppConfig(cwd);
   if (!appConfig) {
-    emit('config-error', {
-      message: 'No valid mindstudio.json found in ' + cwd,
-    });
+    emit('config-error', { message: 'No valid mindstudio.json found in ' + cwd });
     return false;
   }
 
@@ -152,30 +101,30 @@ async function startSession(
     const branch = detectGitBranch();
     const runner = new DevRunner(appConfig.appId, cwd, {
       branch,
-      methods: appConfig.methods.map((m) => ({
-        id: m.id,
-        export: m.export,
-        path: m.path,
-      })),
+      methods: appConfig.methods.map((m) => ({ id: m.id, export: m.export, path: m.path })),
     });
     const session = await runner.start();
     state.runner = runner;
+
+    // Initialize logs
+    initRequestLog(cwd);
+    initBrowserLog(cwd);
 
     // Sync schema
     if (appConfig.tables.length > 0) {
       try {
         const tableSources = readTableSources(appConfig, cwd);
         if (tableSources.length > 0) {
-          const syncResult = await syncSchema(
-            appConfig.appId,
-            session.sessionId,
-            tableSources,
-          );
+          const syncResult = await syncSchema(appConfig.appId, session.sessionId, tableSources);
           session.databases = syncResult.databases;
           emit('schema-sync-completed', {
             created: syncResult.created,
             altered: syncResult.altered,
             errors: syncResult.errors,
+          });
+        } else {
+          log.warn('No table source files found, skipping schema sync', {
+            expected: appConfig.tables.map((t) => t.path),
           });
         }
       } catch (err) {
@@ -187,18 +136,13 @@ async function startSession(
       }
     }
 
-    // Start proxy — sits in front of the dev server, injects __MINDSTUDIO__.
-    // Only started if we have a dev server port and the platform returned clientContext.
-    // In headless mode we don't start the dev server (caller manages it), but we
-    // do start the proxy so the preview URL works.
+    // Start proxy
     let proxyPort: number | null = null;
     if (devPort !== null && session.clientContext) {
-      const proxy = new DevProxy(devPort, session.clientContext, bindAddress);
+      const proxy = new DevProxy(devPort, session.clientContext, bindAddress, opts.browserAgentUrl);
       const preferred = opts.proxyPort ?? stablePort(appConfig.appId);
       proxyPort = await proxy.start(preferred);
-      runner.setProxyUrl(
-        `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}`,
-      );
+      runner.setProxyUrl(`http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}`);
       runner.setProxy(proxy);
       state.proxy = proxy;
     }
@@ -213,11 +157,7 @@ async function startSession(
         ? `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}/`
         : null,
       webInterfaceUrl: session.webInterfaceUrl,
-      roles: appConfig.roles.map((r) => ({
-        id: r.id,
-        name: r.name ?? r.id,
-        description: r.description,
-      })),
+      roles: appConfig.roles.map((r) => ({ id: r.id, name: r.name ?? r.id, description: r.description })),
       scenarios: appConfig.scenarios.map((s) => ({
         id: s.id,
         name: s.name ?? s.export,
@@ -227,87 +167,8 @@ async function startSession(
       })),
     });
 
-    // Subscribe to events and relay as JSON.
-    // Store unsubscribe functions so we can clean up on restart.
-    const unsubs = state.unsubscribers;
-
-    unsubs.push(
-      devRequestEvents.onStart((event) => {
-        emit('method-started', { id: event.id, method: event.method });
-      }),
-    );
-
-    unsubs.push(
-      devRequestEvents.onComplete((event) => {
-        emit('method-completed', {
-          id: event.id,
-          success: event.success,
-          duration: event.duration,
-          ...(event.error ? { error: event.error } : {}),
-        });
-      }),
-    );
-
-    unsubs.push(
-      devRequestEvents.onConnectionWarning((message) => {
-        emit('connection-lost', { message });
-      }),
-    );
-
-    unsubs.push(
-      devRequestEvents.onConnectionRestored(() => {
-        emit('connection-restored');
-      }),
-    );
-
-    unsubs.push(
-      devRequestEvents.onSessionExpired(() => {
-        emit('session-expired');
-        shutdown().then(() => process.exit(1));
-      }),
-    );
-
-    unsubs.push(
-      devRequestEvents.onAuthRefreshStart((url) => {
-        emit('auth-refresh-start', { url });
-      }),
-    );
-
-    unsubs.push(
-      devRequestEvents.onAuthRefreshSuccess(() => {
-        emit('auth-refresh-success');
-      }),
-    );
-
-    unsubs.push(
-      devRequestEvents.onAuthRefreshFailed(() => {
-        emit('auth-refresh-failed');
-      }),
-    );
-
-    unsubs.push(
-      devRequestEvents.onImpersonate((event) => {
-        emit('impersonation-changed', { roles: event.roles });
-      }),
-    );
-
-    unsubs.push(
-      devRequestEvents.onScenarioStart((event) => {
-        emit('scenario-started', { id: event.id, name: event.name });
-      }),
-    );
-
-    unsubs.push(
-      devRequestEvents.onScenarioComplete((event) => {
-        emit('scenario-completed', {
-          id: event.id,
-          success: event.success,
-          duration: event.duration,
-          roles: event.roles,
-          ...(event.error ? { error: event.error } : {}),
-        });
-      }),
-    );
+    // Subscribe to runner events
+    state.unsubscribers.push(...subscribeDevEvents(emit, shutdown));
 
     // Watch table source files for changes — auto-sync without session restart
     setupTableWatchers(cwd, state);
@@ -321,7 +182,6 @@ async function startSession(
   }
 }
 
-/** Set up table file watchers that auto-sync schema on change. */
 function setupTableWatchers(cwd: string, state: SessionState): void {
   if (!state.appConfig || state.appConfig.tables.length === 0) return;
 
@@ -331,38 +191,34 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
     if (!session) return;
 
     emit('schema-sync-started');
-    log.info('headless Table file changed, syncing schema');
+    log.info('Table source file changed, syncing schema');
 
     try {
       const tableSources = readTableSources(state.appConfig, cwd);
       if (tableSources.length > 0) {
-        const result = await syncSchema(
-          state.appConfig.appId,
-          session.sessionId,
-          tableSources,
-        );
+        const result = await syncSchema(state.appConfig.appId, session.sessionId, tableSources);
         session.databases = result.databases;
         emit('schema-sync-completed', {
           created: result.created,
           altered: result.altered,
           errors: result.errors,
         });
-        log.info('headless Schema synced', {
-          created: result.created,
-          altered: result.altered,
+        log.info('Schema sync complete', { created: result.created, altered: result.altered });
+      } else {
+        log.warn('Table source file change detected but file(s) still missing', {
+          expected: state.appConfig.tables.map((t) => t.path),
         });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Schema sync failed';
       emit('command-error', { message });
-      log.warn('headless Schema sync failed', { error: message });
+      log.warn('Schema sync failed', { error: message });
     }
   });
 
   state.unsubscribers.push(cleanup);
 }
 
-/** Tear down the current session: unsubscribe events, stop proxy, stop runner. */
 async function teardownSession(state: SessionState): Promise<void> {
   for (const unsub of state.unsubscribers) unsub();
   state.unsubscribers = [];
@@ -375,43 +231,26 @@ async function teardownSession(state: SessionState): Promise<void> {
     await state.runner.stop().catch(() => {});
     state.runner = null;
   }
+
+  closeRequestLog();
+  closeBrowserLog();
 }
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
 
 /**
  * Start the dev tunnel in headless mode.
- *
- * Reads mindstudio.json, starts a platform session, syncs schema,
- * starts the local proxy, and enters the poll loop. Outputs JSON
- * events to stdout. Does not return until shutdown (SIGTERM/SIGINT).
- *
- * Watches mindstudio.json for changes and automatically restarts the
- * session when the config is updated (same behavior as the TUI).
- *
- * Does NOT start a dev server — the caller is responsible for that.
- *
- * @param opts - Configuration options
- *
- * @example
- * ```typescript
- * // From a C&C server — spawn and read events
- * import { startHeadless } from '@mindstudio-ai/local-model-tunnel';
- *
- * await startHeadless({
- *   cwd: '/workspace/my-app',
- *   devPort: 5173,
- *   bindAddress: '0.0.0.0',
- * });
- * ```
  */
 export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   initLoggerHeadless(opts.logLevel ?? 'info');
 
   const cwd = opts.cwd ?? process.cwd();
 
-  // Log auth config so sandbox operators can diagnose issues
   const apiKey = getApiKey();
   const userId = getUserId();
-  log.info('headless Auth config', {
+  log.info('Startup config', {
     configPath: getConfigPath(),
     environment: getEnvironment(),
     apiBaseUrl: getApiBaseUrl(),
@@ -430,11 +269,9 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     unsubscribers: [],
   };
 
-  // File watcher state
   let restarting = false;
   let cleanupConfigWatcher: (() => void) | undefined;
 
-  // Graceful shutdown
   let stopping = false;
   const shutdown = async () => {
     if (stopping) return;
@@ -445,31 +282,24 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     emit('session-stopped');
   };
 
-  process.on('SIGTERM', () => {
-    shutdown().then(() => process.exit(0));
-  });
-  process.on('SIGINT', () => {
-    shutdown().then(() => process.exit(0));
-  });
+  process.on('SIGTERM', () => { shutdown().then(() => process.exit(0)); });
+  process.on('SIGINT', () => { shutdown().then(() => process.exit(0)); });
 
   // Initial session start
   const ok = await startSession(cwd, opts, state, shutdown);
   if (!ok && !state.appConfig) {
-    // No valid config at all on first try — emit fatal error.
-    // The watcher below will still start if the file exists, so the
-    // process stays alive to retry on config fix.
     emit('error', { message: 'No valid mindstudio.json found in ' + cwd });
   }
 
-  // Stdin command loop — reads from state so it always sees current runner/config
-  setupStdinCommands(state, cwd);
+  // Stdin command loop
+  setupStdinCommands(state, cwd, emit);
 
-  // Watch mindstudio.json for changes — restart session on edit
+  // Watch mindstudio.json for changes
   cleanupConfigWatcher = watchConfigFile(cwd, async () => {
     if (stopping || restarting) return;
     restarting = true;
     try {
-      log.info('headless Config changed, restarting session');
+      log.info('mindstudio.json changed, restarting dev session');
       emit('config-changed');
       await teardownSession(state);
       await startSession(cwd, opts, state, shutdown);
@@ -480,90 +310,4 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
 
   // Keep the process alive — the poll loop runs in DevRunner
   await new Promise<void>(() => {});
-}
-
-/**
- * Read NDJSON commands from stdin and dispatch them.
- * Uses the shared state object so commands always reference the current session.
- */
-function setupStdinCommands(state: SessionState, cwd: string): void {
-  if (!process.stdin.readable) return;
-
-  let buffer = '';
-  process.stdin.setEncoding('utf-8');
-  process.stdin.on('data', (chunk: string) => {
-    buffer += chunk;
-    let idx: number;
-    while ((idx = buffer.indexOf('\n')) !== -1) {
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (!line) continue;
-
-      try {
-        const cmd = JSON.parse(line) as {
-          action: string;
-          [key: string]: unknown;
-        };
-        handleStdinCommand(cmd, state, cwd);
-      } catch {
-        emit('command-error', {
-          message: `Invalid JSON on stdin: ${line.slice(0, 100)}`,
-        });
-      }
-    }
-  });
-}
-
-async function handleStdinCommand(
-  cmd: { action: string; [key: string]: unknown },
-  state: SessionState,
-  cwd: string,
-): Promise<void> {
-  switch (cmd.action) {
-    case 'run-scenario': {
-      if (!state.runner) {
-        emit('command-error', { message: 'No active session' });
-        return;
-      }
-      const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
-      const scenario = freshConfig?.scenarios.find(
-        (s) => s.id === cmd.scenarioId,
-      );
-      if (!scenario) {
-        emit('command-error', {
-          message: `Unknown scenario: ${cmd.scenarioId}`,
-        });
-        return;
-      }
-      // Runner emits scenario-start/complete events which are already relayed
-      await state.runner.runScenario(scenario);
-      break;
-    }
-
-    case 'impersonate': {
-      if (!state.runner) {
-        emit('command-error', { message: 'No active session' });
-        return;
-      }
-      const roles = cmd.roles as string[];
-      if (!Array.isArray(roles)) {
-        emit('command-error', { message: 'impersonate requires roles array' });
-        return;
-      }
-      await state.runner.setImpersonation(roles);
-      break;
-    }
-
-    case 'clear-impersonation': {
-      if (!state.runner) {
-        emit('command-error', { message: 'No active session' });
-        return;
-      }
-      await state.runner.clearImpersonation();
-      break;
-    }
-
-    default:
-      emit('command-error', { message: `Unknown action: ${cmd.action}` });
-  }
 }

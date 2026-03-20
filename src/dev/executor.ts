@@ -173,7 +173,7 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
   workerScriptPath = scriptPath;
   workerProjectRoot = projectRoot;
 
-  log.debug('executor Spawning persistent worker', { cwd: projectRoot, scriptPath });
+  log.debug('Spawning method execution process', { cwd: projectRoot, scriptPath });
 
   const child = fork(scriptPath, [], {
     cwd: projectRoot,
@@ -206,7 +206,7 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
 
   // If worker dies unexpectedly, reject all pending requests
   child.on('exit', (code) => {
-    log.warn('executor Worker exited', { code });
+    log.warn('Method execution process exited unexpectedly', { code });
     for (const [id, req] of pending) {
       clearTimeout(req.timer);
       req.resolve({ success: false, error: { message: `Worker process exited with code ${code}` } });
@@ -218,11 +218,11 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
   // Capture stderr for debugging
   child.stderr?.on('data', (chunk: Buffer) => {
     const text = chunk.toString().trim();
-    if (text) log.debug('executor Worker stderr', { text: text.slice(0, 500) });
+    if (text) log.warn('Method process stderr', { text: text.slice(0, 500) });
   });
 
   worker = child;
-  log.info('executor Persistent worker ready', { pid: child.pid });
+  log.info('Method execution process ready', { pid: child.pid });
   return child;
 }
 
@@ -240,12 +240,12 @@ export async function executeMethod(
 
   const id = randomBytes(8).toString('hex');
 
-  log.debug('executor Sending to worker', { id, methodExport: opts.methodExport });
+  log.debug('Sending method to execution process', { id, methodExport: opts.methodExport });
 
   return new Promise<ExecuteMethodResult>((resolve) => {
     const timer = setTimeout(() => {
       pending.delete(id);
-      log.warn('executor Timeout after 30s', { id, methodExport: opts.methodExport });
+      log.warn('Method execution timed out', { id, methodExport: opts.methodExport });
       resolve({
         success: false,
         error: { message: 'Method execution timed out after 30s' },
