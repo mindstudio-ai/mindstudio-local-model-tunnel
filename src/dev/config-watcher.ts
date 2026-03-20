@@ -31,12 +31,11 @@ export function watchConfigFile(
   watcher.on('all', () => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-      log.info('config-watcher mindstudio.json changed');
       onChanged();
     }, 500);
   });
 
-  log.info('config-watcher Watching mindstudio.json', { path: configPath });
+  log.info('Watching mindstudio.json for changes', { path: configPath });
 
   return () => {
     clearTimeout(debounceTimer);

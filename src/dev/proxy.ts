@@ -11,27 +11,84 @@
 // - WebSocket upgrades: forwarded transparently (enables HMR for any framework)
 // - CORS/PNA headers: added so the proxy works inside iframes from app.mindstudio.ai
 // - Caching disabled on all responses (this is local dev, always fresh)
+// - /__mindstudio_dev__/*: intercepted locally for browser agent communication
 //
 // The proxy is framework-agnostic — it doesn't know or care what dev server
 // is upstream. Detection is by content-type header, not URL patterns.
 
 import http from 'node:http';
+import { randomBytes } from 'node:crypto';
 import type { Socket } from 'node:net';
 import { log } from './logger';
+import { appendBrowserLogEntries } from './browser-log';
+
+interface PendingCommand {
+  id: string;
+  steps: Array<Record<string, unknown>>;
+}
+
+interface PendingResult {
+  resolve: (result: Record<string, unknown>) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
 
 export class DevProxy {
   private server: http.Server | null = null;
   private proxyPort: number | null = null;
+  private commandQueue: PendingCommand[] = [];
+  private pendingResults = new Map<string, PendingResult>();
+  private lastBrowserPoll = 0;
 
   constructor(
     private readonly upstreamPort: number,
     private clientContext: Record<string, unknown>,
     private readonly bindAddress: string = '127.0.0.1',
+    // Dev override: 'https://seankoji-msba.ngrok.io/index.js'
+    private readonly browserAgentUrl?: string,
   ) {}
 
   updateClientContext(context: Record<string, unknown>): void {
     this.clientContext = context;
-    log.info('proxy Client context updated');
+    log.info('Dev proxy context updated after role change');
+  }
+
+  /**
+   * Whether a browser agent is actively polling for commands.
+   * Based on whether we've seen a poll within the last 500ms.
+   */
+  isBrowserConnected(): boolean {
+    return Date.now() - this.lastBrowserPoll < 500;
+  }
+
+  /**
+   * Dispatch a browser command and wait for the result.
+   * The command is queued for the browser agent to pick up via polling.
+   * Returns a promise that resolves when the browser posts the result back.
+   */
+  dispatchBrowserCommand(
+    steps: Array<Record<string, unknown>>,
+    timeoutMs = 30_000,
+  ): Promise<Record<string, unknown>> {
+    if (!this.isBrowserConnected()) {
+      return Promise.reject(
+        new Error('No browser connected, please refresh the MindStudio preview'),
+      );
+    }
+
+    const id = randomBytes(4).toString('hex');
+
+    log.info('Browser command queued', { id, stepCount: steps.length, commands: steps.map((s) => s.command) });
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingResults.delete(id);
+        log.warn('Browser command timed out', { id, pendingCount: this.pendingResults.size, queueLength: this.commandQueue.length });
+        reject(new Error('Browser command timed out'));
+      }, timeoutMs);
+
+      this.pendingResults.set(id, { resolve, timeout });
+      this.commandQueue.push({ id, steps });
+    });
   }
 
   async start(preferredPort?: number): Promise<number> {
@@ -54,10 +111,10 @@ export class DevProxy {
         const assignedPort = await this.listenOnPort(server, port);
         this.server = server;
         this.proxyPort = assignedPort;
-        log.info('proxy Started', { port: assignedPort, bind: this.bindAddress });
+        log.info('Dev proxy started', { port: assignedPort, bind: this.bindAddress });
         return assignedPort;
       } catch {
-        log.warn('proxy Port in use, trying next', { port });
+        log.warn('Proxy port in use, trying next', { port });
         // Port in use — try next
       }
     }
@@ -87,94 +144,233 @@ export class DevProxy {
 
   stop(): void {
     if (this.server) {
-      log.info('proxy Stopping');
+      log.info('Dev proxy stopping');
       this.server.close();
       this.server = null;
       this.proxyPort = null;
     }
+
+    // Reject pending commands so callers don't hang
+    for (const [id, pending] of this.pendingResults) {
+      clearTimeout(pending.timeout);
+      pending.resolve({ id, steps: [], error: 'Proxy stopped' });
+    }
+    this.pendingResults.clear();
+    this.commandQueue.length = 0;
   }
 
   getPort(): number | null {
     return this.proxyPort;
   }
 
+  // ---------------------------------------------------------------------------
+  // CORS helper
+  // ---------------------------------------------------------------------------
+
+  private corsHeaders(req: http.IncomingMessage): Record<string, string> {
+    const origin = req.headers.origin;
+    if (!origin) return {};
+    return {
+      'access-control-allow-origin': origin,
+      'access-control-allow-private-network': 'true',
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Request routing
+  // ---------------------------------------------------------------------------
+
   private handleRequest(
     clientReq: http.IncomingMessage,
     clientRes: http.ServerResponse,
   ): void {
-    const origin = clientReq.headers.origin;
+    // Browser agent endpoints — intercepted locally, never forwarded upstream
+    if (clientReq.url?.startsWith('/__mindstudio_dev__/')) {
+      if (clientReq.url === '/__mindstudio_dev__/logs' && clientReq.method === 'POST') {
+        this.handleBrowserLogs(clientReq, clientRes);
+        return;
+      }
+      if (clientReq.url === '/__mindstudio_dev__/commands' && clientReq.method === 'GET') {
+        this.handleGetCommand(clientReq, clientRes);
+        return;
+      }
+      if (clientReq.url === '/__mindstudio_dev__/results' && clientReq.method === 'POST') {
+        this.handlePostResult(clientReq, clientRes);
+        return;
+      }
+    }
 
-    // CORS preflight for Private Network Access (PNA). Chrome blocks
-    // public origins (like app.mindstudio.ai) from accessing localhost
-    // unless the server explicitly opts in via these headers.
-    if (clientReq.method === 'OPTIONS' && origin) {
+    // CORS preflight
+    if (clientReq.method === 'OPTIONS' && clientReq.headers.origin) {
       clientRes.writeHead(204, {
-        'Access-Control-Allow-Origin': origin,
-        'Access-Control-Allow-Private-Network': 'true',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': '*',
+        ...this.corsHeaders(clientReq),
+        'access-control-allow-methods': 'GET, POST, OPTIONS',
+        'access-control-allow-headers': '*',
       });
       clientRes.end();
       return;
     }
 
-    const options: http.RequestOptions = {
-      hostname: '127.0.0.1',
-      port: this.upstreamPort,
-      path: clientReq.url,
-      method: clientReq.method,
-      headers: { ...clientReq.headers, host: `localhost:${this.upstreamPort}` },
-    };
+    // Forward to upstream dev server
+    this.forwardToUpstream(clientReq, clientRes);
+  }
 
-    const upstreamReq = http.request(options, (upstreamRes) => {
-      const contentType = upstreamRes.headers['content-type'] ?? '';
-      const isHtml = contentType.startsWith('text/html');
+  // ---------------------------------------------------------------------------
+  // Upstream forwarding
+  // ---------------------------------------------------------------------------
 
-      if (isHtml) {
-        // Buffer HTML response, inject context, then send
-        const chunks: Buffer[] = [];
-        upstreamRes.on('data', (chunk) => chunks.push(chunk));
-        upstreamRes.on('end', () => {
-          let html = Buffer.concat(chunks).toString('utf-8');
-          html = injectClientContext(html, this.clientContext);
+  private forwardToUpstream(
+    clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): void {
+    const cors = this.corsHeaders(clientReq);
 
-          // Copy headers but update content-length and disable caching
-          const headers = { ...upstreamRes.headers };
-          headers['content-length'] = String(Buffer.byteLength(html, 'utf-8'));
-          headers['cache-control'] = 'no-store, no-cache, must-revalidate';
-          delete headers['content-encoding']; // buffering + injection invalidates gzip/br
+    const upstreamReq = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: this.upstreamPort,
+        path: clientReq.url,
+        method: clientReq.method,
+        headers: { ...clientReq.headers, host: `localhost:${this.upstreamPort}` },
+      },
+      (upstreamRes) => {
+        const contentType = upstreamRes.headers['content-type'] ?? '';
+        const isHtml = contentType.startsWith('text/html');
+
+        if (isHtml) {
+          const chunks: Buffer[] = [];
+          upstreamRes.on('data', (chunk) => chunks.push(chunk));
+          upstreamRes.on('end', () => {
+            let html = Buffer.concat(chunks).toString('utf-8');
+            html = this.injectScripts(html);
+
+            const headers = {
+              ...upstreamRes.headers,
+              ...cors,
+              'content-length': String(Buffer.byteLength(html, 'utf-8')),
+              'cache-control': 'no-store, no-cache, must-revalidate',
+            };
+            delete headers['content-encoding'];
+            delete headers['etag'];
+
+            log.debug('Dev proxy injected context into HTML', { path: clientReq.url, size: html.length });
+            clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
+            clientRes.end(html);
+          });
+        } else {
+          const headers = {
+            ...upstreamRes.headers,
+            ...cors,
+            'cache-control': 'no-store, no-cache, must-revalidate',
+          };
           delete headers['etag'];
-          if (origin) {
-            headers['access-control-allow-origin'] = origin;
-            headers['access-control-allow-private-network'] = 'true';
-          }
-
-          log.debug('proxy HTML injected', { path: clientReq.url, size: html.length });
           clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
-          clientRes.end(html);
-        });
-      } else {
-        // Non-HTML: pipe through, disable caching
-        const headers = { ...upstreamRes.headers };
-        headers['cache-control'] = 'no-store, no-cache, must-revalidate';
-        delete headers['etag'];
-        if (origin) {
-          headers['access-control-allow-origin'] = origin;
-          headers['access-control-allow-private-network'] = 'true';
+          upstreamRes.pipe(clientRes);
         }
-        clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
-        upstreamRes.pipe(clientRes);
-      }
-    });
+      },
+    );
 
     upstreamReq.on('error', (err) => {
-      log.warn('proxy Upstream error', { path: clientReq.url, error: err.message });
+      log.warn('Dev proxy cannot reach dev server', { path: clientReq.url, error: err.message });
       clientRes.writeHead(502);
       clientRes.end(`Proxy error: ${err.message}`);
     });
 
-    // Forward request body
     clientReq.pipe(upstreamReq);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Browser agent endpoints
+  // ---------------------------------------------------------------------------
+
+  private handleBrowserLogs(
+    clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): void {
+    const chunks: Buffer[] = [];
+    clientReq.on('data', (chunk) => chunks.push(chunk));
+    clientReq.on('end', () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        const entries = JSON.parse(body);
+        if (Array.isArray(entries)) {
+          appendBrowserLogEntries(entries);
+        }
+      } catch {
+        // Malformed payload — ignore
+      }
+      clientRes.writeHead(204, this.corsHeaders(clientReq));
+      clientRes.end();
+    });
+  }
+
+  private handleGetCommand(
+    clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): void {
+    this.lastBrowserPoll = Date.now();
+
+    const command = this.commandQueue.shift();
+    if (command) {
+      log.info('Browser command dispatched to agent', { id: command.id, commands: command.steps.map((s) => s.command) });
+      clientRes.writeHead(200, {
+        ...this.corsHeaders(clientReq),
+        'content-type': 'application/json',
+        'cache-control': 'no-store',
+      });
+      clientRes.end(JSON.stringify(command));
+    } else {
+      clientRes.writeHead(204, {
+        ...this.corsHeaders(clientReq),
+        'cache-control': 'no-store',
+      });
+      clientRes.end();
+    }
+  }
+
+  private handlePostResult(
+    clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): void {
+    const chunks: Buffer[] = [];
+    clientReq.on('data', (chunk) => chunks.push(chunk));
+    clientReq.on('end', () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        const result = JSON.parse(body);
+        if (result?.id) {
+          const pending = this.pendingResults.get(result.id);
+          if (pending) {
+            log.info('Browser command result received', { id: result.id, stepCount: result.steps?.length, duration: result.duration });
+            clearTimeout(pending.timeout);
+            this.pendingResults.delete(result.id);
+            pending.resolve(result);
+          } else {
+            log.warn('Browser command result received but no pending command found', { id: result.id, pendingIds: [...this.pendingResults.keys()] });
+          }
+        } else {
+          log.warn('Browser command result received with no id', { bodyLength: body.length });
+        }
+      } catch (err) {
+        log.warn('Browser command result parse error', { error: err instanceof Error ? err.message : String(err) });
+      }
+      clientRes.writeHead(204, this.corsHeaders(clientReq));
+      clientRes.end();
+    });
+  }
+
+  /**
+   * Inject window.__MINDSTUDIO__ context and browser agent script tag into HTML.
+   */
+  private injectScripts(html: string): string {
+    const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(this.clientContext)};</script>`;
+    const agentUrl = this.browserAgentUrl || 'https://unpkg.com/@mindstudio-ai/browser-agent/dist/index.js';
+    const agentScript = `<script async src="${agentUrl}"></script>`;
+    const injection = `${contextScript}\n${agentScript}`;
+    if (html.includes('</head>')) {
+      return html.replace('</head>', `${injection}\n</head>`);
+    }
+    return injection + '\n' + html;
   }
 
   private handleUpgrade(
@@ -182,7 +378,7 @@ export class DevProxy {
     clientSocket: Socket,
     head: Buffer,
   ): void {
-    log.debug('proxy WebSocket upgrade', { path: clientReq.url });
+    log.debug('Dev proxy WebSocket upgrade', { path: clientReq.url });
     const options: http.RequestOptions = {
       hostname: '127.0.0.1',
       port: this.upstreamPort,
@@ -227,19 +423,4 @@ export class DevProxy {
 
     upstreamReq.end();
   }
-}
-
-/**
- * Inject window.__MINDSTUDIO__ context into an HTML string.
- * Same logic as the platform's injectSessionContext.
- */
-function injectClientContext(
-  html: string,
-  context: Record<string, unknown>,
-): string {
-  const script = `<script>window.__MINDSTUDIO__=${JSON.stringify(context)};</script>`;
-  if (html.includes('</head>')) {
-    return html.replace('</head>', `${script}\n</head>`);
-  }
-  return script + '\n' + html;
 }

@@ -28,7 +28,10 @@ import { executeMethod, cleanupWorker } from './executor';
 import { getApiBaseUrl } from '../config';
 import { requestDeviceAuth, pollDeviceAuth } from '../api';
 import { setApiKey, setUserId } from '../config';
+import { randomBytes } from 'node:crypto';
 import { log } from './logger';
+import { logMethodExecution, logScenarioExecution } from './request-log';
+import { formatErrorForDisplay } from './format-error';
 import type { DevProxy } from './proxy';
 import type { DevSession, DevRequest, DevResult, AppScenario } from './types';
 
@@ -68,14 +71,14 @@ export class DevRunner {
       throw new Error('DevRunner is already running');
     }
 
-    log.info('runner Starting session', { appId: this.appId, branch: this.startOpts.branch });
+    log.info('Dev session starting', { appId: this.appId, branch: this.startOpts.branch });
     const session = await startDevSession(this.appId, this.startOpts);
     this.session = session;
     this.transpiler = new Transpiler(this.projectRoot);
     this.isRunning = true;
     this.backoffMs = 1000;
 
-    log.info('runner Session started', { sessionId: session.sessionId, branch: session.branch });
+    log.info('Dev session started', { sessionId: session.sessionId, branch: session.branch });
 
     // Start poll loop in background
     this.pollLoop();
@@ -84,14 +87,14 @@ export class DevRunner {
   }
 
   async stop(): Promise<void> {
-    log.info('runner Stopping session');
+    log.info('Dev session stopping');
     this.isRunning = false;
 
     if (this.session) {
       try {
         await stopDevSession(this.appId, this.session.sessionId);
       } catch (err) {
-        log.warn('runner Failed to stop session cleanly', { error: err instanceof Error ? err.message : String(err) });
+        log.warn('Failed to stop dev session cleanly', { error: err instanceof Error ? err.message : String(err) });
       }
       this.session = null;
     }
@@ -111,7 +114,7 @@ export class DevRunner {
   // Set role override for subsequent method executions.
   async setImpersonation(roles: string[]): Promise<void> {
     if (!this.session) return;
-    log.info('runner Impersonating', { roles });
+    log.info('Setting role override', { roles });
     const result = await impersonate(this.appId, this.session.sessionId, roles);
     await this.refreshClientContext();
     devRequestEvents.emitImpersonate({ roles: result.roles });
@@ -120,7 +123,7 @@ export class DevRunner {
   // Clear role override — revert to session's default roles.
   async clearImpersonation(): Promise<void> {
     if (!this.session) return;
-    log.info('runner Clearing impersonation');
+    log.info('Clearing role override');
     const result = await impersonate(this.appId, this.session.sessionId, null);
     await this.refreshClientContext();
     devRequestEvents.emitImpersonate({ roles: result.roles });
@@ -135,7 +138,112 @@ export class DevRunner {
       this.session.clientContext = context;
       this.proxy.updateClientContext(context);
     } catch (err) {
-      log.warn('runner Failed to refresh client context', { error: err instanceof Error ? err.message : String(err) });
+      log.warn('Failed to refresh session context after role change', { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // Run a method directly (not via poll loop). Used by headless stdin commands
+  // and programmatic callers to test methods without a browser.
+  async runMethod(opts: {
+    methodExport: string;
+    methodPath: string;
+    input: unknown;
+  }): Promise<{ success: boolean; output?: unknown; error?: Record<string, unknown> | null; stdout?: string[]; duration: number }> {
+    if (!this.session || !this.transpiler) {
+      return { success: false, error: { message: 'Session not started' }, duration: 0 };
+    }
+
+    const requestId = randomBytes(8).toString('hex');
+    const startTime = Date.now();
+
+    devRequestEvents.emitStart({
+      id: requestId,
+      type: 'execute',
+      method: opts.methodExport,
+      timestamp: startTime,
+    });
+
+    log.info('Method received (direct)', { requestId, method: opts.methodExport });
+
+    try {
+      const authorizationToken = await fetchCallbackToken(this.appId, this.session.sessionId);
+      const transpiledPath = await this.transpiler.transpile(opts.methodPath);
+
+      const result = await executeMethod({
+        transpiledPath,
+        methodExport: opts.methodExport,
+        input: opts.input,
+        auth: this.session.auth,
+        databases: this.session.databases,
+        authorizationToken,
+        apiBaseUrl: getApiBaseUrl(),
+        projectRoot: this.projectRoot,
+      });
+
+      const duration = Date.now() - startTime;
+
+      if (result.success) {
+        log.info('Method complete', { requestId, method: opts.methodExport, duration });
+      } else {
+        log.warn('Method failed', {
+          requestId,
+          method: opts.methodExport,
+          duration,
+          error: result.error ? formatErrorForDisplay(result.error) : undefined,
+        });
+      }
+
+      logMethodExecution({
+        requestId,
+        sessionId: this.session.sessionId,
+        methodExport: opts.methodExport,
+        methodPath: opts.methodPath,
+        input: opts.input,
+        authorizationToken,
+        databases: this.session.databases,
+        result,
+        duration,
+      });
+
+      devRequestEvents.emitComplete({
+        id: requestId,
+        success: result.success,
+        duration,
+        error: result.error ? formatErrorForDisplay(result.error) : undefined,
+      });
+
+      return {
+        success: result.success,
+        output: result.output,
+        error: result.error ?? null,
+        stdout: result.stdout,
+        duration,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      const duration = Date.now() - startTime;
+      log.error('Method error', { requestId, method: opts.methodExport, duration, error: message });
+
+      logMethodExecution({
+        requestId,
+        sessionId: this.session.sessionId,
+        methodExport: opts.methodExport,
+        methodPath: opts.methodPath,
+        input: opts.input,
+        authorizationToken: '',
+        databases: this.session.databases,
+        result: { success: false, error: { message } },
+        duration,
+      });
+
+      devRequestEvents.emitComplete({
+        id: requestId,
+        success: false,
+        duration,
+        error: message,
+      });
+
+      return { success: false, error: { message }, duration };
     }
   }
 
@@ -158,24 +266,23 @@ export class DevRunner {
       timestamp: startTime,
     });
 
-    log.info('runner Running scenario', { id: scenario.id, name: scenarioName });
+    log.info('Scenario starting', { id: scenario.id, name: scenarioName });
 
     try {
       // 1. Truncate all tables (clean slate)
-      log.debug('runner Truncating database for scenario');
+      log.info('Resetting database for scenario');
       const databases = await resetDevDatabase(this.appId, this.session.sessionId, 'truncate');
       this.session.databases = databases;
 
       // 2. Transpile and execute the seed function
-      log.debug('runner Transpiling scenario', { path: scenario.path });
+      log.info('Transpiling scenario', { path: scenario.path });
       const transpiledPath = await this.transpiler.transpile(scenario.path);
 
       // Fetch a callback token for the seed execution — same scoping as
       // poll-based tokens, but not tied to a poll request.
-      log.debug('runner Fetching callback token for scenario');
       const authorizationToken = await fetchCallbackToken(this.appId, this.session.sessionId);
 
-      log.debug('runner Executing scenario seed', { export: scenario.export });
+      log.info('Running scenario seed function', { export: scenario.export });
       const result = await executeMethod({
         transpiledPath,
         methodExport: scenario.export,
@@ -189,7 +296,14 @@ export class DevRunner {
 
       if (!result.success) {
         const error = result.error?.message ?? 'Scenario seed failed';
-        log.error('runner Scenario seed failed', { id: scenario.id, error });
+        log.error('Scenario seed function failed', { id: scenario.id, error });
+        logScenarioExecution({
+          sessionId: this.session.sessionId,
+          scenario,
+          databases: this.session.databases,
+          result,
+          duration: Date.now() - startTime,
+        });
         devRequestEvents.emitScenarioComplete({
           id: scenario.id,
           success: false,
@@ -202,13 +316,20 @@ export class DevRunner {
 
       // 3. Impersonate the scenario's roles
       if (scenario.roles.length > 0) {
-        log.debug('runner Impersonating for scenario', { roles: scenario.roles });
+        log.info('Setting role override for scenario', { roles: scenario.roles });
         await impersonate(this.appId, this.session.sessionId, scenario.roles);
         await this.refreshClientContext();
       }
 
       const duration = Date.now() - startTime;
-      log.info('runner Scenario complete', { id: scenario.id, duration, roles: scenario.roles });
+      log.info('Scenario complete', { id: scenario.id, duration, roles: scenario.roles });
+      logScenarioExecution({
+        sessionId: this.session.sessionId,
+        scenario,
+        databases: this.session.databases,
+        result,
+        duration,
+      });
       devRequestEvents.emitScenarioComplete({
         id: scenario.id,
         success: true,
@@ -219,7 +340,15 @@ export class DevRunner {
       return { success: true, databases };
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Unknown error';
-      log.error('runner Scenario failed', { id: scenario.id, error });
+      log.error('Scenario failed', { id: scenario.id, error });
+      logScenarioExecution({
+        sessionId: this.session.sessionId,
+        scenario,
+        databases: this.session.databases,
+        result: null,
+        infrastructureError: error,
+        duration: Date.now() - startTime,
+      });
       devRequestEvents.emitScenarioComplete({
         id: scenario.id,
         success: false,
@@ -242,7 +371,7 @@ export class DevRunner {
 
         if (this.hadConnectionWarning) {
           this.hadConnectionWarning = false;
-          log.info('runner Connection restored');
+          log.info('Connection to platform restored');
           devRequestEvents.emitConnectionRestored();
         }
 
@@ -255,7 +384,7 @@ export class DevRunner {
       } catch (error) {
         // Session expired
         if (error instanceof DevPollError && error.statusCode === 404) {
-          log.error('runner Session expired (404)');
+          log.error('Dev session expired', { statusCode: 404 });
           devRequestEvents.emitSessionExpired();
           this.isRunning = false;
           return;
@@ -266,7 +395,7 @@ export class DevRunner {
           (error instanceof DevPollError || error instanceof ApiError) &&
           error.statusCode === 401
         ) {
-          log.warn('runner Auth token expired (401), attempting refresh');
+          log.warn('Session token expired, re-authenticating');
           const refreshed = await this.refreshAuth();
           if (refreshed) {
             // Token refreshed — reset backoff and continue polling
@@ -274,7 +403,7 @@ export class DevRunner {
             continue;
           }
           // Refresh failed — treat as session expired
-          log.error('runner Auth refresh failed, stopping');
+          log.error('Re-authentication failed');
           devRequestEvents.emitSessionExpired();
           this.isRunning = false;
           return;
@@ -283,13 +412,13 @@ export class DevRunner {
         // Connection issue — backoff and retry
         if (!this.hadConnectionWarning) {
           this.hadConnectionWarning = true;
-          log.warn('runner Connection lost, retrying...');
+          log.warn('Lost connection to platform, retrying');
           devRequestEvents.emitConnectionWarning(
             'Lost connection to platform, retrying...',
           );
         }
 
-        log.debug('runner Backing off', { ms: this.backoffMs });
+        log.debug('Backing off', { ms: this.backoffMs });
         await this.sleep(this.backoffMs);
         this.backoffMs = Math.min(this.backoffMs * 2, 30_000);
       }
@@ -306,11 +435,11 @@ export class DevRunner {
       timestamp: startTime,
     });
 
-    log.info('runner Request received', { requestId: request.requestId, method: request.methodExport });
+    log.info('Method received', { requestId: request.requestId, method: request.methodExport });
 
     try {
       // Transpile
-      log.debug('runner Transpiling', { path: request.methodPath });
+      log.debug('Transpiling method', { path: request.methodPath });
       const transpiledPath = await this.transpiler!.transpile(request.methodPath);
 
       // Role override lets the platform test methods as different users/roles
@@ -356,7 +485,29 @@ export class DevRunner {
       );
 
       const duration = Date.now() - startTime;
-      log.info('runner Request complete', { requestId: request.requestId, success: result.success, duration });
+      if (result.success) {
+        log.info('Method complete', { requestId: request.requestId, method: request.methodExport, duration });
+      } else {
+        log.warn('Method failed', {
+          requestId: request.requestId,
+          method: request.methodExport,
+          duration,
+          error: result.error ? formatErrorForDisplay(result.error) : undefined,
+        });
+      }
+
+      logMethodExecution({
+        requestId: request.requestId,
+        sessionId: this.session!.sessionId,
+        methodExport: request.methodExport,
+        methodPath: request.methodPath,
+        input: request.input,
+        roleOverride: request.roleOverride,
+        authorizationToken: request.authorizationToken,
+        databases: this.session!.databases,
+        result,
+        duration,
+      });
 
       devRequestEvents.emitComplete({
         id: request.requestId,
@@ -368,7 +519,7 @@ export class DevRunner {
       const message =
         error instanceof Error ? error.message : 'Unknown error';
       const duration = Date.now() - startTime;
-      log.error('runner Request failed', { requestId: request.requestId, duration, error: message });
+      log.error('Method error', { requestId: request.requestId, method: request.methodExport, duration, error: message });
 
       try {
         await submitDevResult(
@@ -382,8 +533,21 @@ export class DevRunner {
           },
         );
       } catch (submitErr) {
-        log.error('runner Failed to submit error result', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
+        log.error('Failed to report method error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
       }
+
+      logMethodExecution({
+        requestId: request.requestId,
+        sessionId: this.session!.sessionId,
+        methodExport: request.methodExport,
+        methodPath: request.methodPath,
+        input: request.input,
+        roleOverride: request.roleOverride,
+        authorizationToken: request.authorizationToken,
+        databases: this.session!.databases,
+        result: { success: false, error: { message } },
+        duration: Date.now() - startTime,
+      });
 
       devRequestEvents.emitComplete({
         id: request.requestId,
@@ -404,7 +568,7 @@ export class DevRunner {
     const MAX_ATTEMPTS = 30;
 
     try {
-      log.info('runner Auth expired, requesting re-authentication');
+      log.info('Session token expired, requesting re-authentication');
       const { url, token } = await requestDeviceAuth();
 
       devRequestEvents.emitAuthRefreshStart(url);
@@ -414,7 +578,7 @@ export class DevRunner {
         const open = (await import('open')).default;
         await open(url);
       } catch {
-        log.warn('runner Could not open browser for auth — user must visit URL manually');
+        log.warn('Could not open browser — visit URL to re-authenticate');
       }
 
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -428,7 +592,7 @@ export class DevRunner {
           if (result.userId) {
             setUserId(result.userId);
           }
-          log.info('runner Auth refreshed successfully');
+          log.info('Re-authentication successful');
           devRequestEvents.emitAuthRefreshSuccess();
           return true;
         }
@@ -438,11 +602,11 @@ export class DevRunner {
         }
       }
 
-      log.error('runner Auth refresh timed out or was denied');
+      log.error('Re-authentication timed out or was denied');
       devRequestEvents.emitAuthRefreshFailed();
       return false;
     } catch (err) {
-      log.error('runner Auth refresh failed', { error: err instanceof Error ? err.message : String(err) });
+      log.error('Re-authentication failed', { error: err instanceof Error ? err.message : String(err) });
       devRequestEvents.emitAuthRefreshFailed();
       return false;
     }
@@ -453,38 +617,3 @@ export class DevRunner {
   }
 }
 
-/**
- * Format an error object from the executor into a readable string for the TUI.
- * Includes extra fields like code, statusCode, cause, etc. when present.
- */
-function formatErrorForDisplay(error: Record<string, unknown>): string {
-  const parts: string[] = [];
-
-  // Main message
-  if (error.message) {
-    parts.push(String(error.message));
-  }
-
-  // Status/code info
-  const code = error.code ?? error.statusCode ?? error.status;
-  if (code !== undefined) {
-    parts.push(`(code: ${code})`);
-  }
-
-  // Response body from HTTP errors
-  if (error.body) {
-    parts.push(`Response: ${String(error.body).slice(0, 200)}`);
-  } else if (error.response) {
-    parts.push(`Response: ${String(error.response).slice(0, 200)}`);
-  }
-
-  // Cause chain
-  if (error.cause && typeof error.cause === 'object') {
-    const cause = error.cause as Record<string, unknown>;
-    if (cause.message) {
-      parts.push(`Caused by: ${cause.message}`);
-    }
-  }
-
-  return parts.join('\n');
-}
