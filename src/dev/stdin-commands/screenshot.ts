@@ -1,5 +1,4 @@
-import { fetchCallbackToken } from '../api';
-import { getApiBaseUrl } from '../../config';
+import { getUploadUrl } from '../api';
 import type { SessionState, EmitFn } from './types';
 
 export async function handleScreenshot(
@@ -42,36 +41,16 @@ export async function handleScreenshot(
       return;
     }
 
-    // 2. Fetch a callback token for S3 upload auth
+    // 2. Get presigned upload URL
     const session = state.runner.getSession()!;
-    const token = await fetchCallbackToken(state.appConfig.appId, session.sessionId);
-
-    // 3. Get presigned upload URL
-    const uploadResponse = await fetch(
-      `${getApiBaseUrl()}/_internal/v2/sandbox/upload`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ extension: 'png', contentType: 'image/png' }),
-      },
+    const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
+      state.appConfig.appId,
+      session.sessionId,
+      'png',
+      'image/png',
     );
 
-    if (!uploadResponse.ok) {
-      const err = await uploadResponse.text();
-      fail(`Failed to get upload URL: ${uploadResponse.status} ${err}`);
-      return;
-    }
-
-    const { uploadUrl, uploadFields, publicUrl } = (await uploadResponse.json()) as {
-      uploadUrl: string;
-      uploadFields: Record<string, string>;
-      publicUrl: string;
-    };
-
-    // 4. Upload to S3
+    // 3. Upload to S3
     const imageBuffer = Buffer.from(stepResult.image, 'base64');
     const form = new FormData();
     for (const [key, value] of Object.entries(uploadFields)) {
@@ -85,7 +64,7 @@ export async function handleScreenshot(
       return;
     }
 
-    // 5. Emit result
+    // 4. Emit result
     emit('screenshot-completed', {
       url: publicUrl,
       width: stepResult.width,
