@@ -195,6 +195,20 @@ export async function fetchCallbackToken(
   return data.authorizationToken;
 }
 
+export async function getUploadUrl(
+  appId: string,
+  sessionId: string,
+  extension: string,
+  contentType: string,
+): Promise<{ uploadUrl: string; uploadFields: Record<string, string>; publicUrl: string }> {
+  return apiRequest(
+    'POST',
+    `${basePath(appId)}/manage/upload`,
+    getHeaders(sessionId),
+    { extension, contentType },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Error classes
 // ---------------------------------------------------------------------------
