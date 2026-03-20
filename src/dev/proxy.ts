@@ -43,7 +43,8 @@ export class DevProxy {
     private readonly upstreamPort: number,
     private clientContext: Record<string, unknown>,
     private readonly bindAddress: string = '127.0.0.1',
-    private readonly browserAgentUrl: string = 'https://seankoji-msba.ngrok.io/index.js',
+    // Dev override: 'https://seankoji-msba.ngrok.io/index.js'
+    private readonly browserAgentUrl?: string,
   ) {}
 
   updateClientContext(context: Record<string, unknown>): void {
@@ -148,6 +149,14 @@ export class DevProxy {
       this.server = null;
       this.proxyPort = null;
     }
+
+    // Reject pending commands so callers don't hang
+    for (const [id, pending] of this.pendingResults) {
+      clearTimeout(pending.timeout);
+      pending.resolve({ id, steps: [], error: 'Proxy stopped' });
+    }
+    this.pendingResults.clear();
+    this.commandQueue.length = 0;
   }
 
   getPort(): number | null {
