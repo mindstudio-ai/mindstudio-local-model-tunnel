@@ -8,9 +8,7 @@
 // and devCommand for the frontend dev server.
 
 import { readFileSync, existsSync } from 'node:fs';
-import { log } from './logger';
 import { join, dirname } from 'node:path';
-import { execSync } from 'node:child_process';
 import { log } from './logger';
 import type { AppConfig, WebInterfaceConfig } from './types';
 

@@ -31,6 +31,7 @@ import { setApiKey, setUserId } from '../config';
 import { randomBytes } from 'node:crypto';
 import { log } from './logger';
 import { logMethodExecution, logScenarioExecution } from './request-log';
+import { formatErrorForDisplay } from './format-error';
 import type { DevProxy } from './proxy';
 import type { DevSession, DevRequest, DevResult, AppScenario } from './types';
 
@@ -616,38 +617,3 @@ export class DevRunner {
   }
 }
 
-/**
- * Format an error object from the executor into a readable string for the TUI.
- * Includes extra fields like code, statusCode, cause, etc. when present.
- */
-function formatErrorForDisplay(error: Record<string, unknown>): string {
-  const parts: string[] = [];
-
-  // Main message
-  if (error.message) {
-    parts.push(String(error.message));
-  }
-
-  // Status/code info
-  const code = error.code ?? error.statusCode ?? error.status;
-  if (code !== undefined) {
-    parts.push(`(code: ${code})`);
-  }
-
-  // Response body from HTTP errors
-  if (error.body) {
-    parts.push(`Response: ${String(error.body).slice(0, 200)}`);
-  } else if (error.response) {
-    parts.push(`Response: ${String(error.response).slice(0, 200)}`);
-  }
-
-  // Cause chain
-  if (error.cause && typeof error.cause === 'object') {
-    const cause = error.cause as Record<string, unknown>;
-    if (cause.message) {
-      parts.push(`Caused by: ${cause.message}`);
-    }
-  }
-
-  return parts.join('\n');
-}

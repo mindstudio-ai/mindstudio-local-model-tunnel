@@ -17,7 +17,6 @@
 // is upstream. Detection is by content-type header, not URL patterns.
 
 import http from 'node:http';
-import { readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import type { Socket } from 'node:net';
 import { log } from './logger';
@@ -36,9 +35,9 @@ interface PendingResult {
 export class DevProxy {
   private server: http.Server | null = null;
   private proxyPort: number | null = null;
-  private agentScriptCache: string | null = null;
   private commandQueue: PendingCommand[] = [];
   private pendingResults = new Map<string, PendingResult>();
+  private lastBrowserPoll = 0;
 
   constructor(
     private readonly upstreamPort: number,
@@ -53,6 +52,14 @@ export class DevProxy {
   }
 
   /**
+   * Whether a browser agent is actively polling for commands.
+   * Based on whether we've seen a poll within the last 500ms.
+   */
+  isBrowserConnected(): boolean {
+    return Date.now() - this.lastBrowserPoll < 500;
+  }
+
+  /**
    * Dispatch a browser command and wait for the result.
    * The command is queued for the browser agent to pick up via polling.
    * Returns a promise that resolves when the browser posts the result back.
@@ -61,6 +68,12 @@ export class DevProxy {
     steps: Array<Record<string, unknown>>,
     timeoutMs = 30_000,
   ): Promise<Record<string, unknown>> {
+    if (!this.isBrowserConnected()) {
+      return Promise.reject(
+        new Error('No browser connected, please refresh the MindStudio preview'),
+      );
+    }
+
     const id = randomBytes(4).toString('hex');
 
     log.info('Browser command queued', { id, stepCount: steps.length, commands: steps.map((s) => s.command) });
@@ -141,20 +154,31 @@ export class DevProxy {
     return this.proxyPort;
   }
 
+  // ---------------------------------------------------------------------------
+  // CORS helper
+  // ---------------------------------------------------------------------------
+
+  private corsHeaders(req: http.IncomingMessage): Record<string, string> {
+    const origin = req.headers.origin;
+    if (!origin) return {};
+    return {
+      'access-control-allow-origin': origin,
+      'access-control-allow-private-network': 'true',
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Request routing
+  // ---------------------------------------------------------------------------
+
   private handleRequest(
     clientReq: http.IncomingMessage,
     clientRes: http.ServerResponse,
   ): void {
-    const origin = clientReq.headers.origin;
-
     // Browser agent endpoints — intercepted locally, never forwarded upstream
     if (clientReq.url?.startsWith('/__mindstudio_dev__/')) {
       if (clientReq.url === '/__mindstudio_dev__/logs' && clientReq.method === 'POST') {
         this.handleBrowserLogs(clientReq, clientRes);
-        return;
-      }
-      if (clientReq.url === '/__mindstudio_dev__/agent.js' && clientReq.method === 'GET') {
-        this.serveBrowserAgent(clientReq, clientRes);
         return;
       }
       if (clientReq.url === '/__mindstudio_dev__/commands' && clientReq.method === 'GET') {
@@ -167,68 +191,75 @@ export class DevProxy {
       }
     }
 
-    // CORS preflight for Private Network Access (PNA). Chrome blocks
-    // public origins (like app.mindstudio.ai) from accessing localhost
-    // unless the server explicitly opts in via these headers.
-    if (clientReq.method === 'OPTIONS' && origin) {
+    // CORS preflight
+    if (clientReq.method === 'OPTIONS' && clientReq.headers.origin) {
       clientRes.writeHead(204, {
-        'Access-Control-Allow-Origin': origin,
-        'Access-Control-Allow-Private-Network': 'true',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': '*',
+        ...this.corsHeaders(clientReq),
+        'access-control-allow-methods': 'GET, POST, OPTIONS',
+        'access-control-allow-headers': '*',
       });
       clientRes.end();
       return;
     }
 
-    const options: http.RequestOptions = {
-      hostname: '127.0.0.1',
-      port: this.upstreamPort,
-      path: clientReq.url,
-      method: clientReq.method,
-      headers: { ...clientReq.headers, host: `localhost:${this.upstreamPort}` },
-    };
+    // Forward to upstream dev server
+    this.forwardToUpstream(clientReq, clientRes);
+  }
 
-    const upstreamReq = http.request(options, (upstreamRes) => {
-      const contentType = upstreamRes.headers['content-type'] ?? '';
-      const isHtml = contentType.startsWith('text/html');
+  // ---------------------------------------------------------------------------
+  // Upstream forwarding
+  // ---------------------------------------------------------------------------
 
-      if (isHtml) {
-        // Buffer HTML response, inject context, then send
-        const chunks: Buffer[] = [];
-        upstreamRes.on('data', (chunk) => chunks.push(chunk));
-        upstreamRes.on('end', () => {
-          let html = Buffer.concat(chunks).toString('utf-8');
-          html = this.injectScripts(html);
+  private forwardToUpstream(
+    clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): void {
+    const cors = this.corsHeaders(clientReq);
 
-          // Copy headers but update content-length and disable caching
-          const headers = { ...upstreamRes.headers };
-          headers['content-length'] = String(Buffer.byteLength(html, 'utf-8'));
-          headers['cache-control'] = 'no-store, no-cache, must-revalidate';
-          delete headers['content-encoding']; // buffering + injection invalidates gzip/br
+    const upstreamReq = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: this.upstreamPort,
+        path: clientReq.url,
+        method: clientReq.method,
+        headers: { ...clientReq.headers, host: `localhost:${this.upstreamPort}` },
+      },
+      (upstreamRes) => {
+        const contentType = upstreamRes.headers['content-type'] ?? '';
+        const isHtml = contentType.startsWith('text/html');
+
+        if (isHtml) {
+          const chunks: Buffer[] = [];
+          upstreamRes.on('data', (chunk) => chunks.push(chunk));
+          upstreamRes.on('end', () => {
+            let html = Buffer.concat(chunks).toString('utf-8');
+            html = this.injectScripts(html);
+
+            const headers = {
+              ...upstreamRes.headers,
+              ...cors,
+              'content-length': String(Buffer.byteLength(html, 'utf-8')),
+              'cache-control': 'no-store, no-cache, must-revalidate',
+            };
+            delete headers['content-encoding'];
+            delete headers['etag'];
+
+            log.debug('Dev proxy injected context into HTML', { path: clientReq.url, size: html.length });
+            clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
+            clientRes.end(html);
+          });
+        } else {
+          const headers = {
+            ...upstreamRes.headers,
+            ...cors,
+            'cache-control': 'no-store, no-cache, must-revalidate',
+          };
           delete headers['etag'];
-          if (origin) {
-            headers['access-control-allow-origin'] = origin;
-            headers['access-control-allow-private-network'] = 'true';
-          }
-
-          log.debug('Dev proxy injected context into HTML', { path: clientReq.url, size: html.length });
           clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
-          clientRes.end(html);
-        });
-      } else {
-        // Non-HTML: pipe through, disable caching
-        const headers = { ...upstreamRes.headers };
-        headers['cache-control'] = 'no-store, no-cache, must-revalidate';
-        delete headers['etag'];
-        if (origin) {
-          headers['access-control-allow-origin'] = origin;
-          headers['access-control-allow-private-network'] = 'true';
+          upstreamRes.pipe(clientRes);
         }
-        clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
-        upstreamRes.pipe(clientRes);
-      }
-    });
+      },
+    );
 
     upstreamReq.on('error', (err) => {
       log.warn('Dev proxy cannot reach dev server', { path: clientReq.url, error: err.message });
@@ -236,9 +267,12 @@ export class DevProxy {
       clientRes.end(`Proxy error: ${err.message}`);
     });
 
-    // Forward request body
     clientReq.pipe(upstreamReq);
   }
+
+  // ---------------------------------------------------------------------------
+  // Browser agent endpoints
+  // ---------------------------------------------------------------------------
 
   private handleBrowserLogs(
     clientReq: http.IncomingMessage,
@@ -256,50 +290,35 @@ export class DevProxy {
       } catch {
         // Malformed payload — ignore
       }
-
-      const origin = clientReq.headers.origin;
-      const headers: Record<string, string> = {};
-      if (origin) {
-        headers['access-control-allow-origin'] = origin;
-        headers['access-control-allow-private-network'] = 'true';
-      }
-      clientRes.writeHead(204, headers);
+      clientRes.writeHead(204, this.corsHeaders(clientReq));
       clientRes.end();
     });
   }
 
-  /**
-   * Return the next pending command for the browser agent, or 204 if empty.
-   */
   private handleGetCommand(
     clientReq: http.IncomingMessage,
     clientRes: http.ServerResponse,
   ): void {
-    const origin = clientReq.headers.origin;
-    const headers: Record<string, string> = {
-      'Cache-Control': 'no-store',
-    };
-    if (origin) {
-      headers['access-control-allow-origin'] = origin;
-      headers['access-control-allow-private-network'] = 'true';
-    }
+    this.lastBrowserPoll = Date.now();
 
     const command = this.commandQueue.shift();
     if (command) {
       log.info('Browser command dispatched to agent', { id: command.id, commands: command.steps.map((s) => s.command) });
-      headers['content-type'] = 'application/json';
-      clientRes.writeHead(200, headers);
+      clientRes.writeHead(200, {
+        ...this.corsHeaders(clientReq),
+        'content-type': 'application/json',
+        'cache-control': 'no-store',
+      });
       clientRes.end(JSON.stringify(command));
     } else {
-      clientRes.writeHead(204, headers);
+      clientRes.writeHead(204, {
+        ...this.corsHeaders(clientReq),
+        'cache-control': 'no-store',
+      });
       clientRes.end();
     }
   }
 
-  /**
-   * Receive a command result from the browser agent.
-   * Resolves the pending promise from dispatchBrowserCommand().
-   */
   private handlePostResult(
     clientReq: http.IncomingMessage,
     clientRes: http.ServerResponse,
@@ -326,49 +345,9 @@ export class DevProxy {
       } catch (err) {
         log.warn('Browser command result parse error', { error: err instanceof Error ? err.message : String(err) });
       }
-
-      const origin = clientReq.headers.origin;
-      const headers: Record<string, string> = {};
-      if (origin) {
-        headers['access-control-allow-origin'] = origin;
-        headers['access-control-allow-private-network'] = 'true';
-      }
-      clientRes.writeHead(204, headers);
+      clientRes.writeHead(204, this.corsHeaders(clientReq));
       clientRes.end();
     });
-  }
-
-  /**
-   * Serve the browser agent script. If a browserAgentUrl is configured,
-   * this endpoint won't be hit (the HTML points to the external URL).
-   * This serves the built file for self-hosted mode.
-   */
-  private serveBrowserAgent(
-    _clientReq: http.IncomingMessage,
-    clientRes: http.ServerResponse,
-  ): void {
-    try {
-      // Cache the script contents in memory
-      if (!this.agentScriptCache) {
-        // Try to load from the browser-agent package
-        this.agentScriptCache = readFileSync(
-          require.resolve('@mindstudio-ai/browser-agent/dist/index.js'),
-          'utf-8',
-        );
-      }
-      clientRes.writeHead(200, {
-        'Content-Type': 'application/javascript',
-        'Cache-Control': 'no-store',
-      });
-      clientRes.end(this.agentScriptCache);
-    } catch {
-      // Browser agent not installed — return empty script
-      clientRes.writeHead(200, {
-        'Content-Type': 'application/javascript',
-        'Cache-Control': 'no-store',
-      });
-      clientRes.end('/* browser agent not available */');
-    }
   }
 
   /**
@@ -376,7 +355,7 @@ export class DevProxy {
    */
   private injectScripts(html: string): string {
     const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(this.clientContext)};</script>`;
-    const agentUrl = this.browserAgentUrl || '/__mindstudio_dev__/agent.js';
+    const agentUrl = this.browserAgentUrl || 'https://unpkg.com/@mindstudio-ai/browser-agent/dist/index.js';
     const agentScript = `<script async src="${agentUrl}"></script>`;
     const injection = `${contextScript}\n${agentScript}`;
     if (html.includes('</head>')) {
