@@ -6,16 +6,26 @@ export async function handleScreenshot(
   state: SessionState,
   emit: EmitFn,
 ): Promise<void> {
+  const fail = (message: string) => {
+    emit('screenshot-completed', {
+      url: '',
+      width: 0,
+      height: 0,
+      duration: 0,
+      error: message,
+    });
+  };
+
   if (!state.proxy) {
-    emit('command-error', { message: 'No active proxy' });
+    fail('No active proxy');
     return;
   }
   if (!state.proxy.isBrowserConnected()) {
-    emit('command-error', { message: 'No browser connected, please refresh the MindStudio preview' });
+    fail('No browser connected, please refresh the MindStudio preview');
     return;
   }
   if (!state.runner?.getSession() || !state.appConfig?.appId) {
-    emit('command-error', { message: 'No active session' });
+    fail('No active session');
     return;
   }
 
@@ -28,7 +38,7 @@ export async function handleScreenshot(
       ?.result as { image: string; width: number; height: number };
 
     if (!stepResult?.image) {
-      emit('command-error', { message: 'Screenshot capture returned no image data' });
+      fail('Screenshot capture returned no image data');
       return;
     }
 
@@ -51,7 +61,7 @@ export async function handleScreenshot(
 
     if (!uploadResponse.ok) {
       const err = await uploadResponse.text();
-      emit('command-error', { message: `Failed to get upload URL: ${uploadResponse.status} ${err}` });
+      fail(`Failed to get upload URL: ${uploadResponse.status} ${err}`);
       return;
     }
 
@@ -71,7 +81,7 @@ export async function handleScreenshot(
     const uploadResult = await fetch(uploadUrl, { method: 'POST', body: form });
 
     if (!uploadResult.ok) {
-      emit('command-error', { message: `S3 upload failed: ${uploadResult.status}` });
+      fail(`S3 upload failed: ${uploadResult.status}`);
       return;
     }
 
@@ -83,8 +93,6 @@ export async function handleScreenshot(
       duration: Date.now() - startTime,
     });
   } catch (err) {
-    emit('command-error', {
-      message: err instanceof Error ? err.message : 'Screenshot failed',
-    });
+    fail(err instanceof Error ? err.message : 'Screenshot failed');
   }
 }
