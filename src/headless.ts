@@ -77,8 +77,7 @@ import {
 import { initLoggerHeadless, log, type LogLevel } from './dev/logger';
 import { stablePort, detectGitBranch } from './dev/utils';
 import { watchTableFiles } from './dev/table-watcher';
-import { watch, type FSWatcher } from 'node:fs';
-import { join } from 'node:path';
+import { watchConfigFile } from './dev/config-watcher';
 
 /**
  * Options for headless dev mode.
@@ -432,9 +431,8 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   };
 
   // File watcher state
-  let restartTimer: ReturnType<typeof setTimeout> | undefined;
   let restarting = false;
-  let watcher: FSWatcher | undefined;
+  let cleanupConfigWatcher: (() => void) | undefined;
 
   // Graceful shutdown
   let stopping = false;
@@ -442,8 +440,7 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     if (stopping) return;
     stopping = true;
     emit('session-stopping');
-    clearTimeout(restartTimer);
-    watcher?.close();
+    cleanupConfigWatcher?.();
     await teardownSession(state);
     emit('session-stopped');
   };
@@ -467,27 +464,19 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   // Stdin command loop — reads from state so it always sees current runner/config
   setupStdinCommands(state, cwd);
 
-  // Watch mindstudio.json for changes — restart session on edit (500ms debounce)
-  try {
-    const configPath = join(cwd, 'mindstudio.json');
-    watcher = watch(configPath, () => {
-      clearTimeout(restartTimer);
-      restartTimer = setTimeout(async () => {
-        if (stopping || restarting) return;
-        restarting = true;
-        try {
-          log.info('headless Config changed, restarting session');
-          emit('config-changed');
-          await teardownSession(state);
-          await startSession(cwd, opts, state, shutdown);
-        } finally {
-          restarting = false;
-        }
-      }, 500);
-    });
-  } catch {
-    // File might not exist yet or watch not supported
-  }
+  // Watch mindstudio.json for changes — restart session on edit
+  cleanupConfigWatcher = watchConfigFile(cwd, async () => {
+    if (stopping || restarting) return;
+    restarting = true;
+    try {
+      log.info('headless Config changed, restarting session');
+      emit('config-changed');
+      await teardownSession(state);
+      await startSession(cwd, opts, state, shutdown);
+    } finally {
+      restarting = false;
+    }
+  });
 
   // Keep the process alive — the poll loop runs in DevRunner
   await new Promise<void>(() => {});

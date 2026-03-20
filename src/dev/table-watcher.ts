@@ -2,14 +2,12 @@
 // when a declared table file is created or modified. Used by both headless
 // and TUI modes to auto-sync schema without session restart.
 //
-// Watches directories (not individual files) so newly created table files
-// are detected — important when an AI agent defines tables in mindstudio.json
-// before writing the actual source files.
-//
-// Directories are deduplicated: if all tables live in src/tables/, only one
-// watcher is created. Events are filtered by expected filenames.
+// Uses chokidar instead of fs.watch so that:
+// - Atomic file replacements (write-tmp + rename) are detected on Linux
+// - Directories that don't exist yet are watched once created
+// - Events are deduplicated and debounced reliably
 
-import { watch } from 'node:fs';
+import { watch } from 'chokidar';
 import { join, dirname, basename } from 'node:path';
 import { log } from './logger';
 import type { AppTable } from './types';
@@ -29,7 +27,23 @@ export function watchTableFiles(
 ): () => void {
   if (tables.length === 0) return () => {};
 
-  // Build a map of directory → set of expected filenames
+  // Resolve absolute paths for each table file
+  const filePaths = tables.map((t) => join(cwd, t.path));
+
+  let syncTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const watcher = watch(filePaths, {
+    ignoreInitial: true,
+    // Don't fail if files don't exist yet — watch for creation
+    disableGlobbing: true,
+  });
+
+  watcher.on('all', () => {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(onChanged, 500);
+  });
+
+  // Build a map for logging
   const dirToFiles = new Map<string, Set<string>>();
   for (const table of tables) {
     const absPath = join(cwd, table.path);
@@ -39,30 +53,13 @@ export function watchTableFiles(
     dirToFiles.get(dir)!.add(file);
   }
 
-  let syncTimer: ReturnType<typeof setTimeout> | undefined;
-  const cleanups: Array<() => void> = [];
-
-  cleanups.push(() => clearTimeout(syncTimer));
-
-  for (const [dir, expectedFiles] of dirToFiles) {
-    try {
-      const w = watch(dir, (_eventType, filename) => {
-        if (filename && !expectedFiles.has(filename)) return;
-        clearTimeout(syncTimer);
-        syncTimer = setTimeout(onChanged, 500);
-      });
-      cleanups.push(() => w.close());
-    } catch {
-      // Directory doesn't exist yet, skip
-    }
-  }
-
-  log.info('table-watcher Watching directories', {
+  log.info('table-watcher Watching files', {
     dirs: dirToFiles.size,
     tables: tables.length,
   });
 
   return () => {
-    for (const cleanup of cleanups) cleanup();
+    clearTimeout(syncTimer);
+    watcher.close();
   };
 }
