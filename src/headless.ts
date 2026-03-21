@@ -285,10 +285,10 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   process.on('SIGTERM', () => { shutdown().then(() => process.exit(0)); });
   process.on('SIGINT', () => { shutdown().then(() => process.exit(0)); });
 
-  // Initial session start
+  // Initial session start — crash if it fails so the process manager can retry
   const ok = await startSession(cwd, opts, state, shutdown);
-  if (!ok && !state.appConfig) {
-    emit('error', { message: 'No valid mindstudio.json found in ' + cwd });
+  if (!ok) {
+    process.exit(1);
   }
 
   // Stdin command loop
