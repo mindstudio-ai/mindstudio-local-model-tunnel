@@ -38,6 +38,12 @@ export class DevProxy {
   private commandQueue: PendingCommand[] = [];
   private pendingResults = new Map<string, PendingResult>();
   private lastBrowserPoll = 0;
+  /** Long-poll waiters — browser agents waiting for the next command. */
+  private commandWaiters: Array<{
+    req: http.IncomingMessage;
+    res: http.ServerResponse;
+    timer: ReturnType<typeof setTimeout>;
+  }> = [];
 
   constructor(
     private readonly upstreamPort: number,
@@ -53,11 +59,11 @@ export class DevProxy {
   }
 
   /**
-   * Whether a browser agent is actively polling for commands.
-   * Based on whether we've seen a poll within the last 500ms.
+   * Whether a browser agent is actively connected.
+   * True if there's a long-poll waiter or we've seen activity recently.
    */
   isBrowserConnected(): boolean {
-    return Date.now() - this.lastBrowserPoll < 500;
+    return this.commandWaiters.length > 0 || Date.now() - this.lastBrowserPoll < 500;
   }
 
   /**
@@ -88,6 +94,7 @@ export class DevProxy {
 
       this.pendingResults.set(id, { resolve, timeout });
       this.commandQueue.push({ id, steps });
+      this.flushCommandToWaiter();
     });
   }
 
@@ -157,6 +164,15 @@ export class DevProxy {
     }
     this.pendingResults.clear();
     this.commandQueue.length = 0;
+
+    // Close any long-poll waiters
+    for (const waiter of this.commandWaiters) {
+      clearTimeout(waiter.timer);
+      if (!waiter.res.writableEnded) {
+        waiter.res.writeHead(204).end();
+      }
+    }
+    this.commandWaiters.length = 0;
   }
 
   getPort(): number | null {
@@ -310,6 +326,7 @@ export class DevProxy {
   ): void {
     this.lastBrowserPoll = Date.now();
 
+    // If a command is already queued, respond immediately
     const command = this.commandQueue.shift();
     if (command) {
       log.info('Browser command dispatched to agent', { id: command.id, commands: command.steps.map((s) => s.command) });
@@ -319,12 +336,57 @@ export class DevProxy {
         'cache-control': 'no-store',
       });
       clientRes.end(JSON.stringify(command));
-    } else {
+      return;
+    }
+
+    // No command available — hold the connection open (long poll).
+    // Respond with 204 after 25s so the browser can reconnect.
+    const timer = setTimeout(() => {
+      this.removeCommandWaiter(clientRes);
       clientRes.writeHead(204, {
         ...this.corsHeaders(clientReq),
         'cache-control': 'no-store',
       });
       clientRes.end();
+    }, 25_000);
+
+    this.commandWaiters.push({ req: clientReq, res: clientRes, timer });
+
+    // If the client disconnects, clean up
+    clientReq.on('close', () => {
+      this.removeCommandWaiter(clientRes);
+    });
+  }
+
+  /**
+   * Flush a queued command to a waiting long-poll connection, if any.
+   */
+  private flushCommandToWaiter(): void {
+    while (this.commandWaiters.length > 0 && this.commandQueue.length > 0) {
+      const waiter = this.commandWaiters.shift()!;
+      clearTimeout(waiter.timer);
+
+      // Skip if the connection was already closed
+      if (waiter.res.writableEnded) continue;
+
+      const command = this.commandQueue.shift()!;
+      this.lastBrowserPoll = Date.now();
+      log.info('Browser command dispatched to agent', { id: command.id, commands: command.steps.map((s) => s.command) });
+      waiter.res.writeHead(200, {
+        ...this.corsHeaders(waiter.req),
+        'content-type': 'application/json',
+        'cache-control': 'no-store',
+      });
+      waiter.res.end(JSON.stringify(command));
+      return;
+    }
+  }
+
+  private removeCommandWaiter(res: http.ServerResponse): void {
+    const idx = this.commandWaiters.findIndex((w) => w.res === res);
+    if (idx !== -1) {
+      clearTimeout(this.commandWaiters[idx].timer);
+      this.commandWaiters.splice(idx, 1);
     }
   }
 
