@@ -18,7 +18,7 @@ import { randomBytes } from 'node:crypto';
 import { log } from './logger';
 import type { DevSession } from './types';
 
-const EXECUTION_TIMEOUT_MS = 30_000;
+const EXECUTION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes — matches prod
 
 export interface ExecuteMethodOptions {
   transpiledPath: string;
