@@ -12,6 +12,7 @@ import { handleBrowser } from './browser';
 import { handleScreenshot } from './screenshot';
 import { handleDevServerRestarting } from './dev-server-restarting';
 import { handleBrowserStatus } from './browser-status';
+import { handleResetBrowser } from './reset-browser';
 import type { SessionState, EmitFn } from './types';
 
 export type { SessionState, EmitFn } from './types';
@@ -66,6 +67,8 @@ async function handleStdinCommand(
       return handleDevServerRestarting(state, emit);
     case 'browser-status':
       return handleBrowserStatus(state, emit);
+    case 'reset-browser':
+      return handleResetBrowser(state, emit);
     default:
       emit('command-error', { message: `Unknown action: ${cmd.action}` });
   }
