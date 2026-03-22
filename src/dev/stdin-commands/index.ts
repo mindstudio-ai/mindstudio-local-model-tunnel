@@ -10,6 +10,8 @@ import { handleRunMethod } from './run-method';
 import { handleImpersonate, handleClearImpersonation } from './impersonate';
 import { handleBrowser } from './browser';
 import { handleScreenshot } from './screenshot';
+import { handleDevServerRestarting } from './dev-server-restarting';
+import { handleBrowserStatus } from './browser-status';
 import type { SessionState, EmitFn } from './types';
 
 export type { SessionState, EmitFn } from './types';
@@ -60,6 +62,10 @@ async function handleStdinCommand(
       return handleBrowser(state, cmd, emit);
     case 'screenshot':
       return handleScreenshot(state, emit);
+    case 'dev-server-restarting':
+      return handleDevServerRestarting(state, emit);
+    case 'browser-status':
+      return handleBrowserStatus(state, emit);
     default:
       emit('command-error', { message: `Unknown action: ${cmd.action}` });
   }

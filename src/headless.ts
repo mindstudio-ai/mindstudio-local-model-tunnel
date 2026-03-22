@@ -302,7 +302,10 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
       log.info('mindstudio.json changed, restarting dev session');
       emit('config-changed');
       await teardownSession(state);
-      await startSession(cwd, opts, state, shutdown);
+      const ok = await startSession(cwd, opts, state, shutdown);
+      if (ok && state.proxy) {
+        state.proxy.dispatchBrowserCommand([{ command: 'reload' }]).catch(() => {});
+      }
     } finally {
       restarting = false;
     }
