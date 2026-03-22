@@ -45,6 +45,14 @@ export class DevProxy {
     timer: ReturnType<typeof setTimeout>;
   }> = [];
 
+  /** Upstream dev server health tracking. */
+  private upstreamUp = true;
+  private healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private static readonly HEALTH_CHECK_INTERVAL = 3_000;
+  private static readonly HEALTH_CHECK_INTERVAL_DOWN = 1_000;
+  private static readonly HEALTH_CHECK_TIMEOUT = 2_000;
+
   constructor(
     private readonly upstreamPort: number,
     private clientContext: Record<string, unknown>,
@@ -118,6 +126,7 @@ export class DevProxy {
         const assignedPort = await this.listenOnPort(server, port);
         this.server = server;
         this.proxyPort = assignedPort;
+        this.startHealthCheck();
         log.info('Dev proxy started', { port: assignedPort, bind: this.bindAddress });
         return assignedPort;
       } catch {
@@ -150,6 +159,8 @@ export class DevProxy {
   }
 
   stop(): void {
+    this.stopHealthCheck();
+
     if (this.server) {
       log.info('Dev proxy stopping');
       this.server.close();
@@ -177,6 +188,67 @@ export class DevProxy {
 
   getPort(): number | null {
     return this.proxyPort;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Upstream health check
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Explicitly mark the upstream dev server as down.
+   * Used by the stdin `dev-server-restarting` action when the parent process
+   * knows a restart is happening (may be too fast for the health check to catch).
+   * The health check will detect recovery and reload the browser.
+   */
+  markUpstreamDown(): void {
+    if (!this.upstreamUp) return;
+    this.upstreamUp = false;
+    log.info('Upstream dev server marked as down (explicit signal)');
+    this.scheduleHealthCheck(DevProxy.HEALTH_CHECK_INTERVAL_DOWN);
+  }
+
+  private startHealthCheck(): void {
+    this.scheduleHealthCheck(DevProxy.HEALTH_CHECK_INTERVAL);
+  }
+
+  private stopHealthCheck(): void {
+    if (this.healthCheckTimer) {
+      clearTimeout(this.healthCheckTimer);
+      this.healthCheckTimer = null;
+    }
+  }
+
+  private scheduleHealthCheck(delayMs: number): void {
+    this.stopHealthCheck();
+    this.healthCheckTimer = setTimeout(() => this.checkUpstream(), delayMs);
+  }
+
+  private async checkUpstream(): Promise<void> {
+    const wasUp = this.upstreamUp;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${this.upstreamPort}/`, {
+        signal: AbortSignal.timeout(DevProxy.HEALTH_CHECK_TIMEOUT),
+      });
+      // Any response (even 404/500) means the server is alive
+      this.upstreamUp = true;
+    } catch {
+      this.upstreamUp = false;
+    }
+
+    // Handle state transitions
+    if (wasUp && !this.upstreamUp) {
+      log.warn('Upstream dev server is down');
+    } else if (!wasUp && this.upstreamUp) {
+      log.info('Upstream dev server is back up, reloading browser');
+      this.dispatchBrowserCommand([{ command: 'reload' }]).catch(() => {});
+    }
+
+    // Poll faster when down to catch recovery quickly
+    const interval = this.upstreamUp
+      ? DevProxy.HEALTH_CHECK_INTERVAL
+      : DevProxy.HEALTH_CHECK_INTERVAL_DOWN;
+    this.scheduleHealthCheck(interval);
   }
 
   // ---------------------------------------------------------------------------
