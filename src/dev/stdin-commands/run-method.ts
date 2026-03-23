@@ -24,6 +24,7 @@ export async function handleRunMethod(
     emit('command-error', { message: `Unknown method: ${methodName}` });
     return;
   }
+  emit('method-run-started', { method: method.export });
   const result = await state.runner.runMethod({
     methodExport: method.export,
     methodPath: method.path,
