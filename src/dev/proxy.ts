@@ -286,6 +286,10 @@ export class DevProxy {
         this.handlePostResult(clientReq, clientRes);
         return;
       }
+      if (clientReq.url?.startsWith('/__mindstudio_dev__/font-proxy?') && clientReq.method === 'GET') {
+        this.handleFontProxy(clientReq, clientRes);
+        return;
+      }
     }
 
     // CORS preflight
@@ -390,6 +394,60 @@ export class DevProxy {
       clientRes.writeHead(204, this.corsHeaders(clientReq));
       clientRes.end();
     });
+  }
+
+  /**
+   * Proxy a cross-origin font stylesheet or font file through our server,
+   * adding CORS headers so the browser agent can read the @font-face rules.
+   */
+  private async handleFontProxy(
+    clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): Promise<void> {
+    const cors = this.corsHeaders(clientReq);
+    try {
+      const parsed = new URL(clientReq.url!, `http://localhost`);
+      const targetUrl = parsed.searchParams.get('url');
+      if (!targetUrl) {
+        clientRes.writeHead(400, cors);
+        clientRes.end('Missing url parameter');
+        return;
+      }
+
+      const response = await fetch(targetUrl);
+      if (!response.ok) {
+        clientRes.writeHead(response.status, cors);
+        clientRes.end(`Upstream error: ${response.status}`);
+        return;
+      }
+
+      const contentType = response.headers.get('content-type') || 'text/css';
+      let body: string | Buffer;
+
+      if (contentType.includes('css')) {
+        // Rewrite font URLs inside CSS to also go through our proxy
+        let css = await response.text();
+        css = css.replace(
+          /url\(\s*(['"]?)(https?:\/\/[^)'"]+)\1\s*\)/g,
+          (_, quote, url) => `url(${quote}/__mindstudio_dev__/font-proxy?url=${encodeURIComponent(url)}${quote})`,
+        );
+        body = css;
+      } else {
+        // Binary font file — pass through as-is
+        const arrayBuf = await response.arrayBuffer();
+        body = Buffer.from(arrayBuf);
+      }
+
+      clientRes.writeHead(200, {
+        ...cors,
+        'content-type': contentType,
+        'cache-control': 'public, max-age=86400',
+      });
+      clientRes.end(body);
+    } catch (err) {
+      clientRes.writeHead(502, cors);
+      clientRes.end(`Font proxy error: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   private handleGetCommand(
