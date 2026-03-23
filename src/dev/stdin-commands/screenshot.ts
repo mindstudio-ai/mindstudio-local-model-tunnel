@@ -46,8 +46,8 @@ export async function handleScreenshot(
     const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
       state.appConfig.appId,
       session.sessionId,
-      'png',
-      'image/png',
+      'jpg',
+      'image/jpeg',
     );
 
     // 3. Upload to S3
@@ -56,7 +56,7 @@ export async function handleScreenshot(
     for (const [key, value] of Object.entries(uploadFields)) {
       form.append(key, value);
     }
-    form.append('file', new Blob([imageBuffer], { type: 'image/png' }), 'screenshot.png');
+    form.append('file', new Blob([imageBuffer], { type: 'image/jpeg' }), 'screenshot.jpg');
     const uploadResult = await fetch(uploadUrl, { method: 'POST', body: form });
 
     if (!uploadResult.ok) {
