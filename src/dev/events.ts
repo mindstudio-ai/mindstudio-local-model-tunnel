@@ -5,6 +5,10 @@
 // as JSON to stdout. This decoupling means the runner doesn't need to
 // know whether it's running in a TUI or headless context.
 //
+// Only contains events for the poll loop (platform-triggered methods)
+// and connection/auth lifecycle. Scenario and impersonation events are
+// handled directly by stdin command handlers.
+//
 // Singleton — one emitter shared across the process.
 
 import { EventEmitter } from 'events';
@@ -20,24 +24,6 @@ export interface DevRequestCompleteEvent {
   id: string;
   success: boolean;
   duration: number;
-  error?: string;
-}
-
-export interface DevScenarioStartEvent {
-  id: string;
-  name?: string;
-  timestamp: number;
-}
-
-export interface DevImpersonateEvent {
-  roles: string[] | null;
-}
-
-export interface DevScenarioCompleteEvent {
-  id: string;
-  success: boolean;
-  duration: number;
-  roles: string[];
   error?: string;
 }
 
@@ -72,18 +58,6 @@ class DevEventEmitter extends EventEmitter {
 
   emitConnectionRestored() {
     this.emit('dev:connection-restored');
-  }
-
-  emitImpersonate(event: DevImpersonateEvent) {
-    this.emit('dev:impersonate', event);
-  }
-
-  emitScenarioStart(event: DevScenarioStartEvent) {
-    this.emit('dev:scenario-start', event);
-  }
-
-  emitScenarioComplete(event: DevScenarioCompleteEvent) {
-    this.emit('dev:scenario-complete', event);
   }
 
   onStart(handler: (event: DevRequestStartEvent) => void) {
@@ -124,21 +98,6 @@ class DevEventEmitter extends EventEmitter {
   onConnectionRestored(handler: () => void) {
     this.on('dev:connection-restored', handler);
     return () => this.off('dev:connection-restored', handler);
-  }
-
-  onImpersonate(handler: (event: DevImpersonateEvent) => void) {
-    this.on('dev:impersonate', handler);
-    return () => this.off('dev:impersonate', handler);
-  }
-
-  onScenarioStart(handler: (event: DevScenarioStartEvent) => void) {
-    this.on('dev:scenario-start', handler);
-    return () => this.off('dev:scenario-start', handler);
-  }
-
-  onScenarioComplete(handler: (event: DevScenarioCompleteEvent) => void) {
-    this.on('dev:scenario-complete', handler);
-    return () => this.off('dev:scenario-complete', handler);
   }
 }
 

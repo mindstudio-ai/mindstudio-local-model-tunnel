@@ -1,27 +1,29 @@
 /**
- * Subscribe to DevRunner events and relay them as JSON to stdout.
+ * Subscribe to DevRunner events and relay them as system events to stdout.
+ * Only relays genuinely unsolicited events (poll-loop methods, connection, auth).
+ * Command responses (scenarios, impersonation) are handled by stdin handlers directly.
+ *
  * Returns an array of unsubscribe functions for cleanup on teardown.
  */
 
 import { devRequestEvents } from './events';
-
-type EmitFn = (event: string, data?: Record<string, unknown>) => void;
+import { emitEvent } from './ipc';
 
 export function subscribeDevEvents(
-  emit: EmitFn,
   shutdown: () => Promise<void>,
 ): Array<() => void> {
   const unsubs: Array<() => void> = [];
 
+  // Platform-triggered method execution (poll loop)
   unsubs.push(
     devRequestEvents.onStart((event) => {
-      emit('method-started', { id: event.id, method: event.method });
+      emitEvent('platform-method-started', { id: event.id, method: event.method });
     }),
   );
 
   unsubs.push(
     devRequestEvents.onComplete((event) => {
-      emit('method-completed', {
+      emitEvent('platform-method-completed', {
         id: event.id,
         success: event.success,
         duration: event.duration,
@@ -30,64 +32,43 @@ export function subscribeDevEvents(
     }),
   );
 
+  // Connection health
   unsubs.push(
     devRequestEvents.onConnectionWarning((message) => {
-      emit('connection-lost', { message });
+      emitEvent('connection-lost', { message });
     }),
   );
 
   unsubs.push(
     devRequestEvents.onConnectionRestored(() => {
-      emit('connection-restored');
+      emitEvent('connection-restored');
     }),
   );
 
+  // Session expiry
   unsubs.push(
     devRequestEvents.onSessionExpired(() => {
-      emit('session-expired');
+      emitEvent('session-expired');
       shutdown().then(() => process.exit(1));
     }),
   );
 
+  // Auth refresh
   unsubs.push(
     devRequestEvents.onAuthRefreshStart((url) => {
-      emit('auth-refresh-start', { url });
+      emitEvent('auth-refresh-start', { url });
     }),
   );
 
   unsubs.push(
     devRequestEvents.onAuthRefreshSuccess(() => {
-      emit('auth-refresh-success');
+      emitEvent('auth-refresh-success');
     }),
   );
 
   unsubs.push(
     devRequestEvents.onAuthRefreshFailed(() => {
-      emit('auth-refresh-failed');
-    }),
-  );
-
-  unsubs.push(
-    devRequestEvents.onImpersonate((event) => {
-      emit('impersonation-changed', { roles: event.roles });
-    }),
-  );
-
-  unsubs.push(
-    devRequestEvents.onScenarioStart((event) => {
-      emit('scenario-started', { id: event.id, name: event.name });
-    }),
-  );
-
-  unsubs.push(
-    devRequestEvents.onScenarioComplete((event) => {
-      emit('scenario-completed', {
-        id: event.id,
-        success: event.success,
-        duration: event.duration,
-        roles: event.roles,
-        ...(event.error ? { error: event.error } : {}),
-      });
+      emitEvent('auth-refresh-failed');
     }),
   );
 

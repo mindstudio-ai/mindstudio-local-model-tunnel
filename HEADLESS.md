@@ -49,7 +49,16 @@ mindstudio-local --headless [options]
 
 Every line written to stdout is a JSON object with an `event` field. Events are newline-delimited (one JSON object per line).
 
-### Session Lifecycle
+There are two types of stdout messages:
+
+- **System events** — unsolicited, no `requestId`. Things that happen automatically (session lifecycle, connection health, platform-triggered methods).
+- **Command responses** — always have `requestId` and `status`. Responses to stdin commands.
+
+The caller distinguishes them by the presence of `requestId`.
+
+### System Events
+
+#### Session Lifecycle
 
 **`session-starting`** — Session is initializing.
 ```json
@@ -75,7 +84,7 @@ Every line written to stdout is a JSON object with an `event` field. Events are 
 }
 ```
 
-`proxyPort` and `proxyUrl` are `null` if no dev server port was configured (backend-only mode). Scenario `name` falls back to the export name if no display name is set. Role `name` falls back to the role id.
+`proxyPort` and `proxyUrl` are `null` if no dev server port was configured (backend-only mode).
 
 **`session-stopping`** — Graceful shutdown initiated (`SIGTERM`/`SIGINT` received).
 ```json
@@ -92,47 +101,23 @@ Every line written to stdout is a JSON object with an `event` field. Events are 
 {"event":"session-expired"}
 ```
 
-### Method Execution
+#### Platform Method Execution
 
-Methods are executed automatically when the platform sends a request via the poll loop. No stdin command is needed.
+Methods triggered by the platform (via poll loop). These are NOT responses to stdin commands.
 
-**`method-started`** — A method execution request was received from the platform.
+**`platform-method-started`** — A method execution request was received from the platform.
 ```json
-{"event":"method-started","id":"req-uuid-1","method":"getDashboard"}
+{"event":"platform-method-started","id":"req-uuid-1","method":"getDashboard"}
 ```
 
-**`method-completed`** — Method execution finished.
+**`platform-method-completed`** — Method execution finished.
 ```json
-{"event":"method-completed","id":"req-uuid-1","success":true,"duration":45}
+{"event":"platform-method-completed","id":"req-uuid-1","success":true,"duration":45}
 ```
 
-On failure:
-```json
-{"event":"method-completed","id":"req-uuid-1","success":false,"duration":120,"error":"[db] query failed: ..."}
-```
+#### Schema Sync
 
-### Scenario Execution
-
-Triggered by the `run-scenario` stdin command.
-
-**`scenario-started`** — A scenario is being applied (truncate + seed + impersonate).
-```json
-{"event":"scenario-started","id":"sc-1","name":"seedApproverData"}
-```
-
-**`scenario-completed`** — Scenario finished.
-```json
-{"event":"scenario-completed","id":"sc-1","success":true,"duration":1830,"roles":["approver"]}
-```
-
-On failure:
-```json
-{"event":"scenario-completed","id":"sc-1","success":false,"duration":450,"roles":["approver"],"error":"Insert failed"}
-```
-
-### Schema Sync
-
-Schema is synced automatically on startup and whenever a table source file changes on disk. No stdin command is needed.
+Schema is synced automatically on startup and whenever a table source file changes on disk.
 
 **`schema-sync-started`** — A table file change was detected and schema sync is beginning.
 ```json
@@ -144,18 +129,7 @@ Schema is synced automatically on startup and whenever a table source file chang
 {"event":"schema-sync-completed","created":["vendors","purchase_orders"],"altered":[],"errors":[]}
 ```
 
-Also emitted on startup (without a preceding `schema-sync-started`).
-
-### Impersonation
-
-**`impersonation-changed`** — Role override was set or cleared (via `impersonate`/`clear-impersonation` commands, or as part of a scenario).
-```json
-{"event":"impersonation-changed","roles":["approver"]}
-```
-
-When cleared, `roles` is `null`.
-
-### Connection
+#### Connection
 
 **`connection-lost`** — Lost connection to the platform. The tunnel will retry with exponential backoff.
 ```json
@@ -167,65 +141,212 @@ When cleared, `roles` is `null`.
 {"event":"connection-restored"}
 ```
 
-### Config Changes
+#### Auth Refresh
 
-**`config-changed`** — `mindstudio.json` was modified. The session will be torn down and restarted automatically. A new `session-starting` → `session-started` sequence will follow.
+**`auth-refresh-start`** — Session token expired, device auth flow started.
+```json
+{"event":"auth-refresh-start","url":"https://app.mindstudio.ai/auth/device?token=..."}
+```
+
+**`auth-refresh-success`** / **`auth-refresh-failed`** — Auth refresh outcome.
+
+#### Config & Errors
+
+**`config-changed`** — `mindstudio.json` was modified. The session will be torn down and restarted automatically.
 ```json
 {"event":"config-changed"}
 ```
 
-### Errors
-
-**`error`** — Fatal startup error. The process may exit.
-```json
-{"event":"error","message":"No valid mindstudio.json found in /workspace"}
-```
-
-**`config-error`** — Non-fatal config or session startup error. Emitted when `mindstudio.json` is invalid or the session fails to start during a restart. The file watcher remains active — fix the config and save to trigger another attempt.
+**`config-error`** — Config or session startup error. The file watcher remains active — fix the config and save to trigger another attempt.
 ```json
 {"event":"config-error","message":"Missing \"appId\" in mindstudio.json"}
-```
-
-**`command-error`** — A stdin command failed. Non-fatal — the session continues.
-```json
-{"event":"command-error","message":"No active session"}
 ```
 
 ---
 
 ## Stdin Commands
 
-The parent process can send newline-delimited JSON commands to stdin. Each command is a JSON object with an `action` field.
+The parent process sends newline-delimited JSON commands to stdin. Every command **must** include a `requestId` for response correlation and an `action` field.
+
+```json
+{"requestId": "abc123", "action": "browser-status"}
+```
+
+### Command Response Format
+
+Every command receives a response with the same `requestId`, the `action` as the `event`, and a `status` of `"started"` or `"completed"`. Long-running commands may emit `started` before `completed`.
+
+```json
+{"event":"browser-status","requestId":"abc123","status":"completed","connected":true}
+```
+
+Errors are always in the `completed` response (never separate events):
+```json
+{"event":"run-method","requestId":"abc123","status":"completed","success":false,"error":"No active session"}
+```
+
+Commands without a `requestId` are rejected (logged to stderr, no stdout response). Unknown actions with a valid `requestId` receive a completed response with `success: false`.
+
+### `run-method`
+
+Run a method directly. Looks up by export name (falls back to ID).
+
+```json
+{"requestId":"r1","action":"run-method","method":"listHaikus","input":{"topic":"cats"}}
+```
+
+Response:
+```json
+{"event":"run-method","requestId":"r1","status":"started","method":"listHaikus"}
+{"event":"run-method","requestId":"r1","status":"completed","success":true,"method":"listHaikus","output":{...},"error":null,"stdout":[],"duration":145}
+```
 
 ### `run-scenario`
 
 Run a scenario by ID. Truncates all tables, executes the seed function, and impersonates the scenario's roles.
 
 ```json
-{"action":"run-scenario","scenarioId":"sample-haikus"}
+{"requestId":"r2","action":"run-scenario","scenarioId":"sample-haikus"}
 ```
 
-Emits: `scenario-started` → `schema-sync-completed` → `impersonation-changed` → `scenario-completed`
+Response:
+```json
+{"event":"run-scenario","requestId":"r2","status":"started","scenarioId":"sample-haikus","name":"Sample Haikus"}
+{"event":"run-scenario","requestId":"r2","status":"completed","success":true,"scenarioId":"sample-haikus","name":"Sample Haikus"}
+```
+
+### `browser`
+
+Send commands to the browser agent. Commands execute sequentially; steps stop on first error.
+
+```json
+{"requestId":"r3","action":"browser","steps":[{"command":"snapshot"}]}
+```
+
+Response:
+```json
+{"event":"browser","requestId":"r3","status":"completed","steps":[{"index":0,"command":"snapshot","result":"navigation \"My App\" [ref=e1]\n  button \"Create\" [ref=e2]\n  ..."}],"duration":250}
+```
+
+Times out after 30s if no browser is connected.
+
+Available commands:
+- `snapshot` — compact accessibility-tree DOM representation with `[ref=eN]` identifiers
+- `click` — click an element by ref, text, role, label, or selector
+- `type` — type text into an element (natural typing rhythm)
+- `select` — select a dropdown option
+- `wait` — wait for an element to appear
+- `evaluate` — run custom JavaScript
+- `screenshot` — full-page viewport-stitched screenshot
+- `reload` — reload the page
+
+### `screenshot`
+
+Capture a full-page screenshot via the browser agent, upload to S3, return the public URL. Times out after 120s.
+
+```json
+{"requestId":"r4","action":"screenshot"}
+```
+
+Response:
+```json
+{"event":"screenshot","requestId":"r4","status":"completed","url":"https://...","width":1920,"height":3400,"duration":8500}
+```
 
 ### `impersonate`
 
-Set a role override. Subsequent method executions will use these roles instead of the session's default. Also refreshes the client context token so the browser picks up the new roles on next page load.
+Set a role override. Subsequent method executions will use these roles.
 
 ```json
-{"action":"impersonate","roles":["ap","admin"]}
+{"requestId":"r5","action":"impersonate","roles":["ap","admin"]}
 ```
 
-Emits: `impersonation-changed`
+Response:
+```json
+{"event":"impersonate","requestId":"r5","status":"completed","roles":["ap","admin"]}
+```
 
 ### `clear-impersonation`
 
 Clear the role override. Reverts to the session's default roles.
 
 ```json
-{"action":"clear-impersonation"}
+{"requestId":"r6","action":"clear-impersonation"}
 ```
 
-Emits: `impersonation-changed` with `roles: null`
+Response:
+```json
+{"event":"clear-impersonation","requestId":"r6","status":"completed","roles":null}
+```
+
+### `browser-status`
+
+Check if any browser agent is connected.
+
+```json
+{"requestId":"r7","action":"browser-status"}
+```
+
+Response:
+```json
+{"event":"browser-status","requestId":"r7","status":"completed","connected":true}
+```
+
+### `reset-browser`
+
+Reload all connected browser tabs. Fire-and-forget (the reload kills the page).
+
+```json
+{"requestId":"r8","action":"reset-browser"}
+```
+
+Response:
+```json
+{"event":"reset-browser","requestId":"r8","status":"completed"}
+```
+
+### `dev-server-restarting`
+
+Signal that the upstream dev server is restarting. The proxy's health check will detect recovery and auto-reload the browser.
+
+```json
+{"requestId":"r9","action":"dev-server-restarting"}
+```
+
+Response:
+```json
+{"event":"dev-server-restarting","requestId":"r9","status":"completed"}
+```
+
+---
+
+## Browser Agent
+
+The proxy injects a `<script>` tag into every HTML response that loads the browser agent (`@mindstudio-ai/browser-agent`). The agent connects to the proxy via WebSocket at `/__mindstudio_dev__/ws`.
+
+**Multi-client support** — multiple browsers can connect simultaneously (IDE iframe, standalone tab, phone). All clients receive broadcast events (reload, etc.). C&C commands (snapshot, click, type) are sent to one preferred client, favoring `mode=iframe` clients.
+
+**Log capture** — always active, writes to `.logs/browser.ndjson`:
+- Console output (`console.log/info/warn/error/debug`)
+- JS errors (uncaught errors and unhandled promise rejections, with stack traces)
+- Network requests (all fetch and XMLHttpRequest calls, with status, duration, and response body for failures)
+- Click interactions (element role/name and text content)
+
+**DOM snapshots** — compact, token-efficient accessibility tree:
+- Semantic roles and accessible names, not CSS classes (handles styled-components/CSS-in-JS)
+- Interactive elements get stable `[ref=eN]` identifiers
+- Cursor-interactive elements (`cursor: pointer` divs) are detected and included
+- Form values and placeholders shown
+- Hidden elements skipped, empty wrapper divs collapsed
+- Waits for network idle before walking (200ms settle period, 5s max)
+
+**WebSocket protocol** — the browser agent communicates via WebSocket (replacing the previous HTTP polling approach):
+- Client sends `hello` on connect with mode (iframe/standalone), URL, and viewport size
+- Server sends `command` messages for C&C, `broadcast` messages for reload/etc.
+- Client sends `result` messages after executing commands, `log` messages for browser events
+- Auto-reconnects with exponential backoff on disconnection
+
+The browser agent script URL defaults to the latest unpkg release. Override via `browserAgentUrl` in `HeadlessOptions` or the `DevProxy` constructor.
 
 ---
 
@@ -237,8 +358,6 @@ Headless mode automatically watches for file changes. No polling or stdin comman
 |------|---------|--------|
 | `mindstudio.json` | Any change (500ms debounce) | Full session teardown and restart. Picks up new methods, scenarios, roles, tables. Emits `config-changed` → `session-starting` → `session-started`. |
 | Table source directories | File matching a declared table path created or changed (500ms debounce) | Re-read all table sources and sync schema. No session restart. Emits `schema-sync-started` → `schema-sync-completed`. |
-
-Table directories are deduplicated — if all tables live in `src/tables/`, only one directory watcher is created. Directories are watched (not individual files) so that newly created table files are detected even if they didn't exist when the session started.
 
 ---
 
@@ -261,19 +380,21 @@ If the session expires (platform returns 404 on poll), the tunnel emits `session
 ← {"event":"schema-sync-completed","created":["haikus"],"altered":[],"errors":[]}
 ← {"event":"session-started","sessionId":"...","proxyPort":3142,"roles":[...],"scenarios":[...]}
 
-→ {"action":"run-scenario","scenarioId":"sample-haikus"}
-← {"event":"scenario-started","id":"sample-haikus","name":"Sample Haikus"}
-← {"event":"impersonation-changed","roles":[]}
-← {"event":"scenario-completed","id":"sample-haikus","success":true,"duration":234,"roles":[]}
+→ {"requestId":"r1","action":"run-scenario","scenarioId":"sample-haikus"}
+← {"event":"run-scenario","requestId":"r1","status":"started","scenarioId":"sample-haikus","name":"Sample Haikus"}
+← {"event":"run-scenario","requestId":"r1","status":"completed","success":true,"scenarioId":"sample-haikus","name":"Sample Haikus"}
 
-→ {"action":"impersonate","roles":["ap"]}
-← {"event":"impersonation-changed","roles":["ap"]}
+→ {"requestId":"r2","action":"impersonate","roles":["ap"]}
+← {"event":"impersonate","requestId":"r2","status":"completed","roles":["ap"]}
 
-← {"event":"method-started","id":"req-1","method":"getDashboard"}
-← {"event":"method-completed","id":"req-1","success":true,"duration":45}
+← {"event":"platform-method-started","id":"req-1","method":"getDashboard"}
+← {"event":"platform-method-completed","id":"req-1","success":true,"duration":45}
 
-→ {"action":"clear-impersonation"}
-← {"event":"impersonation-changed","roles":null}
+→ {"requestId":"r3","action":"browser","steps":[{"command":"snapshot"}]}
+← {"event":"browser","requestId":"r3","status":"completed","steps":[...],"duration":250}
+
+→ {"requestId":"r4","action":"clear-impersonation"}
+← {"event":"clear-impersonation","requestId":"r4","status":"completed","roles":null}
 
 (user edits src/tables/vendors.ts)
 ← {"event":"schema-sync-started"}
@@ -310,18 +431,28 @@ tunnel.stdout.on('data', (chunk) => {
     const line = buffer.slice(0, idx);
     buffer = buffer.slice(idx + 1);
     if (line.trim()) {
-      const event = JSON.parse(line);
-      console.log('Tunnel event:', event);
+      const msg = JSON.parse(line);
 
-      if (event.event === 'session-started') {
-        console.log('Proxy available at:', event.proxyUrl);
+      if (msg.requestId) {
+        // Command response — correlate with your pending request
+        console.log(`Response to ${msg.requestId}:`, msg);
+      } else {
+        // System event
+        console.log('System event:', msg);
+        if (msg.event === 'session-started') {
+          console.log('Proxy available at:', msg.proxyUrl);
+        }
       }
     }
   }
 });
 
-// Send a command
-tunnel.stdin.write(JSON.stringify({ action: 'run-scenario', scenarioId: 'seed-data' }) + '\n');
+// Send a command (always include requestId)
+tunnel.stdin.write(JSON.stringify({
+  requestId: 'cmd-1',
+  action: 'run-scenario',
+  scenarioId: 'seed-data',
+}) + '\n');
 
 // Graceful shutdown
 process.on('SIGTERM', () => tunnel.kill('SIGTERM'));
@@ -348,7 +479,7 @@ When using the programmatic API, JSON events are still written to `process.stdou
 ## What the parent process is responsible for
 
 - Starting and managing the dev server (Vite, Next.js, etc.)
-- Sending `run-scenario` / `impersonate` / `clear-impersonation` commands when the user requests them
+- Sending commands with unique `requestId` values and correlating responses
 - Reading `mindstudio.json` directly for scenario and role lists (these are static config, not runtime state)
 - Displaying events to the user (logs, status indicators, etc.)
 

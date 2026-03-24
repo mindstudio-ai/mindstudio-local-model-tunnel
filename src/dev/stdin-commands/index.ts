@@ -2,9 +2,12 @@
  * Stdin command router for headless mode.
  *
  * Reads NDJSON commands from stdin and dispatches to individual handlers.
- * Each command lives in its own file for isolation and testability.
+ * Every command must include a `requestId` for response correlation.
+ * The router wraps handlers with automatic response framing.
  */
 
+import { emitResponse } from '../ipc';
+import { log } from '../logger';
 import { handleRunScenario } from './run-scenario';
 import { handleRunMethod } from './run-method';
 import { handleImpersonate, handleClearImpersonation } from './impersonate';
@@ -13,14 +16,25 @@ import { handleScreenshot } from './screenshot';
 import { handleDevServerRestarting } from './dev-server-restarting';
 import { handleBrowserStatus } from './browser-status';
 import { handleResetBrowser } from './reset-browser';
-import type { SessionState, EmitFn } from './types';
+import type { SessionState, CommandContext, CommandHandler } from './types';
 
-export type { SessionState, EmitFn } from './types';
+export type { SessionState } from './types';
+
+const handlers: Record<string, CommandHandler> = {
+  'run-method': handleRunMethod,
+  'run-scenario': handleRunScenario,
+  'impersonate': handleImpersonate,
+  'clear-impersonation': handleClearImpersonation,
+  'browser': handleBrowser,
+  'screenshot': handleScreenshot,
+  'browser-status': handleBrowserStatus,
+  'reset-browser': handleResetBrowser,
+  'dev-server-restarting': handleDevServerRestarting,
+};
 
 export function setupStdinCommands(
   state: SessionState,
   cwd: string,
-  emit: EmitFn,
 ): void {
   if (!process.stdin.readable) return;
 
@@ -34,42 +48,54 @@ export function setupStdinCommands(
       buffer = buffer.slice(idx + 1);
       if (!line) continue;
 
+      let cmd: { action: string; requestId?: string; [key: string]: unknown };
       try {
-        const cmd = JSON.parse(line) as { action: string; [key: string]: unknown };
-        handleStdinCommand(cmd, state, cwd, emit);
+        cmd = JSON.parse(line);
       } catch {
-        emit('command-error', { message: `Invalid JSON on stdin: ${line.slice(0, 100)}` });
+        log.warn('Invalid JSON on stdin', { preview: line.slice(0, 100) });
+        continue;
       }
+
+      handleStdinCommand(cmd, state, cwd);
     }
   });
 }
 
 async function handleStdinCommand(
-  cmd: { action: string; [key: string]: unknown },
+  cmd: { action: string; requestId?: string; [key: string]: unknown },
   state: SessionState,
   cwd: string,
-  emit: EmitFn,
 ): Promise<void> {
-  switch (cmd.action) {
-    case 'run-scenario':
-      return handleRunScenario(state, cwd, cmd, emit);
-    case 'run-method':
-      return handleRunMethod(state, cwd, cmd, emit);
-    case 'impersonate':
-      return handleImpersonate(state, cmd, emit);
-    case 'clear-impersonation':
-      return handleClearImpersonation(state, emit);
-    case 'browser':
-      return handleBrowser(state, cmd, emit);
-    case 'screenshot':
-      return handleScreenshot(state, emit);
-    case 'dev-server-restarting':
-      return handleDevServerRestarting(state, emit);
-    case 'browser-status':
-      return handleBrowserStatus(state, emit);
-    case 'reset-browser':
-      return handleResetBrowser(state, emit);
-    default:
-      emit('command-error', { message: `Unknown action: ${cmd.action}` });
+  const { requestId, action } = cmd;
+
+  if (!requestId) {
+    log.warn('Command rejected: missing requestId', { action });
+    return;
+  }
+
+  const handler = handlers[action];
+  if (!handler) {
+    emitResponse(action ?? 'unknown', requestId, 'completed', {
+      success: false,
+      error: `Unknown action: ${action}`,
+    });
+    return;
+  }
+
+  const ctx: CommandContext = {
+    state,
+    cwd,
+    requestId,
+    started: (data) => emitResponse(action, requestId, 'started', data),
+  };
+
+  try {
+    const result = await handler(ctx, cmd);
+    emitResponse(action, requestId, 'completed', result);
+  } catch (err) {
+    emitResponse(action, requestId, 'completed', {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }

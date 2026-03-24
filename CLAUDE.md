@@ -122,45 +122,50 @@ grep '"success":false' .logs/requests.ndjson | jq .  # failed methods
 
 ### Stdin Commands
 
-Headless mode accepts NDJSON commands on stdin (one JSON object per line):
+Headless mode accepts NDJSON commands on stdin (one JSON object per line). Every command must include a `requestId` for response correlation:
 
 **Run a method:**
 ```json
-{"action": "run-method", "method": "listHaikus", "input": {"topic": "cats"}}
+{"requestId": "r1", "action": "run-method", "method": "listHaikus", "input": {"topic": "cats"}}
 ```
-Looks up the method by export name (falls back to ID). Executes it directly with a fresh callback token -- the method's SDK calls (db queries, etc.) still go through the platform. Returns a `method-run-completed` event on stdout:
+Looks up the method by export name (falls back to ID). Executes it directly with a fresh callback token -- the method's SDK calls (db queries, etc.) still go through the platform. Response:
 ```json
-{"event": "method-run-completed", "method": "listHaikus", "success": true, "output": {...}, "error": null, "duration": 145}
+{"event": "run-method", "requestId": "r1", "status": "started", "method": "listHaikus"}
+{"event": "run-method", "requestId": "r1", "status": "completed", "success": true, "method": "listHaikus", "output": {...}, "duration": 145}
 ```
 
 **Run a scenario:**
 ```json
-{"action": "run-scenario", "scenarioId": "populated-boards"}
+{"requestId": "r2", "action": "run-scenario", "scenarioId": "populated-boards"}
 ```
-Resets the database, runs the seed function, and sets role overrides. Emits `scenario-started` and `scenario-completed` events.
+Resets the database, runs the seed function, and sets role overrides. Response includes `started` and `completed` events with matching `requestId`.
 
 **Browser commands:**
 ```json
-{"action": "browser", "steps": [{"command": "snapshot"}]}
+{"requestId": "r3", "action": "browser", "steps": [{"command": "snapshot"}]}
 ```
-Sends commands to the browser agent running in the app's preview iframe. The browser agent polls `GET /__mindstudio_dev__/commands` every 100ms (only in iframe mode -- detected via `?mode=iframe` in the page URL). Commands execute sequentially and the result is posted back to `POST /__mindstudio_dev__/results`. Returns a `browser-completed` event:
+Sends commands to the browser agent via WebSocket. Commands execute sequentially; steps stop on first error. Response:
 ```json
-{"event": "browser-completed", "steps": [{"index": 0, "command": "snapshot", "result": "navigation \"My App\" [ref=e1]\n  button \"Create\" [ref=e2]\n  ..."}], "duration": 250}
+{"event": "browser", "requestId": "r3", "status": "completed", "steps": [{"index": 0, "command": "snapshot", "result": "navigation \"My App\" [ref=e1]\n  button \"Create\" [ref=e2]\n  ..."}], "duration": 250}
 ```
-Times out after 30s if no browser is connected. Steps stop on first error.
+Times out after 30s if no browser is connected.
 
 Available commands:
 - `snapshot` -- returns a compact accessibility-tree-style representation of the page DOM, with stable `[ref=eN]` identifiers on interactive elements. Waits for network requests to settle before walking.
 
 **Set/clear role override:**
 ```json
-{"action": "impersonate", "roles": ["admin"]}
-{"action": "clear-impersonation"}
+{"requestId": "r4", "action": "impersonate", "roles": ["admin"]}
+{"requestId": "r5", "action": "clear-impersonation"}
 ```
+
+**Response protocol:** All command responses include `requestId` and `status` ("started" or "completed"). System events (session lifecycle, connection health, platform-triggered methods) have no `requestId`. Commands without `requestId` are rejected to stderr. Errors are always in the `completed` response, never as separate events. See HEADLESS.md for full protocol details.
 
 ### Browser Agent
 
-The proxy injects a `<script>` tag into every HTML response that loads the browser agent (`@mindstudio-ai/browser-agent`). The agent captures browser events and provides a command interface for AI agents.
+The proxy injects a `<script>` tag into every HTML response that loads the browser agent (`@mindstudio-ai/browser-agent`). The agent connects via WebSocket to `/__mindstudio_dev__/ws` and provides a command interface for AI agents.
+
+**Multi-client support** -- multiple browsers can connect (IDE iframe, standalone tab, phone). All clients receive broadcasts (reload). C&C commands go to one preferred client, favoring `mode=iframe`.
 
 **Log capture** -- always active, writes to `.logs/browser.ndjson`:
 - Console output (`console.log/info/warn/error/debug`)
@@ -176,11 +181,13 @@ The proxy injects a `<script>` tag into every HTML response that loads the brows
 - Hidden elements skipped, empty wrapper divs collapsed
 - Waits for network idle before walking (200ms settle period, 5s max)
 
-**Command channel** -- only active in iframe mode (`?mode=iframe` in URL):
-- Polls `GET /__mindstudio_dev__/commands` every 100ms
-- Executes commands and posts results to `POST /__mindstudio_dev__/results`
+**WebSocket communication** -- browser agent connects via WS (replaces HTTP polling):
+- Client sends `hello` on connect with mode, URL, viewport
+- Server sends `command` (C&C) and `broadcast` (reload) messages
+- Client sends `result` and `log` messages
+- Auto-reconnects with exponential backoff
 
-The browser agent script URL defaults to `https://seankoji-msba.ngrok.io/index.js` (for dev). Override via `browserAgentUrl` in `HeadlessOptions` or the `DevProxy` constructor.
+The browser agent script URL defaults to unpkg latest. Override via `browserAgentUrl` in `HeadlessOptions` or the `DevProxy` constructor.
 
 ### File Watching
 

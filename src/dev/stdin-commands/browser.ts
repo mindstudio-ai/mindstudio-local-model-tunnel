@@ -1,30 +1,73 @@
-import type { SessionState, EmitFn } from './types';
+import { getUploadUrl } from '../api';
+import type { CommandContext } from './types';
 
 export async function handleBrowser(
-  state: SessionState,
+  ctx: CommandContext,
   cmd: Record<string, unknown>,
-  emit: EmitFn,
-): Promise<void> {
-  if (!state.proxy) {
-    emit('command-error', { message: 'No active proxy — browser commands require a web interface' });
-    return;
-  }
+): Promise<Record<string, unknown>> {
+  if (!ctx.state.proxy) throw new Error('No active proxy — browser commands require a web interface');
+
   const steps = cmd.steps as Array<Record<string, unknown>>;
   if (!Array.isArray(steps) || steps.length === 0) {
-    emit('command-error', { message: 'browser action requires a non-empty "steps" array' });
-    return;
+    throw new Error('browser action requires a non-empty "steps" array');
   }
-  try {
-    const result = await state.proxy.dispatchBrowserCommand(steps);
-    emit('browser-completed', {
-      steps: result.steps,
-      snapshot: result.snapshot,
-      logs: result.logs,
-      duration: result.duration,
-    });
-  } catch (err) {
-    emit('command-error', {
-      message: err instanceof Error ? err.message : 'Browser command failed',
-    });
+
+  // Inject upload details into any screenshot steps so the browser uploads
+  // directly to S3 instead of sending base64 over the WS connection.
+  const preparedSteps = await injectScreenshotUploads(ctx, steps);
+
+  const result = await ctx.state.proxy.dispatchBrowserCommand(preparedSteps);
+
+  // Replace uploaded screenshot results with the public URL
+  const resultSteps = (result.steps as Array<Record<string, unknown>>) ?? [];
+  for (const step of resultSteps) {
+    const stepResult = step.result as Record<string, unknown> | undefined;
+    if (stepResult?.uploaded && stepResult?._publicUrl) {
+      stepResult.url = stepResult._publicUrl;
+      delete stepResult.uploaded;
+      delete stepResult._publicUrl;
+      delete stepResult.image;
+    }
   }
+
+  return {
+    steps: resultSteps,
+    snapshot: result.snapshot,
+    logs: result.logs,
+    duration: result.duration,
+  };
+}
+
+/**
+ * For each screenshot step, get a presigned upload URL and attach it to the step.
+ * Non-screenshot steps are passed through unchanged.
+ */
+async function injectScreenshotUploads(
+  ctx: CommandContext,
+  steps: Array<Record<string, unknown>>,
+): Promise<Array<Record<string, unknown>>> {
+  const session = ctx.state.runner?.getSession();
+  const appId = ctx.state.appConfig?.appId;
+  if (!session || !appId) return steps;
+
+  const prepared: Array<Record<string, unknown>> = [];
+  for (const step of steps) {
+    if (step.command === 'screenshot') {
+      try {
+        const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
+          appId,
+          session.sessionId,
+          'jpg',
+          'image/jpeg',
+        );
+        prepared.push({ ...step, uploadUrl, uploadFields, _publicUrl: publicUrl });
+      } catch {
+        // If we can't get an upload URL, fall back to inline base64
+        prepared.push(step);
+      }
+    } else {
+      prepared.push(step);
+    }
+  }
+  return prepared;
 }
