@@ -132,11 +132,6 @@ export function useDevSession(appConfig: AppConfig) {
         runnerRef.current = null;
       }
     });
-    const unsubImpersonate = devRequestEvents.onImpersonate((event) => {
-      if (mountedRef.current) {
-        setRoleOverride(event.roles);
-      }
-    });
     const unsubAuthStart = devRequestEvents.onAuthRefreshStart((url) => {
       if (mountedRef.current) {
         setAuthRefreshUrl(url);
@@ -152,7 +147,7 @@ export function useDevSession(appConfig: AppConfig) {
         setAuthRefreshUrl(null);
       }
     });
-    return () => { unsubExpired(); unsubImpersonate(); unsubAuthStart(); unsubAuthSuccess(); unsubAuthFailed(); };
+    return () => { unsubExpired(); unsubAuthStart(); unsubAuthSuccess(); unsubAuthFailed(); };
   }, []);
 
   // Watch mindstudio.json for changes — restart session on edit
@@ -357,11 +352,13 @@ export function useDevSession(appConfig: AppConfig) {
   const setImpersonation = useCallback(async (roles: string[]) => {
     if (!runnerRef.current) return;
     await runnerRef.current.setImpersonation(roles);
+    setRoleOverride(roles);
   }, []);
 
   const clearImpersonation = useCallback(async () => {
     if (!runnerRef.current) return;
     await runnerRef.current.clearImpersonation();
+    setRoleOverride(null);
   }, []);
 
   const runScenario = useCallback(async (scenarioId: string) => {

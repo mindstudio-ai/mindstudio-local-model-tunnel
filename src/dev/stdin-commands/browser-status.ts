@@ -1,10 +1,7 @@
-import type { SessionState, EmitFn } from './types';
+import type { CommandContext } from './types';
 
-export function handleBrowserStatus(
-  state: SessionState,
-  emit: EmitFn,
-): void {
-  emit('browser-status', {
-    connected: state.proxy?.isBrowserConnected() ?? false,
-  });
+export async function handleBrowserStatus(
+  ctx: CommandContext,
+): Promise<Record<string, unknown>> {
+  return { connected: ctx.state.proxy?.isBrowserConnected() ?? false };
 }

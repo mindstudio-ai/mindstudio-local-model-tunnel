@@ -14,4 +14,15 @@ export interface SessionState {
   unsubscribers: Array<() => void>;
 }
 
-export type EmitFn = (event: string, data?: Record<string, unknown>) => void;
+export interface CommandContext {
+  state: SessionState;
+  cwd: string;
+  requestId: string;
+  /** Emit a "started" progress event for this command. */
+  started(data?: Record<string, unknown>): void;
+}
+
+export type CommandHandler = (
+  ctx: CommandContext,
+  cmd: Record<string, unknown>,
+) => Promise<Record<string, unknown>>;

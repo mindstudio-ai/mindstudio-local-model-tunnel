@@ -26,6 +26,7 @@ import { initRequestLog, closeRequestLog } from './dev/request-log';
 import { initBrowserLog, closeBrowserLog } from './dev/browser-log';
 import { subscribeDevEvents } from './dev/session-events';
 import { setupStdinCommands, type SessionState } from './dev/stdin-commands';
+import { emitEvent } from './dev/ipc';
 import {
   getApiKey,
   getApiBaseUrl,
@@ -56,10 +57,6 @@ export interface HeadlessOptions {
   browserAgentUrl?: string;
 }
 
-/** Write a JSON event to stdout. */
-function emit(event: string, data?: Record<string, unknown>): void {
-  process.stdout.write(JSON.stringify({ event, ...data }) + '\n');
-}
 
 // ---------------------------------------------------------------------------
 // Session lifecycle
@@ -76,12 +73,12 @@ async function startSession(
   // Read fresh config
   const appConfig = detectAppConfig(cwd);
   if (!appConfig) {
-    emit('config-error', { message: 'No valid mindstudio.json found in ' + cwd });
+    emitEvent('config-error', { message: 'No valid mindstudio.json found in ' + cwd });
     return false;
   }
 
   if (!appConfig.appId) {
-    emit('config-error', { message: 'Missing "appId" in mindstudio.json' });
+    emitEvent('config-error', { message: 'Missing "appId" in mindstudio.json' });
     return false;
   }
 
@@ -94,7 +91,7 @@ async function startSession(
     devPort = webConfig?.devPort ?? null;
   }
 
-  emit('session-starting', { appId: appConfig.appId, name: appConfig.name });
+  emitEvent('session-starting', { appId: appConfig.appId, name: appConfig.name });
 
   try {
     // Start platform session
@@ -117,7 +114,7 @@ async function startSession(
         if (tableSources.length > 0) {
           const syncResult = await syncSchema(appConfig.appId, session.sessionId, tableSources);
           session.databases = syncResult.databases;
-          emit('schema-sync-completed', {
+          emitEvent('schema-sync-completed', {
             created: syncResult.created,
             altered: syncResult.altered,
             errors: syncResult.errors,
@@ -128,7 +125,7 @@ async function startSession(
           });
         }
       } catch (err) {
-        emit('schema-sync-completed', {
+        emitEvent('schema-sync-completed', {
           created: [],
           altered: [],
           errors: [err instanceof Error ? err.message : 'Schema sync failed'],
@@ -148,7 +145,7 @@ async function startSession(
     }
     state.proxyPort = proxyPort;
 
-    emit('session-started', {
+    emitEvent('session-started', {
       sessionId: session.sessionId,
       releaseId: session.releaseId,
       branch: session.branch,
@@ -168,14 +165,14 @@ async function startSession(
     });
 
     // Subscribe to runner events
-    state.unsubscribers.push(...subscribeDevEvents(emit, shutdown));
+    state.unsubscribers.push(...subscribeDevEvents(shutdown));
 
     // Watch table source files for changes — auto-sync without session restart
     setupTableWatchers(cwd, state);
 
     return true;
   } catch (err) {
-    emit('config-error', {
+    emitEvent('config-error', {
       message: err instanceof Error ? err.message : 'Failed to start session',
     });
     return false;
@@ -190,7 +187,7 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
     const session = state.runner.getSession();
     if (!session) return;
 
-    emit('schema-sync-started');
+    emitEvent('schema-sync-started');
     log.info('Table source file changed, syncing schema');
 
     try {
@@ -198,7 +195,7 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
       if (tableSources.length > 0) {
         const result = await syncSchema(state.appConfig.appId, session.sessionId, tableSources);
         session.databases = result.databases;
-        emit('schema-sync-completed', {
+        emitEvent('schema-sync-completed', {
           created: result.created,
           altered: result.altered,
           errors: result.errors,
@@ -211,7 +208,7 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Schema sync failed';
-      emit('command-error', { message });
+      emitEvent('schema-sync-completed', { created: [], altered: [], errors: [message] });
       log.warn('Schema sync failed', { error: message });
     }
   });
@@ -276,10 +273,10 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   const shutdown = async () => {
     if (stopping) return;
     stopping = true;
-    emit('session-stopping');
+    emitEvent('session-stopping');
     cleanupConfigWatcher?.();
     await teardownSession(state);
-    emit('session-stopped');
+    emitEvent('session-stopped');
   };
 
   process.on('SIGTERM', () => { shutdown().then(() => process.exit(0)); });
@@ -292,7 +289,7 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   }
 
   // Stdin command loop
-  setupStdinCommands(state, cwd, emit);
+  setupStdinCommands(state, cwd);
 
   // Watch mindstudio.json for changes
   cleanupConfigWatcher = watchConfigFile(cwd, async () => {
@@ -300,11 +297,11 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     restarting = true;
     try {
       log.info('mindstudio.json changed, restarting dev session');
-      emit('config-changed');
+      emitEvent('config-changed');
       await teardownSession(state);
       const ok = await startSession(cwd, opts, state, shutdown);
       if (ok && state.proxy) {
-        state.proxy.dispatchBrowserCommand([{ command: 'reload' }]).catch(() => {});
+        state.proxy.broadcastToClients('reload');
       }
     } finally {
       restarting = false;

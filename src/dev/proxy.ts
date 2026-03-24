@@ -8,24 +8,19 @@
 // How it works:
 // - HTML responses: buffered, __MINDSTUDIO__ injected before </head>, served
 // - Everything else (JS, CSS, images, fonts): piped through unmodified
-// - WebSocket upgrades: forwarded transparently (enables HMR for any framework)
+// - WebSocket upgrades: /__mindstudio_dev__/ws handled locally (browser agent),
+//   all others forwarded transparently (enables HMR for any framework)
 // - CORS/PNA headers: added so the proxy works inside iframes from app.mindstudio.ai
 // - Caching disabled on all responses (this is local dev, always fresh)
 // - /__mindstudio_dev__/*: intercepted locally for browser agent communication
-//
-// The proxy is framework-agnostic — it doesn't know or care what dev server
-// is upstream. Detection is by content-type header, not URL patterns.
 
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import type { Socket } from 'node:net';
+import { WebSocketServer, WebSocket } from 'ws';
 import { log } from './logger';
 import { appendBrowserLogEntries } from './browser-log';
-
-interface PendingCommand {
-  id: string;
-  steps: Array<Record<string, unknown>>;
-}
+import { ClientRegistry } from './ws-clients';
 
 interface PendingResult {
   resolve: (result: Record<string, unknown>) => void;
@@ -35,23 +30,20 @@ interface PendingResult {
 export class DevProxy {
   private server: http.Server | null = null;
   private proxyPort: number | null = null;
-  private commandQueue: PendingCommand[] = [];
+  private wss: WebSocketServer | null = null;
+  private clients = new ClientRegistry();
   private pendingResults = new Map<string, PendingResult>();
-  private lastBrowserPoll = 0;
-  /** Long-poll waiters — browser agents waiting for the next command. */
-  private commandWaiters: Array<{
-    req: http.IncomingMessage;
-    res: http.ServerResponse;
-    timer: ReturnType<typeof setTimeout>;
-  }> = [];
 
   /** Upstream dev server health tracking. */
   private upstreamUp = true;
   private healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setTimeout> | null = null;
 
   private static readonly HEALTH_CHECK_INTERVAL = 3_000;
   private static readonly HEALTH_CHECK_INTERVAL_DOWN = 1_000;
   private static readonly HEALTH_CHECK_TIMEOUT = 2_000;
+  private static readonly PING_INTERVAL = 30_000;
+  private static readonly HELLO_TIMEOUT = 5_000;
 
   constructor(
     private readonly upstreamPort: number,
@@ -67,23 +59,21 @@ export class DevProxy {
   }
 
   /**
-   * Whether a browser agent is actively connected.
-   * True if there's a long-poll waiter or we've seen activity recently.
+   * Whether any browser agent is actively connected via WebSocket.
    */
   isBrowserConnected(): boolean {
-    return this.commandWaiters.length > 0 || Date.now() - this.lastBrowserPoll < 500;
+    return this.clients.hasConnected();
   }
 
   /**
-   * Dispatch a browser command and wait for the result.
-   * The command is queued for the browser agent to pick up via polling.
-   * Returns a promise that resolves when the browser posts the result back.
+   * Dispatch a command to the preferred browser client and wait for the result.
    */
   dispatchBrowserCommand(
     steps: Array<Record<string, unknown>>,
     timeoutMs = 30_000,
   ): Promise<Record<string, unknown>> {
-    if (!this.isBrowserConnected()) {
+    const target = this.clients.getCommandTarget();
+    if (!target) {
       return Promise.reject(
         new Error('No browser connected, please refresh the MindStudio preview'),
       );
@@ -91,19 +81,46 @@ export class DevProxy {
 
     const id = randomBytes(4).toString('hex');
 
-    log.info('Browser command queued', { id, stepCount: steps.length, commands: steps.map((s) => s.command) });
+    log.info('Browser command sent', { id, clientId: target.id, mode: target.mode, stepCount: steps.length, commands: steps.map((s) => s.command) });
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingResults.delete(id);
-        log.warn('Browser command timed out', { id, pendingCount: this.pendingResults.size, queueLength: this.commandQueue.length });
+        // Clear activeCommandId on the client
+        const client = this.clients.findByCommandId(id);
+        if (client) client.activeCommandId = null;
+        log.warn('Browser command timed out', { id, pendingCount: this.pendingResults.size });
         reject(new Error('Browser command timed out'));
       }, timeoutMs);
 
       this.pendingResults.set(id, { resolve, timeout });
-      this.commandQueue.push({ id, steps });
-      this.flushCommandToWaiter();
+      target.activeCommandId = id;
+
+      try {
+        target.ws.send(JSON.stringify({ type: 'command', id, steps }));
+      } catch (err) {
+        this.pendingResults.delete(id);
+        clearTimeout(timeout);
+        target.activeCommandId = null;
+        reject(new Error('Failed to send command to browser'));
+      }
     });
+  }
+
+  /**
+   * Send a broadcast message to all connected browser clients.
+   */
+  broadcastToClients(action: string, payload?: Record<string, unknown>): void {
+    const msg = JSON.stringify({ type: 'broadcast', action, payload });
+    const clients = this.clients.getAll();
+    log.info('Broadcasting to browser clients', { action, clientCount: clients.length });
+    for (const client of clients) {
+      try {
+        client.ws.send(msg);
+      } catch {
+        // Client may be closing — will be cleaned up
+      }
+    }
   }
 
   async start(preferredPort?: number): Promise<number> {
@@ -111,9 +128,19 @@ export class DevProxy {
       this.handleRequest(req, res);
     });
 
-    // WebSocket upgrade forwarding
+    // Set up WebSocket server in noServer mode
+    this.wss = new WebSocketServer({ noServer: true });
+    this.wss.on('connection', (ws) => this.handleWsConnection(ws));
+
+    // Route upgrade requests: our WS path vs upstream HMR
     server.on('upgrade', (req, socket, head) => {
-      this.handleUpgrade(req, socket as Socket, head);
+      if (req.url === '/__mindstudio_dev__/ws') {
+        this.wss!.handleUpgrade(req, socket as Socket, head, (ws) => {
+          this.wss!.emit('connection', ws, req);
+        });
+      } else {
+        this.handleUpstreamUpgrade(req, socket as Socket, head);
+      }
     });
 
     // Try the preferred port first, fall back to OS-assigned
@@ -127,6 +154,7 @@ export class DevProxy {
         this.server = server;
         this.proxyPort = assignedPort;
         this.startHealthCheck();
+        this.startPingTimer();
         log.info('Dev proxy started', { port: assignedPort, bind: this.bindAddress });
         return assignedPort;
       } catch {
@@ -160,6 +188,21 @@ export class DevProxy {
 
   stop(): void {
     this.stopHealthCheck();
+    this.stopPingTimer();
+
+    // Close all WebSocket connections
+    for (const client of this.clients.getAll()) {
+      try {
+        client.ws.close(1001, 'Proxy stopping');
+      } catch {
+        client.ws.terminate();
+      }
+    }
+
+    if (this.wss) {
+      this.wss.close();
+      this.wss = null;
+    }
 
     if (this.server) {
       log.info('Dev proxy stopping');
@@ -174,20 +217,144 @@ export class DevProxy {
       pending.resolve({ id, steps: [], error: 'Proxy stopped' });
     }
     this.pendingResults.clear();
-    this.commandQueue.length = 0;
-
-    // Close any long-poll waiters
-    for (const waiter of this.commandWaiters) {
-      clearTimeout(waiter.timer);
-      if (!waiter.res.writableEnded) {
-        waiter.res.writeHead(204).end();
-      }
-    }
-    this.commandWaiters.length = 0;
   }
 
   getPort(): number | null {
     return this.proxyPort;
+  }
+
+  // ---------------------------------------------------------------------------
+  // WebSocket connection handler
+  // ---------------------------------------------------------------------------
+
+  private handleWsConnection(ws: WebSocket): void {
+    let clientId: string | null = null;
+
+    // Require hello within 5s
+    const helloTimeout = setTimeout(() => {
+      if (!clientId) {
+        log.warn('Browser WS client did not send hello in time, closing');
+        ws.close(4000, 'Hello timeout');
+      }
+    }, DevProxy.HELLO_TIMEOUT);
+
+    ws.on('message', (data) => {
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(data.toString());
+      } catch {
+        return;
+      }
+
+      if (!clientId) {
+        // First message must be hello
+        if (msg.type !== 'hello') {
+          ws.close(4001, 'Expected hello');
+          return;
+        }
+        clearTimeout(helloTimeout);
+
+        const mode = msg.mode === 'iframe' ? 'iframe' : 'standalone';
+        const viewport = (msg.viewport as { w: number; h: number }) || { w: 0, h: 0 };
+
+        clientId = this.clients.add(ws, {
+          mode,
+          url: String(msg.url || ''),
+          viewport,
+        });
+
+        ws.send(JSON.stringify({ type: 'ack', clientId }));
+        return;
+      }
+
+      // Subsequent messages
+      switch (msg.type) {
+        case 'result':
+          this.handleCommandResult(msg);
+          break;
+
+        case 'log':
+          if (Array.isArray(msg.entries)) {
+            appendBrowserLogEntries(msg.entries as Record<string, unknown>[]);
+          }
+          break;
+      }
+    });
+
+    ws.on('pong', () => {
+      if (clientId) this.clients.markAlive(clientId);
+    });
+
+    ws.on('close', () => {
+      clearTimeout(helloTimeout);
+      if (clientId) {
+        const client = this.clients.remove(clientId);
+        if (client?.activeCommandId) {
+          this.rejectPendingCommand(client.activeCommandId, 'Browser disconnected during command execution');
+        }
+      }
+    });
+
+    ws.on('error', () => {
+      // Close event will follow and handle cleanup
+    });
+  }
+
+  private handleCommandResult(msg: Record<string, unknown>): void {
+    const id = msg.id as string;
+    if (!id) {
+      log.warn('Browser command result received with no id');
+      return;
+    }
+
+    const pending = this.pendingResults.get(id);
+    if (pending) {
+      log.info('Browser command result received', { id, stepCount: (msg.steps as unknown[])?.length, duration: msg.duration });
+      clearTimeout(pending.timeout);
+      this.pendingResults.delete(id);
+
+      // Clear activeCommandId
+      const client = this.clients.findByCommandId(id);
+      if (client) client.activeCommandId = null;
+
+      pending.resolve(msg);
+    } else {
+      log.warn('Browser command result received but no pending command found', { id, pendingIds: [...this.pendingResults.keys()] });
+    }
+  }
+
+  private rejectPendingCommand(commandId: string, reason: string): void {
+    const pending = this.pendingResults.get(commandId);
+    if (pending) {
+      clearTimeout(pending.timeout);
+      this.pendingResults.delete(commandId);
+      pending.resolve({ id: commandId, steps: [], error: reason });
+      log.warn('Pending command rejected', { id: commandId, reason });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ping/pong liveness
+  // ---------------------------------------------------------------------------
+
+  private startPingTimer(): void {
+    this.pingTimer = setInterval(() => {
+      // Sweep clients that didn't respond to the previous ping
+      const removed = this.clients.sweepDead();
+      for (const id of removed) {
+        // Check if any removed client had in-flight commands
+        // (already handled by sweepDead terminating the ws, which triggers close)
+      }
+      // Send new ping to all remaining clients
+      this.clients.pingAll();
+    }, DevProxy.PING_INTERVAL);
+  }
+
+  private stopPingTimer(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -241,7 +408,7 @@ export class DevProxy {
       log.warn('Upstream dev server is down');
     } else if (!wasUp && this.upstreamUp) {
       log.info('Upstream dev server is back up, reloading browser');
-      this.dispatchBrowserCommand([{ command: 'reload' }]).catch(() => {});
+      this.broadcastToClients('reload');
     }
 
     // Poll faster when down to catch recovery quickly
@@ -274,16 +441,9 @@ export class DevProxy {
   ): void {
     // Browser agent endpoints — intercepted locally, never forwarded upstream
     if (clientReq.url?.startsWith('/__mindstudio_dev__/')) {
+      // Keep logs endpoint as fallback for sendBeacon on page unload
       if (clientReq.url === '/__mindstudio_dev__/logs' && clientReq.method === 'POST') {
         this.handleBrowserLogs(clientReq, clientRes);
-        return;
-      }
-      if (clientReq.url === '/__mindstudio_dev__/commands' && clientReq.method === 'GET') {
-        this.handleGetCommand(clientReq, clientRes);
-        return;
-      }
-      if (clientReq.url === '/__mindstudio_dev__/results' && clientReq.method === 'POST') {
-        this.handlePostResult(clientReq, clientRes);
         return;
       }
       if (clientReq.url?.startsWith('/__mindstudio_dev__/font-proxy?') && clientReq.method === 'GET') {
@@ -372,9 +532,10 @@ export class DevProxy {
   }
 
   // ---------------------------------------------------------------------------
-  // Browser agent endpoints
+  // Browser agent HTTP endpoints (fallbacks)
   // ---------------------------------------------------------------------------
 
+  /** Accept log entries via HTTP POST — used by sendBeacon on page unload. */
   private handleBrowserLogs(
     clientReq: http.IncomingMessage,
     clientRes: http.ServerResponse,
@@ -450,107 +611,6 @@ export class DevProxy {
     }
   }
 
-  private handleGetCommand(
-    clientReq: http.IncomingMessage,
-    clientRes: http.ServerResponse,
-  ): void {
-    this.lastBrowserPoll = Date.now();
-
-    // If a command is already queued, respond immediately
-    const command = this.commandQueue.shift();
-    if (command) {
-      log.info('Browser command dispatched to agent', { id: command.id, commands: command.steps.map((s) => s.command) });
-      clientRes.writeHead(200, {
-        ...this.corsHeaders(clientReq),
-        'content-type': 'application/json',
-        'cache-control': 'no-store',
-      });
-      clientRes.end(JSON.stringify(command));
-      return;
-    }
-
-    // No command available — hold the connection open (long poll).
-    // Respond with 204 after 25s so the browser can reconnect.
-    const timer = setTimeout(() => {
-      this.removeCommandWaiter(clientRes);
-      clientRes.writeHead(204, {
-        ...this.corsHeaders(clientReq),
-        'cache-control': 'no-store',
-      });
-      clientRes.end();
-    }, 25_000);
-
-    this.commandWaiters.push({ req: clientReq, res: clientRes, timer });
-
-    // If the client disconnects, clean up
-    clientReq.on('close', () => {
-      this.removeCommandWaiter(clientRes);
-    });
-  }
-
-  /**
-   * Flush a queued command to a waiting long-poll connection, if any.
-   */
-  private flushCommandToWaiter(): void {
-    while (this.commandWaiters.length > 0 && this.commandQueue.length > 0) {
-      const waiter = this.commandWaiters.shift()!;
-      clearTimeout(waiter.timer);
-
-      // Skip if the connection was already closed
-      if (waiter.res.writableEnded) continue;
-
-      const command = this.commandQueue.shift()!;
-      this.lastBrowserPoll = Date.now();
-      log.info('Browser command dispatched to agent', { id: command.id, commands: command.steps.map((s) => s.command) });
-      waiter.res.writeHead(200, {
-        ...this.corsHeaders(waiter.req),
-        'content-type': 'application/json',
-        'cache-control': 'no-store',
-      });
-      waiter.res.end(JSON.stringify(command));
-      return;
-    }
-  }
-
-  private removeCommandWaiter(res: http.ServerResponse): void {
-    const idx = this.commandWaiters.findIndex((w) => w.res === res);
-    if (idx !== -1) {
-      clearTimeout(this.commandWaiters[idx].timer);
-      this.commandWaiters.splice(idx, 1);
-    }
-  }
-
-  private handlePostResult(
-    clientReq: http.IncomingMessage,
-    clientRes: http.ServerResponse,
-  ): void {
-    const chunks: Buffer[] = [];
-    clientReq.on('data', (chunk) => chunks.push(chunk));
-    clientReq.on('end', () => {
-      try {
-        const body = Buffer.concat(chunks).toString('utf-8');
-        const result = JSON.parse(body);
-        if (result?.id) {
-          const pending = this.pendingResults.get(result.id);
-          if (pending) {
-            log.info('Browser command result received', { id: result.id, stepCount: result.steps?.length, duration: result.duration });
-            clearTimeout(pending.timeout);
-            this.pendingResults.delete(result.id);
-            pending.resolve(result);
-          } else {
-            log.warn('Browser command result received but no pending command found', { id: result.id, pendingIds: [...this.pendingResults.keys()] });
-          }
-        } else {
-          log.warn('Browser command result received with no id', { bodyLength: body.length });
-        }
-      } catch (err) {
-        log.warn('Browser command result parse error', { error: err instanceof Error ? err.message : String(err) });
-      }
-      clientRes.writeHead(204, this.corsHeaders(clientReq));
-      clientRes.end();
-    });
-  }
-
   /**
    * Inject window.__MINDSTUDIO__ context and browser agent script tag into HTML.
    */
@@ -565,12 +625,16 @@ export class DevProxy {
     return injection + '\n' + html;
   }
 
-  private handleUpgrade(
+  // ---------------------------------------------------------------------------
+  // Upstream WebSocket forwarding (HMR etc.)
+  // ---------------------------------------------------------------------------
+
+  private handleUpstreamUpgrade(
     clientReq: http.IncomingMessage,
     clientSocket: Socket,
     head: Buffer,
   ): void {
-    log.debug('Dev proxy WebSocket upgrade', { path: clientReq.url });
+    log.debug('Dev proxy WebSocket upgrade (upstream)', { path: clientReq.url });
     const options: http.RequestOptions = {
       hostname: '127.0.0.1',
       port: this.upstreamPort,

@@ -115,18 +115,16 @@ export class DevRunner {
   async setImpersonation(roles: string[]): Promise<void> {
     if (!this.session) return;
     log.info('Setting role override', { roles });
-    const result = await impersonate(this.appId, this.session.sessionId, roles);
+    await impersonate(this.appId, this.session.sessionId, roles);
     await this.refreshClientContext();
-    devRequestEvents.emitImpersonate({ roles: result.roles });
   }
 
   // Clear role override — revert to session's default roles.
   async clearImpersonation(): Promise<void> {
     if (!this.session) return;
     log.info('Clearing role override');
-    const result = await impersonate(this.appId, this.session.sessionId, null);
+    await impersonate(this.appId, this.session.sessionId, null);
     await this.refreshClientContext();
-    devRequestEvents.emitImpersonate({ roles: result.roles });
   }
 
   // Fetch fresh clientContext from platform and update the proxy.
@@ -155,13 +153,6 @@ export class DevRunner {
 
     const requestId = randomBytes(8).toString('hex');
     const startTime = Date.now();
-
-    devRequestEvents.emitStart({
-      id: requestId,
-      type: 'execute',
-      method: opts.methodExport,
-      timestamp: startTime,
-    });
 
     log.info('Method received (direct)', { requestId, method: opts.methodExport });
 
@@ -205,13 +196,6 @@ export class DevRunner {
         duration,
       });
 
-      devRequestEvents.emitComplete({
-        id: requestId,
-        success: result.success,
-        duration,
-        error: result.error ? formatErrorForDisplay(result.error) : undefined,
-      });
-
       return {
         success: result.success,
         output: result.output,
@@ -236,13 +220,6 @@ export class DevRunner {
         duration,
       });
 
-      devRequestEvents.emitComplete({
-        id: requestId,
-        success: false,
-        duration,
-        error: message,
-      });
-
       return { success: false, error: { message }, duration };
     }
   }
@@ -260,11 +237,6 @@ export class DevRunner {
 
     const startTime = Date.now();
     const scenarioName = scenario.name ?? scenario.export;
-    devRequestEvents.emitScenarioStart({
-      id: scenario.id,
-      name: scenarioName,
-      timestamp: startTime,
-    });
 
     log.info('Scenario starting', { id: scenario.id, name: scenarioName });
 
@@ -304,13 +276,6 @@ export class DevRunner {
           result,
           duration: Date.now() - startTime,
         });
-        devRequestEvents.emitScenarioComplete({
-          id: scenario.id,
-          success: false,
-          duration: Date.now() - startTime,
-          roles: scenario.roles,
-          error,
-        });
         return { success: false, databases, error };
       }
 
@@ -330,13 +295,6 @@ export class DevRunner {
         result,
         duration,
       });
-      devRequestEvents.emitScenarioComplete({
-        id: scenario.id,
-        success: true,
-        duration,
-        roles: scenario.roles,
-      });
-
       return { success: true, databases };
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Unknown error';
@@ -348,13 +306,6 @@ export class DevRunner {
         result: null,
         infrastructureError: error,
         duration: Date.now() - startTime,
-      });
-      devRequestEvents.emitScenarioComplete({
-        id: scenario.id,
-        success: false,
-        duration: Date.now() - startTime,
-        roles: scenario.roles,
-        error,
       });
       return { success: false, databases: this.session.databases, error };
     }

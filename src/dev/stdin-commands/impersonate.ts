@@ -1,29 +1,23 @@
-import type { SessionState, EmitFn } from './types';
+import type { CommandContext } from './types';
 
 export async function handleImpersonate(
-  state: SessionState,
+  ctx: CommandContext,
   cmd: Record<string, unknown>,
-  emit: EmitFn,
-): Promise<void> {
-  if (!state.runner) {
-    emit('command-error', { message: 'No active session' });
-    return;
-  }
+): Promise<Record<string, unknown>> {
+  if (!ctx.state.runner) throw new Error('No active session');
+
   const roles = cmd.roles as string[];
-  if (!Array.isArray(roles)) {
-    emit('command-error', { message: 'impersonate requires roles array' });
-    return;
-  }
-  await state.runner.setImpersonation(roles);
+  if (!Array.isArray(roles)) throw new Error('impersonate requires roles array');
+
+  await ctx.state.runner.setImpersonation(roles);
+  return { roles };
 }
 
 export async function handleClearImpersonation(
-  state: SessionState,
-  emit: EmitFn,
-): Promise<void> {
-  if (!state.runner) {
-    emit('command-error', { message: 'No active session' });
-    return;
-  }
-  await state.runner.clearImpersonation();
+  ctx: CommandContext,
+): Promise<Record<string, unknown>> {
+  if (!ctx.state.runner) throw new Error('No active session');
+
+  await ctx.state.runner.clearImpersonation();
+  return { roles: null };
 }

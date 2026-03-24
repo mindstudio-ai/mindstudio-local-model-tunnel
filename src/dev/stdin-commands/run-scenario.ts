@@ -1,21 +1,25 @@
 import { detectAppConfig } from '../app-config';
-import type { SessionState, EmitFn } from './types';
+import type { CommandContext } from './types';
 
 export async function handleRunScenario(
-  state: SessionState,
-  cwd: string,
+  ctx: CommandContext,
   cmd: Record<string, unknown>,
-  emit: EmitFn,
-): Promise<void> {
-  if (!state.runner) {
-    emit('command-error', { message: 'No active session' });
-    return;
-  }
-  const freshConfig = detectAppConfig(cwd) ?? state.appConfig;
+): Promise<Record<string, unknown>> {
+  if (!ctx.state.runner) throw new Error('No active session');
+
+  const freshConfig = detectAppConfig(ctx.cwd) ?? ctx.state.appConfig;
   const scenario = freshConfig?.scenarios.find((s) => s.id === cmd.scenarioId);
-  if (!scenario) {
-    emit('command-error', { message: `Unknown scenario: ${cmd.scenarioId}` });
-    return;
-  }
-  await state.runner.runScenario(scenario);
+  if (!scenario) throw new Error(`Unknown scenario: ${cmd.scenarioId}`);
+
+  const scenarioName = scenario.name ?? scenario.export;
+  ctx.started({ scenarioId: scenario.id, name: scenarioName });
+
+  const result = await ctx.state.runner.runScenario(scenario);
+
+  return {
+    success: result.success,
+    scenarioId: scenario.id,
+    name: scenarioName,
+    ...(result.error ? { error: result.error } : {}),
+  };
 }
