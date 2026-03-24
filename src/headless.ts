@@ -133,25 +133,30 @@ async function startSession(
       }
     }
 
-    // Start proxy
-    let proxyPort: number | null = null;
+    // Start or reuse proxy
     if (devPort !== null && session.clientContext) {
-      const proxy = new DevProxy(devPort, session.clientContext, bindAddress, opts.browserAgentUrl);
-      const preferred = opts.proxyPort ?? stablePort(appConfig.appId);
-      proxyPort = await proxy.start(preferred);
-      runner.setProxyUrl(`http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}`);
-      runner.setProxy(proxy);
-      state.proxy = proxy;
+      if (state.proxy) {
+        // Proxy persists across restarts — just update the context
+        state.proxy.updateClientContext(session.clientContext);
+      } else {
+        const proxy = new DevProxy(devPort, session.clientContext, bindAddress, opts.browserAgentUrl);
+        const preferred = opts.proxyPort ?? stablePort(appConfig.appId);
+        const proxyPort = await proxy.start(preferred);
+        state.proxy = proxy;
+        state.proxyPort = proxyPort;
+      }
+
+      runner.setProxyUrl(`http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${state.proxyPort}`);
+      runner.setProxy(state.proxy);
     }
-    state.proxyPort = proxyPort;
 
     emitEvent('session-started', {
       sessionId: session.sessionId,
       releaseId: session.releaseId,
       branch: session.branch,
-      proxyPort,
-      proxyUrl: proxyPort
-        ? `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${proxyPort}/`
+      proxyPort: state.proxyPort,
+      proxyUrl: state.proxyPort
+        ? `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${state.proxyPort}/`
         : null,
       webInterfaceUrl: session.webInterfaceUrl,
       roles: appConfig.roles.map((r) => ({ id: r.id, name: r.name ?? r.id, description: r.description })),
@@ -216,13 +221,10 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
   state.unsubscribers.push(cleanup);
 }
 
-async function teardownSession(state: SessionState): Promise<void> {
+/** Tear down the runner, logs, and watchers. Proxy stays alive for reuse. */
+async function teardownRunner(state: SessionState): Promise<void> {
   for (const unsub of state.unsubscribers) unsub();
   state.unsubscribers = [];
-
-  state.proxy?.stop();
-  state.proxy = null;
-  state.proxyPort = null;
 
   if (state.runner) {
     await state.runner.stop().catch(() => {});
@@ -231,6 +233,15 @@ async function teardownSession(state: SessionState): Promise<void> {
 
   closeRequestLog();
   closeBrowserLog();
+}
+
+/** Full teardown including proxy. Used on process shutdown. */
+async function teardownAll(state: SessionState): Promise<void> {
+  await teardownRunner(state);
+
+  state.proxy?.stop();
+  state.proxy = null;
+  state.proxyPort = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +286,7 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     stopping = true;
     emitEvent('session-stopping');
     cleanupConfigWatcher?.();
-    await teardownSession(state);
+    await teardownAll(state);
     emitEvent('session-stopped');
   };
 
@@ -298,9 +309,10 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     try {
       log.info('mindstudio.json changed, restarting dev session');
       emitEvent('config-changed');
-      await teardownSession(state);
+      await teardownRunner(state);
       const ok = await startSession(cwd, opts, state, shutdown);
       if (ok && state.proxy) {
+        // Proxy stayed alive — clients are still connected, reload them
         state.proxy.broadcastToClients('reload');
       }
     } finally {
