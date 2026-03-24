@@ -25,7 +25,7 @@ export async function handleScreenshot(
 
   // 2. Dispatch screenshot command with upload details — browser uploads directly to S3
   const result = await ctx.state.proxy.dispatchBrowserCommand(
-    [{ command: 'screenshot', uploadUrl, uploadFields }],
+    [{ command: 'screenshot', fullPage: true, uploadUrl, uploadFields }],
     120_000,
   );
 

@@ -25,6 +25,16 @@ import { ClientRegistry } from './ws-clients';
 interface PendingResult {
   resolve: (result: Record<string, unknown>) => void;
   timeout: ReturnType<typeof setTimeout>;
+  clientId: string;
+}
+
+interface QueuedCommand {
+  id: string;
+  steps: Array<Record<string, unknown>>;
+  timeoutMs: number;
+  resolve: (result: Record<string, unknown>) => void;
+  reject: (err: Error) => void;
+  queuedAt: number;
 }
 
 export class DevProxy {
@@ -33,6 +43,7 @@ export class DevProxy {
   private wss: WebSocketServer | null = null;
   private clients = new ClientRegistry();
   private pendingResults = new Map<string, PendingResult>();
+  private commandQueue: QueuedCommand[] = [];
 
   /** Upstream dev server health tracking. */
   private upstreamUp = true;
@@ -67,13 +78,13 @@ export class DevProxy {
 
   /**
    * Dispatch a command to the preferred browser client and wait for the result.
+   * Commands are queued and executed one at a time per client (FIFO).
    */
   dispatchBrowserCommand(
     steps: Array<Record<string, unknown>>,
     timeoutMs = 30_000,
   ): Promise<Record<string, unknown>> {
-    const target = this.clients.getCommandTarget();
-    if (!target) {
+    if (!this.clients.hasConnected()) {
       return Promise.reject(
         new Error('No browser connected, please refresh the MindStudio preview'),
       );
@@ -81,30 +92,48 @@ export class DevProxy {
 
     const id = randomBytes(4).toString('hex');
 
-    log.info('Browser command sent', { id, clientId: target.id, mode: target.mode, stepCount: steps.length, commands: steps.map((s) => s.command) });
-
     return new Promise((resolve, reject) => {
+      this.commandQueue.push({ id, steps, timeoutMs, resolve, reject, queuedAt: Date.now() });
+      log.info('Browser command queued', { id, queueLength: this.commandQueue.length, commands: steps.map((s) => s.command) });
+      this.drainCommandQueue();
+    });
+  }
+
+  /**
+   * Try to send the next queued command to an available client.
+   */
+  private drainCommandQueue(): void {
+    while (this.commandQueue.length > 0) {
+      const target = this.clients.getCommandTarget();
+      if (!target) break; // no idle client available
+
+      const queued = this.commandQueue.shift()!;
+      const { id, steps, timeoutMs, resolve, reject } = queued;
+
+      log.info('Browser command sent', { id, clientId: target.id, mode: target.mode, stepCount: steps.length, commands: steps.map((s) => s.command) });
+
       const timeout = setTimeout(() => {
         this.pendingResults.delete(id);
-        // Clear activeCommandId on the client
         const client = this.clients.findByCommandId(id);
         if (client) client.activeCommandId = null;
         log.warn('Browser command timed out', { id, pendingCount: this.pendingResults.size });
         reject(new Error('Browser command timed out'));
+        this.drainCommandQueue();
       }, timeoutMs);
 
-      this.pendingResults.set(id, { resolve, timeout });
+      this.pendingResults.set(id, { resolve, timeout, clientId: target.id });
       target.activeCommandId = id;
 
       try {
         target.ws.send(JSON.stringify({ type: 'command', id, steps }));
-      } catch (err) {
+      } catch {
         this.pendingResults.delete(id);
         clearTimeout(timeout);
         target.activeCommandId = null;
         reject(new Error('Failed to send command to browser'));
+        // Continue draining — next command might target a different client
       }
-    });
+    }
   }
 
   /**
@@ -217,6 +246,12 @@ export class DevProxy {
       pending.resolve({ id, steps: [], error: 'Proxy stopped' });
     }
     this.pendingResults.clear();
+
+    // Reject queued commands
+    for (const queued of this.commandQueue) {
+      queued.reject(new Error('Proxy stopped'));
+    }
+    this.commandQueue.length = 0;
   }
 
   getPort(): number | null {
@@ -318,6 +353,9 @@ export class DevProxy {
       if (client) client.activeCommandId = null;
 
       pending.resolve(msg);
+
+      // Client is now free — dispatch next queued command
+      this.drainCommandQueue();
     } else {
       log.warn('Browser command result received but no pending command found', { id, pendingIds: [...this.pendingResults.keys()] });
     }
@@ -330,6 +368,9 @@ export class DevProxy {
       this.pendingResults.delete(commandId);
       pending.resolve({ id: commandId, steps: [], error: reason });
       log.warn('Pending command rejected', { id: commandId, reason });
+
+      // Client slot freed — dispatch next queued command
+      this.drainCommandQueue();
     }
   }
 
@@ -341,9 +382,10 @@ export class DevProxy {
     this.pingTimer = setInterval(() => {
       // Sweep clients that didn't respond to the previous ping
       const removed = this.clients.sweepDead();
-      for (const id of removed) {
-        // Check if any removed client had in-flight commands
-        // (already handled by sweepDead terminating the ws, which triggers close)
+      for (const { activeCommandId } of removed) {
+        if (activeCommandId) {
+          this.rejectPendingCommand(activeCommandId, 'Browser client timed out');
+        }
       }
       // Send new ping to all remaining clients
       this.clients.pingAll();

@@ -1,3 +1,4 @@
+import { getUploadUrl } from '../api';
 import type { CommandContext } from './types';
 
 export async function handleBrowser(
@@ -11,11 +12,62 @@ export async function handleBrowser(
     throw new Error('browser action requires a non-empty "steps" array');
   }
 
-  const result = await ctx.state.proxy.dispatchBrowserCommand(steps);
+  // Inject upload details into any screenshot steps so the browser uploads
+  // directly to S3 instead of sending base64 over the WS connection.
+  const preparedSteps = await injectScreenshotUploads(ctx, steps);
+
+  const result = await ctx.state.proxy.dispatchBrowserCommand(preparedSteps);
+
+  // Replace uploaded screenshot results with the public URL
+  const resultSteps = (result.steps as Array<Record<string, unknown>>) ?? [];
+  for (const step of resultSteps) {
+    const stepResult = step.result as Record<string, unknown> | undefined;
+    if (stepResult?.uploaded && stepResult?._publicUrl) {
+      stepResult.url = stepResult._publicUrl;
+      delete stepResult.uploaded;
+      delete stepResult._publicUrl;
+      delete stepResult.image;
+    }
+  }
+
   return {
-    steps: result.steps,
+    steps: resultSteps,
     snapshot: result.snapshot,
     logs: result.logs,
     duration: result.duration,
   };
+}
+
+/**
+ * For each screenshot step, get a presigned upload URL and attach it to the step.
+ * Non-screenshot steps are passed through unchanged.
+ */
+async function injectScreenshotUploads(
+  ctx: CommandContext,
+  steps: Array<Record<string, unknown>>,
+): Promise<Array<Record<string, unknown>>> {
+  const session = ctx.state.runner?.getSession();
+  const appId = ctx.state.appConfig?.appId;
+  if (!session || !appId) return steps;
+
+  const prepared: Array<Record<string, unknown>> = [];
+  for (const step of steps) {
+    if (step.command === 'screenshot') {
+      try {
+        const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
+          appId,
+          session.sessionId,
+          'jpg',
+          'image/jpeg',
+        );
+        prepared.push({ ...step, uploadUrl, uploadFields, _publicUrl: publicUrl });
+      } catch {
+        // If we can't get an upload URL, fall back to inline base64
+        prepared.push(step);
+      }
+    } else {
+      prepared.push(step);
+    }
+  }
+  return prepared;
 }

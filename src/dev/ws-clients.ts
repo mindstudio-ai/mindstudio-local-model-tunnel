@@ -51,11 +51,13 @@ export class ClientRegistry {
 
   /**
    * Get the preferred client for C&C commands.
-   * Prefers iframe clients, falls back to any connected client.
+   * Prefers idle iframe clients, falls back to any idle client.
+   * Skips clients that are already executing a command.
    */
   getCommandTarget(): ConnectedClient | null {
     let fallback: ConnectedClient | null = null;
     for (const client of this.clients.values()) {
+      if (client.activeCommandId) continue; // busy
       if (client.mode === 'iframe') return client;
       if (!fallback) fallback = client;
     }
@@ -99,15 +101,15 @@ export class ClientRegistry {
     }
   }
 
-  /** Remove clients that didn't respond to the last ping. */
-  sweepDead(): string[] {
-    const removed: string[] = [];
+  /** Remove clients that didn't respond to the last ping. Returns active command IDs that need rejection. */
+  sweepDead(): { clientId: string; activeCommandId: string | null }[] {
+    const removed: { clientId: string; activeCommandId: string | null }[] = [];
     for (const client of this.clients.values()) {
       if (!client.alive) {
-        log.warn('Browser client timed out (no pong)', { clientId: client.id });
-        client.ws.terminate();
+        log.warn('Browser client timed out (no pong)', { clientId: client.id, activeCommandId: client.activeCommandId });
+        removed.push({ clientId: client.id, activeCommandId: client.activeCommandId });
         this.clients.delete(client.id);
-        removed.push(client.id);
+        client.ws.terminate();
       }
     }
     return removed;
