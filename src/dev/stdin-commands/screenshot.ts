@@ -14,14 +14,7 @@ export async function handleScreenshot(
 
   const startTime = Date.now();
 
-  // 1. Dispatch screenshot command to browser
-  const result = await ctx.state.proxy.dispatchBrowserCommand([{ command: 'screenshot' }], 120_000);
-  const stepResult = (result.steps as Array<Record<string, unknown>>)?.[0]
-    ?.result as { image: string; width: number; height: number };
-
-  if (!stepResult?.image) throw new Error('Screenshot capture returned no image data');
-
-  // 2. Get presigned upload URL
+  // 1. Get presigned upload URL before dispatching to browser
   const session = ctx.state.runner.getSession()!;
   const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
     ctx.state.appConfig.appId,
@@ -30,16 +23,18 @@ export async function handleScreenshot(
     'image/jpeg',
   );
 
-  // 3. Upload to S3
-  const imageBuffer = Buffer.from(stepResult.image, 'base64');
-  const form = new FormData();
-  for (const [key, value] of Object.entries(uploadFields)) {
-    form.append(key, value);
-  }
-  form.append('file', new Blob([imageBuffer], { type: 'image/jpeg' }), 'screenshot.jpg');
-  const uploadResult = await fetch(uploadUrl, { method: 'POST', body: form });
+  // 2. Dispatch screenshot command with upload details — browser uploads directly to S3
+  const result = await ctx.state.proxy.dispatchBrowserCommand(
+    [{ command: 'screenshot', uploadUrl, uploadFields }],
+    120_000,
+  );
 
-  if (!uploadResult.ok) throw new Error(`S3 upload failed: ${uploadResult.status}`);
+  const stepResult = (result.steps as Array<Record<string, unknown>>)?.[0]
+    ?.result as { width: number; height: number; uploaded?: boolean } | undefined;
+
+  if (!stepResult?.uploaded) {
+    throw new Error('Screenshot capture or upload failed');
+  }
 
   return {
     url: publicUrl,
