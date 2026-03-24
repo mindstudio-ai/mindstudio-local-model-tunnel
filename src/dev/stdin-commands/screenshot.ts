@@ -32,7 +32,8 @@ export async function handleScreenshot(
     const startTime = Date.now();
 
     // 1. Dispatch screenshot command to browser
-    const result = await state.proxy.dispatchBrowserCommand([{ command: 'screenshot' }]);
+    // Full-page screenshots scroll through the page and capture chunks — can take minutes
+    const result = await state.proxy.dispatchBrowserCommand([{ command: 'screenshot' }], 120_000);
     const stepResult = (result.steps as Array<Record<string, unknown>>)?.[0]
       ?.result as { image: string; width: number; height: number };
 
