@@ -27,7 +27,7 @@ export async function handleScreenshot(
   // 2. Dispatch screenshot command with upload details — browser uploads directly to S3
   const fullPage = cmd.fullPage !== false; // default true for backwards compat
   const result = await ctx.state.proxy.dispatchBrowserCommand(
-    [{ command: 'screenshot', fullPage, uploadUrl, uploadFields }],
+    [{ command: 'screenshot', fullPage, scrollToTop: true, uploadUrl, uploadFields }],
     120_000,
   );
 
