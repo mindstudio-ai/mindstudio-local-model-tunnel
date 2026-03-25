@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
-import type { DevRequestLogEntry } from '../../../dev/types';
+import type { DevRequestLogEntry } from '../../../dev/config/types';
 
 interface DevRequestLogProps {
   requests: DevRequestLogEntry[];

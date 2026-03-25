@@ -9,7 +9,7 @@
 
 import { watch } from 'chokidar';
 import { join, dirname, basename } from 'node:path';
-import { log } from './logger';
+import { log } from '../logging/logger';
 import type { AppTable } from './types';
 
 /**

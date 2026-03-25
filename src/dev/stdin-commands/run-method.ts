@@ -1,4 +1,4 @@
-import { detectAppConfig } from '../app-config';
+import { detectAppConfig } from '../config/app-config';
 import type { CommandContext } from './types';
 
 export async function handleRunMethod(

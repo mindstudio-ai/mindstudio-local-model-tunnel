@@ -6,13 +6,13 @@
  * The router wraps handlers with automatic response framing.
  */
 
-import { emitResponse } from '../ipc';
-import { log } from '../logger';
+import { emitResponse } from '../ipc/ipc';
+import { log } from '../logging/logger';
 import { handleRunScenario } from './run-scenario';
 import { handleRunMethod } from './run-method';
 import { handleImpersonate, handleClearImpersonation } from './impersonate';
 import { handleBrowser } from './browser';
-import { handleScreenshot } from './screenshot';
+import { handleScreenshotFullPage } from './screenshot-full-page';
 import { handleDevServerRestarting } from './dev-server-restarting';
 import { handleBrowserStatus } from './browser-status';
 import { handleResetBrowser } from './reset-browser';
@@ -26,7 +26,7 @@ const handlers: Record<string, CommandHandler> = {
   'impersonate': handleImpersonate,
   'clear-impersonation': handleClearImpersonation,
   'browser': handleBrowser,
-  'screenshot': handleScreenshot,
+  'screenshotFullPage': handleScreenshotFullPage,
   'browser-status': handleBrowserStatus,
   'reset-browser': handleResetBrowser,
   'dev-server-restarting': handleDevServerRestarting,

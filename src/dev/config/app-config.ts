@@ -9,7 +9,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { log } from './logger';
+import { log } from '../logging/logger';
 import type { AppConfig, WebInterfaceConfig } from './types';
 
 /**

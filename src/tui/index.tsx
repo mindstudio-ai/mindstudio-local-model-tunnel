@@ -6,7 +6,7 @@ import { get as httpsGet } from 'node:https';
 import { get as httpGet } from 'node:http';
 import { App } from './App';
 import { TunnelRunner } from '../runner';
-import { detectAppConfig } from '../dev/app-config';
+import { detectAppConfig } from '../dev/config/app-config';
 import { checkForUpdate, getInstallMethod, getBinaryDownloadUrl } from '../update';
 import { UpdatePrompt } from './components/UpdatePrompt';
 

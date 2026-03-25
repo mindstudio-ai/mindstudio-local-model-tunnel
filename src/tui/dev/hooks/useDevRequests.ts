@@ -2,8 +2,8 @@
 // Follows the same pattern as src/tui/models/hooks/useRequests.ts.
 
 import { useState, useEffect, useRef } from 'react';
-import { devRequestEvents } from '../../../dev/events';
-import type { DevRequestLogEntry } from '../../../dev/types';
+import { devRequestEvents } from '../../../dev/ipc/events';
+import type { DevRequestLogEntry } from '../../../dev/config/types';
 
 const MAX_HISTORY = 50;
 

@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
-import { log } from './logger';
+import { log } from '../logging/logger';
 
 export interface ConnectedClient {
   id: string;

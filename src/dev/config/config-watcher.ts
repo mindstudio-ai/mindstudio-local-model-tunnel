@@ -6,7 +6,7 @@
 
 import { watch } from 'chokidar';
 import { join } from 'node:path';
-import { log } from './logger';
+import { log } from '../logging/logger';
 
 /**
  * Watch mindstudio.json for changes.

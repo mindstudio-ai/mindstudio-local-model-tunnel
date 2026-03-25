@@ -5,8 +5,8 @@
 // The dev session IS a release — sessionId and releaseId are the same UUID.
 
 import { getApiKey, getApiBaseUrl } from '../config';
-import { log } from './logger';
-import type { DevSession, DevRequest, DevResult, SyncSchemaResponse } from './types';
+import { log } from './logging/logger';
+import type { DevSession, DevRequest, DevResult, SyncSchemaResponse } from './config/types';
 
 // ---------------------------------------------------------------------------
 // Internal helpers

@@ -15,8 +15,8 @@ import { writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { log } from './logger';
-import type { DevSession } from './types';
+import { log } from '../logging/logger';
+import type { DevSession } from '../config/types';
 
 const EXECUTION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes — matches prod
 

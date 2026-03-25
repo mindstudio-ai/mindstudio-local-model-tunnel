@@ -4,8 +4,8 @@
  */
 
 import { NdjsonLog } from './ndjson-log';
-import type { DevSession, AppScenario } from './types';
-import type { ExecuteMethodResult } from './executor';
+import type { DevSession, AppScenario } from '../config/types';
+import type { ExecuteMethodResult } from '../execution/executor';
 
 // ---------------------------------------------------------------------------
 // Types
