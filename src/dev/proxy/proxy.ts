@@ -82,7 +82,7 @@ export class DevProxy {
    */
   dispatchBrowserCommand(
     steps: Array<Record<string, unknown>>,
-    timeoutMs = 30_000,
+    timeoutMs = 120_000,
   ): Promise<Record<string, unknown>> {
     if (!this.clients.hasConnected()) {
       return Promise.reject(
