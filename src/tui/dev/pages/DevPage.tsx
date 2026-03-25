@@ -8,7 +8,7 @@ import { DevPortPrompt } from '../components/DevPortPrompt';
 import { TabBar, type Tab } from '../components/TabBar';
 import { useDevSession } from '../hooks/useDevSession';
 import { useDevRequests } from '../hooks/useDevRequests';
-import type { AppConfig } from '../../../dev/types';
+import type { AppConfig } from '../../../dev/config/types';
 
 const TABS: Tab[] = [
   { id: 'info', label: 'Info' },

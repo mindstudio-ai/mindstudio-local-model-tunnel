@@ -12,8 +12,8 @@ export async function handleBrowser(
     throw new Error('browser action requires a non-empty "steps" array');
   }
 
-  // Inject upload details into any screenshot steps so the browser uploads
-  // directly to S3 instead of sending base64 over the WS connection.
+  // Inject upload details into any screenshotViewport steps so the browser
+  // uploads directly to S3 instead of sending base64 over the WS connection.
   const preparedSteps = await injectScreenshotUploads(ctx, steps);
 
   const result = await ctx.state.proxy.dispatchBrowserCommand(preparedSteps);
@@ -39,7 +39,7 @@ export async function handleBrowser(
 }
 
 /**
- * For each screenshot step, get a presigned upload URL and attach it to the step.
+ * For each screenshotViewport step, get a presigned upload URL and attach it.
  * Non-screenshot steps are passed through unchanged.
  */
 async function injectScreenshotUploads(
@@ -52,7 +52,7 @@ async function injectScreenshotUploads(
 
   const prepared: Array<Record<string, unknown>> = [];
   for (const step of steps) {
-    if (step.command === 'screenshot') {
+    if (step.command === 'screenshotViewport') {
       try {
         const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
           appId,

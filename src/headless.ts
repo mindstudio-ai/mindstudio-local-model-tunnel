@@ -14,19 +14,19 @@
  * @module
  */
 
-import { DevRunner } from './dev/runner';
-import { DevProxy } from './dev/proxy';
+import { DevRunner } from './dev/execution/runner';
+import { DevProxy } from './dev/proxy/proxy';
 import { syncSchema } from './dev/api';
 import {
   detectAppConfig,
   getWebInterfaceConfig,
   readTableSources,
-} from './dev/app-config';
-import { initRequestLog, closeRequestLog } from './dev/request-log';
-import { initBrowserLog, closeBrowserLog } from './dev/browser-log';
-import { subscribeDevEvents } from './dev/session-events';
+} from './dev/config/app-config';
+import { initRequestLog, closeRequestLog } from './dev/logging/request-log';
+import { initBrowserLog, closeBrowserLog } from './dev/logging/browser-log';
+import { subscribeDevEvents } from './dev/ipc/session-events';
 import { setupStdinCommands, type SessionState } from './dev/stdin-commands';
-import { emitEvent } from './dev/ipc';
+import { emitEvent } from './dev/ipc/ipc';
 import {
   getApiKey,
   getApiBaseUrl,
@@ -34,10 +34,10 @@ import {
   getEnvironment,
   getConfigPath,
 } from './config';
-import { initLoggerHeadless, log, type LogLevel } from './dev/logger';
+import { initLoggerHeadless, log, type LogLevel } from './dev/logging/logger';
 import { stablePort, detectGitBranch } from './dev/utils';
-import { watchTableFiles } from './dev/table-watcher';
-import { watchConfigFile } from './dev/config-watcher';
+import { watchTableFiles } from './dev/config/table-watcher';
+import { watchConfigFile } from './dev/config/config-watcher';
 
 /**
  * Options for headless dev mode.

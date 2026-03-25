@@ -12,7 +12,7 @@ import { unlink, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve, dirname, basename, join } from 'node:path';
 import { build } from 'esbuild';
-import { log } from './logger';
+import { log } from '../logging/logger';
 
 export class Transpiler {
   private projectRoot: string;

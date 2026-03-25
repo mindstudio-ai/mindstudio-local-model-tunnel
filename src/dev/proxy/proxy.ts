@@ -18,8 +18,8 @@ import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import type { Socket } from 'node:net';
 import { WebSocketServer, WebSocket } from 'ws';
-import { log } from './logger';
-import { appendBrowserLogEntries } from './browser-log';
+import { log } from '../logging/logger';
+import { appendBrowserLogEntries } from '../logging/browser-log';
 import { ClientRegistry } from './ws-clients';
 
 interface PendingResult {

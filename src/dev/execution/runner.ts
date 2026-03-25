@@ -21,19 +21,19 @@ import {
   fetchCallbackToken,
   ApiError,
   DevPollError,
-} from './api';
-import { devRequestEvents } from './events';
+} from '../api';
+import { devRequestEvents } from '../ipc/events';
 import { Transpiler } from './transpiler';
 import { executeMethod, cleanupWorker } from './executor';
-import { getApiBaseUrl } from '../config';
-import { requestDeviceAuth, pollDeviceAuth } from '../api';
-import { setApiKey, setUserId } from '../config';
+import { getApiBaseUrl } from '../../config';
+import { requestDeviceAuth, pollDeviceAuth } from '../../api';
+import { setApiKey, setUserId } from '../../config';
 import { randomBytes } from 'node:crypto';
-import { log } from './logger';
-import { logMethodExecution, logScenarioExecution } from './request-log';
+import { log } from '../logging/logger';
+import { logMethodExecution, logScenarioExecution } from '../logging/request-log';
 import { formatErrorForDisplay } from './format-error';
-import type { DevProxy } from './proxy';
-import type { DevSession, DevRequest, DevResult, AppScenario } from './types';
+import type { DevProxy } from '../proxy/proxy';
+import type { DevSession, DevRequest, DevResult, AppScenario } from '../config/types';
 
 export class DevRunner {
   private isRunning = false;

@@ -17,7 +17,7 @@ import { DevPage } from './dev/pages/DevPage';
 import { TunnelRunner } from '../runner';
 import { syncModels, type ModelTypeMindStudio } from '../api';
 import { getApiKey, getUserId, getConfigPath } from '../config';
-import type { AppConfig } from '../dev/types';
+import type { AppConfig } from '../dev/config/types';
 import type { Page } from './types';
 
 const MODEL_TYPE_MAP: Record<string, ModelTypeMindStudio> = {

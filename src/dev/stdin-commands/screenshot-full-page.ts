@@ -1,7 +1,7 @@
 import { getUploadUrl } from '../api';
 import type { CommandContext } from './types';
 
-export async function handleScreenshot(
+export async function handleScreenshotFullPage(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
@@ -24,10 +24,9 @@ export async function handleScreenshot(
     'image/jpeg',
   );
 
-  // 2. Dispatch screenshot command with upload details — browser uploads directly to S3
-  const fullPage = cmd.fullPage !== false; // default true for backwards compat
+  // 2. Dispatch to browser — always full-page with scroll-to-top
   const result = await ctx.state.proxy.dispatchBrowserCommand(
-    [{ command: 'screenshot', fullPage, scrollToTop: true, uploadUrl, uploadFields }],
+    [{ command: 'screenshotFullPage', uploadUrl, uploadFields }],
     120_000,
   );
 

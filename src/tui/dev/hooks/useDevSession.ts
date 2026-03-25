@@ -16,23 +16,23 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { spawn } from 'node:child_process';
-import { watchConfigFile } from '../../../dev/config-watcher';
-import { DevRunner } from '../../../dev/runner';
-import { DevProxy } from '../../../dev/proxy';
-import { devRequestEvents } from '../../../dev/events';
+import { watchConfigFile } from '../../../dev/config/config-watcher';
+import { DevRunner } from '../../../dev/execution/runner';
+import { DevProxy } from '../../../dev/proxy/proxy';
+import { devRequestEvents } from '../../../dev/ipc/events';
 import {
   detectAppConfig,
   getWebInterfaceConfig,
   getWebProjectDir,
   readTableSources,
   findDirsNeedingInstall,
-} from '../../../dev/app-config';
+} from '../../../dev/config/app-config';
 import { syncSchema } from '../../../dev/api';
-import { initLoggerInteractive } from '../../../dev/logger';
+import { initLoggerInteractive } from '../../../dev/logging/logger';
 import { stablePort, detectGitBranch } from '../../../dev/utils';
-import { watchTableFiles } from '../../../dev/table-watcher';
+import { watchTableFiles } from '../../../dev/config/table-watcher';
 import { useDevServer } from './useDevServer';
-import type { AppConfig, DevSession, WebInterfaceConfig, SyncSchemaResponse } from '../../../dev/types';
+import type { AppConfig, DevSession, WebInterfaceConfig, SyncSchemaResponse } from '../../../dev/config/types';
 
 function runNpmInstall(cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {

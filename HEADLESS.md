@@ -237,20 +237,20 @@ Available commands:
 - `select` — select a dropdown option
 - `wait` — wait for an element to appear
 - `evaluate` — run custom JavaScript
-- `screenshot` — full-page viewport-stitched screenshot
+- `screenshotViewport` — capture the current viewport
 - `reload` — reload the page
 
-### `screenshot`
+### `screenshotFullPage`
 
-Capture a full-page screenshot via the browser agent, upload to S3, return the public URL. Times out after 120s.
+Capture a full-page screenshot via the browser agent, upload to S3, return the public URL. Scrolls to top before capture and stitches viewport-sized chunks. Times out after 120s.
 
 ```json
-{"requestId":"r4","action":"screenshot"}
+{"requestId":"r4","action":"screenshotFullPage"}
 ```
 
 Response:
 ```json
-{"event":"screenshot","requestId":"r4","status":"completed","url":"https://...","width":1920,"height":3400,"duration":8500}
+{"event":"screenshotFullPage","requestId":"r4","status":"completed","url":"https://...","width":1920,"height":3400,"duration":8500}
 ```
 
 ### `impersonate`

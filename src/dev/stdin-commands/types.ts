@@ -2,9 +2,9 @@
  * Shared types for stdin command handlers.
  */
 
-import type { DevRunner } from '../runner';
-import type { DevProxy } from '../proxy';
-import type { AppConfig } from '../types';
+import type { DevRunner } from '../execution/runner';
+import type { DevProxy } from '../proxy/proxy';
+import type { AppConfig } from '../config/types';
 
 export interface SessionState {
   runner: DevRunner | null;
