@@ -283,6 +283,9 @@ export function useDevSession(appConfig: AppConfig) {
         // Watch table source directories for changes — auto-sync schema
         setupTableWatchers(currentConfig);
 
+        // Start polling now that schema sync, proxy, and watchers are ready.
+        runner.startPolling();
+
         if (mountedRef.current) {
           setSession(devSession);
           setPhase('running');

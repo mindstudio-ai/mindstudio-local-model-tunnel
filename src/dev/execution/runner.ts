@@ -80,10 +80,14 @@ export class DevRunner {
 
     log.info('Dev session started', { sessionId: session.sessionId, branch: session.branch });
 
-    // Start poll loop in background
-    this.pollLoop();
-
     return session;
+  }
+
+  // Begin polling for platform method requests. Call this after all
+  // post-start setup (schema sync, proxy init) is complete so methods
+  // don't execute against stale session state.
+  startPolling(): void {
+    this.pollLoop();
   }
 
   async stop(): Promise<void> {

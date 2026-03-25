@@ -175,6 +175,11 @@ async function startSession(
     // Watch table source files for changes — auto-sync without session restart
     setupTableWatchers(cwd, state);
 
+    // Start polling for platform method requests now that schema sync,
+    // proxy, and watchers are all set up. Starting earlier would risk
+    // executing methods against stale session state (e.g. missing tables).
+    runner.startPolling();
+
     return true;
   } catch (err) {
     emitEvent('config-error', {
