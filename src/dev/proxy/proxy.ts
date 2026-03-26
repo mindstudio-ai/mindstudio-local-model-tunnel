@@ -657,7 +657,7 @@ export class DevProxy {
    */
   private injectScripts(html: string): string {
     const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(this.clientContext)};</script>`;
-    const agentUrl = this.browserAgentUrl || 'https://unpkg.com/@mindstudio-ai/browser-agent/dist/index.js';
+    const agentUrl = this.browserAgentUrl || 'https://seankoji-msba.ngrok.io/index.js';
     const agentScript = `<script async src="${agentUrl}"></script>`;
     const injection = `${contextScript}\n${agentScript}`;
     if (html.includes('</head>')) {
