@@ -39,12 +39,12 @@ export class NdjsonLog {
       }
 
       this.fd = fs.openSync(this.logPath, 'a');
-      log.info(`${this.filename} log initialized`, {
+      log.debug('logging', `${this.filename} log initialized`, {
         path: this.logPath,
         existingEntries: this.lineCount,
       });
     } catch (err) {
-      log.warn(`Failed to initialize ${this.filename} log`, {
+      log.warn('logging', `Failed to initialize ${this.filename} log`, {
         error: err instanceof Error ? err.message : String(err),
       });
       this.fd = null;
@@ -60,10 +60,8 @@ export class NdjsonLog {
       fs.writeSync(this.fd, line);
       this.lineCount++;
       this.maybeRotate();
-    } catch (err) {
-      log.debug(`Failed to write ${this.filename} log entry`, {
-        error: err instanceof Error ? err.message : String(err),
-      });
+    } catch {
+      // Best effort
     }
   }
 
@@ -105,11 +103,8 @@ export class NdjsonLog {
       this.fd = fs.openSync(this.logPath, 'a');
       this.lineCount = kept.length;
 
-      log.debug(`${this.filename} log rotated`, { kept: this.lineCount });
-    } catch (err) {
-      log.debug(`${this.filename} log rotation failed`, {
-        error: err instanceof Error ? err.message : String(err),
-      });
+    } catch {
+      // Best effort
     } finally {
       this.rotating = false;
     }

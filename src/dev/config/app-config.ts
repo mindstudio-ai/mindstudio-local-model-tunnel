@@ -18,10 +18,7 @@ import type { AppConfig, WebInterfaceConfig } from './types';
  */
 export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
   const appJsonPath = join(cwd, 'mindstudio.json');
-  if (!existsSync(appJsonPath)) {
-    log.debug('mindstudio.json not found', { path: appJsonPath });
-    return null;
-  }
+  if (!existsSync(appJsonPath)) return null;
 
   try {
     const raw = readFileSync(appJsonPath, 'utf-8');
@@ -42,7 +39,7 @@ export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
       scenarios: parsed.scenarios ?? [],
       interfaces: parsed.interfaces ?? [],
     };
-    log.info('Loaded mindstudio.json', {
+    log.info('config', 'Loaded mindstudio.json', {
       appId: config.appId,
       roles: config.roles.length,
       methods: config.methods.length,
@@ -52,7 +49,7 @@ export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
     });
     return config;
   } catch (err) {
-    log.warn('Failed to parse mindstudio.json', { error: err instanceof Error ? err.message : String(err) });
+    log.warn('config', 'Failed to parse mindstudio.json', { error: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }
@@ -126,7 +123,7 @@ export function readTableSources(
   for (const table of appConfig.tables) {
     const filePath = join(cwd, table.path);
     if (!existsSync(filePath)) {
-      log.warn('Table source file not found', { table: table.export, path: table.path });
+      log.warn('config', 'Table source file not found', { table: table.export, path: table.path });
       continue;
     }
 
@@ -136,12 +133,12 @@ export function readTableSources(
       const name = table.export;
       results.push({ name, source });
     } catch (err) {
-      log.warn('Table source file unreadable', { table: table.export, path: table.path, error: err instanceof Error ? err.message : String(err) });
+      log.warn('config', 'Table source file unreadable', { table: table.export, path: table.path, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
   if (results.length < appConfig.tables.length) {
-    log.warn('Missing ' + (appConfig.tables.length - results.length) + ' table source file(s)', { found: results.length, expected: appConfig.tables.length });
+    log.warn('config', 'Table source files missing', { missing: appConfig.tables.length - results.length, found: results.length, expected: appConfig.tables.length });
   }
 
   return results;

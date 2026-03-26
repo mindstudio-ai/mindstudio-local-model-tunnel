@@ -43,7 +43,8 @@ async function apiRequest<T>(
   body?: unknown,
 ): Promise<T> {
   const start = Date.now();
-  const logTag = `${method} ${url.replace(getApiBaseUrl(), '')}`;
+  const httpMethod = method;
+  const path = url.replace(getApiBaseUrl(), '').replace(/^\/_internal\/v2\/apps\/[^/]+\/dev/, '');
 
   const response = await fetch(url, {
     method,
@@ -54,18 +55,18 @@ async function apiRequest<T>(
   const duration = Date.now() - start;
 
   if (response.status === 204) {
-    log.debug(`api ${logTag} → 204 (${duration}ms)`);
+    log.debug('api', 'Request complete', { method: httpMethod, path, status: 204, duration });
     return null as T;
   }
 
   if (!response.ok) {
     const error = await response.text();
-    log.error(`api ${logTag} → ${response.status} (${duration}ms)`, { error });
-    throw new ApiError(`${logTag} failed: ${response.status} ${error}`, response.status);
+    log.error('api', 'Request failed', { method: httpMethod, path, status: response.status, duration, error });
+    throw new ApiError(`${httpMethod} ${path} failed: ${response.status} ${error}`, response.status);
   }
 
   const data = (await response.json()) as T;
-  log.info(`api ${logTag} → ${response.status} (${duration}ms)`);
+  log.info('api', 'Request complete', { method: httpMethod, path, status: response.status, duration });
   return data;
 }
 

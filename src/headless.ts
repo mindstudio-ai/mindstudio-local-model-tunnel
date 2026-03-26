@@ -120,7 +120,7 @@ async function startSession(
             errors: syncResult.errors,
           });
         } else {
-          log.warn('No table source files found, skipping schema sync', {
+          log.warn('session', 'No table source files found, skipping schema sync', {
             expected: appConfig.tables.map((t) => t.path),
           });
         }
@@ -198,7 +198,7 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
     if (!session) return;
 
     emitEvent('schema-sync-started');
-    log.info('Table source file changed, syncing schema');
+    log.info('session', 'Table source file changed, syncing schema');
 
     try {
       const tableSources = readTableSources(state.appConfig, cwd);
@@ -210,16 +210,16 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
           altered: result.altered,
           errors: result.errors,
         });
-        log.info('Schema sync complete', { created: result.created, altered: result.altered });
+        log.info('session', 'Schema sync complete', { created: result.created, altered: result.altered });
       } else {
-        log.warn('Table source file change detected but file(s) still missing', {
+        log.warn('session', 'Table source file change detected but file(s) still missing', {
           expected: state.appConfig.tables.map((t) => t.path),
         });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Schema sync failed';
       emitEvent('schema-sync-completed', { created: [], altered: [], errors: [message] });
-      log.warn('Schema sync failed', { error: message });
+      log.warn('session', 'Schema sync failed', { error: message });
     }
   });
 
@@ -263,7 +263,7 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
 
   const apiKey = getApiKey();
   const userId = getUserId();
-  log.info('Startup config', {
+  log.info('session', 'Startup config', {
     configPath: getConfigPath(),
     environment: getEnvironment(),
     apiBaseUrl: getApiBaseUrl(),
@@ -309,10 +309,13 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
 
   // Watch mindstudio.json for changes
   cleanupConfigWatcher = watchConfigFile(cwd, async () => {
-    if (stopping || restarting) return;
+    if (stopping || restarting) {
+      log.debug('session', 'Config change ignored (restart in progress)');
+      return;
+    }
     restarting = true;
     try {
-      log.info('mindstudio.json changed, restarting dev session');
+      log.info('session', 'mindstudio.json changed, restarting dev session');
       emitEvent('config-changed');
       await teardownRunner(state);
       const ok = await startSession(cwd, opts, state, shutdown);

@@ -45,8 +45,11 @@ export function initRequestLog(projectRoot: string): void {
 
 export function logMethodExecution(entry: MethodLogEntry): void {
   ndjsonLog.append({
+    ts: Date.now(),
+    level: 'info',
+    module: 'execution',
+    msg: entry.result.success ? 'Method complete' : 'Method failed',
     type: 'method',
-    timestamp: new Date().toISOString(),
     requestId: entry.requestId,
     sessionId: entry.sessionId,
     method: entry.methodExport,
@@ -66,8 +69,11 @@ export function logMethodExecution(entry: MethodLogEntry): void {
 
 export function logScenarioExecution(entry: ScenarioLogEntry): void {
   ndjsonLog.append({
+    ts: Date.now(),
+    level: 'info',
+    module: 'execution',
+    msg: (entry.result?.success ?? false) ? 'Scenario complete' : 'Scenario failed',
     type: 'scenario',
-    timestamp: new Date().toISOString(),
     sessionId: entry.sessionId,
     scenario: {
       id: entry.scenario.id,
