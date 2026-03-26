@@ -66,7 +66,6 @@ export class DevProxy {
 
   updateClientContext(context: Record<string, unknown>): void {
     this.clientContext = context;
-    log.info('Dev proxy context updated after role change');
   }
 
   /**
@@ -94,7 +93,7 @@ export class DevProxy {
 
     return new Promise((resolve, reject) => {
       this.commandQueue.push({ id, steps, timeoutMs, resolve, reject, queuedAt: Date.now() });
-      log.info('Browser command queued', { id, queueLength: this.commandQueue.length, commands: steps.map((s) => s.command) });
+      log.debug('proxy', 'Browser command queued', { id, queueLength: this.commandQueue.length, commands: steps.map((s) => s.command) });
       this.drainCommandQueue();
     });
   }
@@ -110,13 +109,13 @@ export class DevProxy {
       const queued = this.commandQueue.shift()!;
       const { id, steps, timeoutMs, resolve, reject } = queued;
 
-      log.info('Browser command sent', { id, clientId: target.id, mode: target.mode, stepCount: steps.length, commands: steps.map((s) => s.command) });
+      log.info('proxy', 'Browser command sent', { id, clientId: target.id, mode: target.mode, stepCount: steps.length, commands: steps.map((s) => s.command), queueWaitMs: Date.now() - queued.queuedAt });
 
       const timeout = setTimeout(() => {
         this.pendingResults.delete(id);
         const client = this.clients.findByCommandId(id);
         if (client) client.activeCommandId = null;
-        log.warn('Browser command timed out', { id, pendingCount: this.pendingResults.size });
+        log.warn('proxy', 'Browser command timed out', { id, pendingCount: this.pendingResults.size });
         reject(new Error('Browser command timed out'));
         this.drainCommandQueue();
       }, timeoutMs);
@@ -130,6 +129,7 @@ export class DevProxy {
         this.pendingResults.delete(id);
         clearTimeout(timeout);
         target.activeCommandId = null;
+        log.warn('proxy', 'Browser command send failed', { id, clientId: target.id });
         reject(new Error('Failed to send command to browser'));
         // Continue draining — next command might target a different client
       }
@@ -142,7 +142,7 @@ export class DevProxy {
   broadcastToClients(action: string, payload?: Record<string, unknown>): void {
     const msg = JSON.stringify({ type: 'broadcast', action, payload });
     const clients = this.clients.getAll();
-    log.info('Broadcasting to browser clients', { action, clientCount: clients.length });
+    log.info('proxy', 'Broadcasting to browser clients', { action, clientCount: clients.length });
     for (const client of clients) {
       try {
         client.ws.send(msg);
@@ -184,10 +184,10 @@ export class DevProxy {
         this.proxyPort = assignedPort;
         this.startHealthCheck();
         this.startPingTimer();
-        log.info('Dev proxy started', { port: assignedPort, bind: this.bindAddress });
+        log.info('proxy', 'Dev proxy started', { port: assignedPort, bind: this.bindAddress });
         return assignedPort;
       } catch {
-        log.warn('Proxy port in use, trying next', { port });
+        log.warn('proxy', 'Proxy port in use, trying next', { port });
         // Port in use — try next
       }
     }
@@ -234,7 +234,7 @@ export class DevProxy {
     }
 
     if (this.server) {
-      log.info('Dev proxy stopping');
+      log.info('proxy', 'Dev proxy stopping');
       this.server.close();
       this.server = null;
       this.proxyPort = null;
@@ -268,7 +268,7 @@ export class DevProxy {
     // Require hello within 5s
     const helloTimeout = setTimeout(() => {
       if (!clientId) {
-        log.warn('Browser WS client did not send hello in time, closing');
+        log.warn('proxy', 'Browser WS client did not send hello in time, closing');
         ws.close(4000, 'Hello timeout');
       }
     }, DevProxy.HELLO_TIMEOUT);
@@ -338,13 +338,13 @@ export class DevProxy {
   private handleCommandResult(msg: Record<string, unknown>): void {
     const id = msg.id as string;
     if (!id) {
-      log.warn('Browser command result received with no id');
+      log.warn('proxy', 'Browser command result received with no id');
       return;
     }
 
     const pending = this.pendingResults.get(id);
     if (pending) {
-      log.info('Browser command result received', { id, stepCount: (msg.steps as unknown[])?.length, duration: msg.duration });
+      log.info('proxy', 'Browser command result received', { id, stepCount: (msg.steps as unknown[])?.length, duration: msg.duration });
       clearTimeout(pending.timeout);
       this.pendingResults.delete(id);
 
@@ -357,7 +357,7 @@ export class DevProxy {
       // Client is now free — dispatch next queued command
       this.drainCommandQueue();
     } else {
-      log.warn('Browser command result received but no pending command found', { id, pendingIds: [...this.pendingResults.keys()] });
+      log.warn('proxy', 'Browser command result received but no pending command found', { id, pendingIds: [...this.pendingResults.keys()] });
     }
   }
 
@@ -367,7 +367,7 @@ export class DevProxy {
       clearTimeout(pending.timeout);
       this.pendingResults.delete(commandId);
       pending.resolve({ id: commandId, steps: [], error: reason });
-      log.warn('Pending command rejected', { id: commandId, reason });
+      log.warn('proxy', 'Pending command rejected', { id: commandId, reason });
 
       // Client slot freed — dispatch next queued command
       this.drainCommandQueue();
@@ -412,7 +412,7 @@ export class DevProxy {
   markUpstreamDown(): void {
     if (!this.upstreamUp) return;
     this.upstreamUp = false;
-    log.info('Upstream dev server marked as down (explicit signal)');
+    log.info('proxy', 'Upstream dev server marked as down (explicit signal)');
     this.scheduleHealthCheck(DevProxy.HEALTH_CHECK_INTERVAL_DOWN);
   }
 
@@ -447,9 +447,9 @@ export class DevProxy {
 
     // Handle state transitions
     if (wasUp && !this.upstreamUp) {
-      log.warn('Upstream dev server is down');
+      log.warn('proxy', 'Upstream dev server is down');
     } else if (!wasUp && this.upstreamUp) {
-      log.info('Upstream dev server is back up, reloading browser');
+      log.info('proxy', 'Upstream dev server is back up, reloading browser');
       this.broadcastToClients('reload');
     }
 
@@ -547,7 +547,6 @@ export class DevProxy {
             delete headers['content-encoding'];
             delete headers['etag'];
 
-            log.debug('Dev proxy injected context into HTML', { path: clientReq.url, size: html.length });
             clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
             clientRes.end(html);
           });
@@ -565,7 +564,7 @@ export class DevProxy {
     );
 
     upstreamReq.on('error', (err) => {
-      log.warn('Dev proxy cannot reach dev server', { path: clientReq.url, error: err.message });
+      log.warn('proxy', 'Dev proxy cannot reach dev server', { path: clientReq.url, error: err.message });
       clientRes.writeHead(502);
       clientRes.end(`Proxy error: ${err.message}`);
     });
@@ -676,7 +675,6 @@ export class DevProxy {
     clientSocket: Socket,
     head: Buffer,
   ): void {
-    log.debug('Dev proxy WebSocket upgrade (upstream)', { path: clientReq.url });
     const options: http.RequestOptions = {
       hostname: '127.0.0.1',
       port: this.upstreamPort,

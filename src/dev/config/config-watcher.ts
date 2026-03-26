@@ -35,7 +35,7 @@ export function watchConfigFile(
     }, 500);
   });
 
-  log.info('Watching mindstudio.json for changes', { path: configPath });
+  log.info('config', 'Watching mindstudio.json for changes', { path: configPath });
 
   return () => {
     clearTimeout(debounceTimer);

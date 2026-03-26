@@ -32,7 +32,7 @@ export class ClientRegistry {
       alive: true,
       activeCommandId: null,
     });
-    log.info('Browser client connected', { clientId: id, mode: hello.mode, url: hello.url });
+    log.info('proxy', 'Browser client connected', { clientId: id, mode: hello.mode, url: hello.url });
     return id;
   }
 
@@ -40,7 +40,7 @@ export class ClientRegistry {
     const client = this.clients.get(id);
     if (client) {
       this.clients.delete(id);
-      log.info('Browser client disconnected', { clientId: id, mode: client.mode });
+      log.info('proxy', 'Browser client disconnected', { clientId: id, mode: client.mode });
     }
     return client;
   }
@@ -106,7 +106,7 @@ export class ClientRegistry {
     const removed: { clientId: string; activeCommandId: string | null }[] = [];
     for (const client of this.clients.values()) {
       if (!client.alive) {
-        log.warn('Browser client timed out (no pong)', { clientId: client.id, activeCommandId: client.activeCommandId });
+        log.warn('proxy', 'Browser client timed out (no pong)', { clientId: client.id, activeCommandId: client.activeCommandId });
         removed.push({ clientId: client.id, activeCommandId: client.activeCommandId });
         this.clients.delete(client.id);
         client.ws.terminate();

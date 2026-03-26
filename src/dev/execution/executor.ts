@@ -153,6 +153,12 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
     return worker;
   }
 
+  // Log respawn reason (skip for first spawn)
+  if (worker || workerProjectRoot) {
+    const reason = workerProjectRoot !== projectRoot ? 'project-root-changed' : 'disconnected';
+    log.info('executor', 'Respawning worker process', { reason });
+  }
+
   // Clean up old worker
   if (worker) {
     worker.removeAllListeners();
@@ -175,7 +181,7 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
   workerScriptPath = scriptPath;
   workerProjectRoot = projectRoot;
 
-  log.debug('Spawning method execution process', { cwd: projectRoot, scriptPath });
+  log.debug('executor', 'Spawning method execution process', { cwd: projectRoot, scriptPath });
 
   const child = fork(scriptPath, [], {
     cwd: projectRoot,
@@ -208,7 +214,7 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
 
   // If worker dies unexpectedly, reject all pending requests
   child.on('exit', (code) => {
-    log.warn('Method execution process exited unexpectedly', { code });
+    log.warn('executor', 'Method execution process exited unexpectedly', { code });
     for (const [id, req] of pending) {
       clearTimeout(req.timer);
       req.resolve({ success: false, error: { message: `Worker process exited with code ${code}` } });
@@ -220,11 +226,11 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
   // Capture stderr for debugging
   child.stderr?.on('data', (chunk: Buffer) => {
     const text = chunk.toString().trim();
-    if (text) log.warn('Method process stderr', { text: text.slice(0, 500) });
+    if (text) log.warn('executor', 'Method process stderr', { text: text.slice(0, 500) });
   });
 
   worker = child;
-  log.info('Method execution process ready', { pid: child.pid });
+  log.info('executor', 'Method execution process ready', { pid: child.pid });
   return child;
 }
 
@@ -261,15 +267,15 @@ async function executeMethodInWorker(
 
   const id = randomBytes(8).toString('hex');
 
-  log.debug('Sending method to execution process', { id, methodExport: opts.methodExport });
+  log.debug('executor', 'Sending method to execution process', { id, methodExport: opts.methodExport });
 
   return new Promise<ExecuteMethodResult>((resolve) => {
     const timer = setTimeout(() => {
       pending.delete(id);
-      log.warn('Method execution timed out', { id, methodExport: opts.methodExport });
+      log.warn('executor', 'Method execution timed out', { id, methodExport: opts.methodExport });
       resolve({
         success: false,
-        error: { message: 'Method execution timed out after 30s' },
+        error: { message: 'Method execution timed out after 30m' },
       });
     }, EXECUTION_TIMEOUT_MS);
 

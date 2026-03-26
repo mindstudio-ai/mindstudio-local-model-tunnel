@@ -1,13 +1,17 @@
 /**
- * Structured logger with configurable level and output target.
+ * Structured NDJSON logger with configurable level and output target.
+ *
+ * Every log line is a self-contained JSON object:
+ *   {"ts":1711234567890,"level":"info","module":"runner","msg":"Method received","requestId":"ac-4"}
  *
  * - Headless mode: writes to stderr (stdout reserved for JSON events)
- * - Interactive mode: writes to .mindstudio-dev.log in cwd (won't interfere with Ink TUI)
+ * - Interactive mode: writes to .logs/tunnel.ndjson (won't interfere with Ink TUI)
  *
  * Levels: error > warn > info > debug
  */
 
 import fs from 'node:fs';
+import { join } from 'node:path';
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 
@@ -21,37 +25,33 @@ const LEVELS: Record<LogLevel, number> = {
 let currentLevel: number = LEVELS.error;
 let writeFn: (line: string) => void = () => {};
 
-function timestamp(): string {
-  return new Date().toISOString();
-}
-
-function write(level: LogLevel, msg: string, data?: Record<string, unknown>) {
+function write(level: LogLevel, module: string, msg: string, data?: Record<string, unknown>) {
   if (LEVELS[level] > currentLevel) {
     return;
   }
-  const parts = [`[${timestamp()}]`, level.toUpperCase().padEnd(5), msg];
+  const entry: Record<string, unknown> = { ts: Date.now(), level, module, msg };
   if (data) {
-    parts.push(JSON.stringify(data));
+    Object.assign(entry, data);
   }
-  writeFn(parts.join(' '));
+  writeFn(JSON.stringify(entry));
 }
 
 export const log = {
-  error(msg: string, data?: Record<string, unknown>) {
-    write('error', msg, data);
+  error(module: string, msg: string, data?: Record<string, unknown>) {
+    write('error', module, msg, data);
   },
-  warn(msg: string, data?: Record<string, unknown>) {
-    write('warn', msg, data);
+  warn(module: string, msg: string, data?: Record<string, unknown>) {
+    write('warn', module, msg, data);
   },
-  info(msg: string, data?: Record<string, unknown>) {
-    write('info', msg, data);
+  info(module: string, msg: string, data?: Record<string, unknown>) {
+    write('info', module, msg, data);
   },
-  debug(msg: string, data?: Record<string, unknown>) {
-    write('debug', msg, data);
+  debug(module: string, msg: string, data?: Record<string, unknown>) {
+    write('debug', module, msg, data);
   },
 };
 
-/** Configure logger for headless mode — writes to stderr. */
+/** Configure logger for headless mode — writes NDJSON to stderr. */
 export function initLoggerHeadless(level: LogLevel = 'info'): void {
   currentLevel = LEVELS[level];
   writeFn = (line) => {
@@ -59,14 +59,16 @@ export function initLoggerHeadless(level: LogLevel = 'info'): void {
   };
 }
 
-/** Configure logger for interactive mode — writes to .mindstudio-dev.log. */
+/** Configure logger for interactive mode — writes NDJSON to .logs/tunnel.ndjson. */
 export function initLoggerInteractive(level: LogLevel = 'error'): void {
   currentLevel = LEVELS[level];
   let fd: number | null = null;
   writeFn = (line) => {
     try {
       if (fd === null) {
-        fd = fs.openSync('.mindstudio-dev.log', 'a');
+        const logsDir = join(process.cwd(), '.logs');
+        fs.mkdirSync(logsDir, { recursive: true });
+        fd = fs.openSync(join(logsDir, 'tunnel.ndjson'), 'a');
       }
       fs.writeSync(fd, line + '\n');
     } catch {

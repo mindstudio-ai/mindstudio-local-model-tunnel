@@ -52,7 +52,7 @@ export function setupStdinCommands(
       try {
         cmd = JSON.parse(line);
       } catch {
-        log.warn('Invalid JSON on stdin', { preview: line.slice(0, 100) });
+        log.warn('stdin', 'Invalid JSON on stdin', { preview: line.slice(0, 100) });
         continue;
       }
 
@@ -69,7 +69,7 @@ async function handleStdinCommand(
   const { requestId, action } = cmd;
 
   if (!requestId) {
-    log.warn('Command rejected: missing requestId', { action });
+    log.warn('stdin', 'Command rejected: missing requestId', { action });
     return;
   }
 
@@ -82,6 +82,8 @@ async function handleStdinCommand(
     return;
   }
 
+  log.info('stdin', 'Command received', { requestId, action });
+
   const ctx: CommandContext = {
     state,
     cwd,
@@ -91,8 +93,10 @@ async function handleStdinCommand(
 
   try {
     const result = await handler(ctx, cmd);
+    log.info('stdin', 'Command complete', { requestId, action, success: result.success !== false });
     emitResponse(action, requestId, 'completed', result);
   } catch (err) {
+    log.warn('stdin', 'Command failed', { requestId, action, error: err instanceof Error ? err.message : String(err) });
     emitResponse(action, requestId, 'completed', {
       success: false,
       error: err instanceof Error ? err.message : String(err),

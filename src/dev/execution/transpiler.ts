@@ -45,18 +45,14 @@ export class Transpiler {
     const absolutePath = resolve(this.projectRoot, methodPath);
     const name = basename(absolutePath).replace(/\.[^.]+$/, '');
 
-    log.debug('Transpiling method', { methodPath });
-
     // Find nearest node_modules by walking up from the source file
     const nodeModulesDir = findNearestNodeModules(dirname(absolutePath));
     if (!nodeModulesDir) {
-      log.error('Cannot find node_modules for method', { methodPath, searchStart: dirname(absolutePath) });
+      log.error('transpiler', 'Cannot find node_modules for method', { methodPath, searchStart: dirname(absolutePath) });
       throw new Error(
         `No node_modules found near ${methodPath}. Run npm install first.`,
       );
     }
-    log.debug('Found node_modules', { path: nodeModulesDir });
-
     const outDir = join(nodeModulesDir, '.cache', 'mindstudio-dev');
     await mkdir(outDir, { recursive: true });
 
@@ -75,7 +71,7 @@ export class Transpiler {
     });
 
     this.outputFiles.add(outfile);
-    log.info(`Method transpiled in ${Date.now() - start}ms`, { methodPath, outfile });
+    log.info('transpiler', 'Method transpiled', { duration: Date.now() - start, methodPath, outfile });
     return outfile;
   }
 
@@ -83,7 +79,6 @@ export class Transpiler {
    * Clean up all transpiled output files.
    */
   async cleanup(): Promise<void> {
-    log.debug('Cleaning up transpiled files', { fileCount: this.outputFiles.size });
     for (const file of this.outputFiles) {
       await unlink(file).catch(() => {});
     }
@@ -103,7 +98,6 @@ async function removeOrphanedDevFiles(dir: string): Promise<void> {
     if (entry.isDirectory()) {
       await removeOrphanedDevFiles(fullPath);
     } else if (entry.name.endsWith('.__ms_dev__.mjs')) {
-      log.debug('Removing orphaned transpiled file', { path: fullPath });
       await unlink(fullPath).catch(() => {});
     }
   }
