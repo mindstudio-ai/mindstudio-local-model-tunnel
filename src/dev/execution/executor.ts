@@ -4,8 +4,10 @@
 // cold start), we keep a single long-lived worker that receives requests over
 // IPC. The Node runtime and SDK modules stay warm across invocations.
 //
-// Concurrent requests are supported — the worker handles multiple async
-// invocations in parallel, matched by request ID.
+// Methods execute one at a time via a queue. This is required because
+// per-request state (process.env.CALLBACK_TOKEN, global.ai) is set globally
+// in the worker — concurrent execution would cause methods to read each
+// other's auth tokens, leading to random 401s from the platform.
 //
 // The worker is lazily spawned on first use, respawned if it dies, and killed
 // on cleanup. Per-request state (env vars, global.ai) is set before each call.
@@ -227,13 +229,32 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
 }
 
 // ---------------------------------------------------------------------------
+// Execution queue — serialize method calls so env/globals don't collide
+// ---------------------------------------------------------------------------
+
+let queueTail: Promise<unknown> = Promise.resolve();
+
+function enqueue<T>(fn: () => Promise<T>): Promise<T> {
+  const task = queueTail.then(fn, fn);
+  queueTail = task.catch(() => {});
+  return task;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /**
  * Execute a transpiled method in the persistent worker process.
+ * Queued so only one method runs at a time (avoids env/global races).
  */
-export async function executeMethod(
+export function executeMethod(
+  opts: ExecuteMethodOptions,
+): Promise<ExecuteMethodResult> {
+  return enqueue(() => executeMethodInWorker(opts));
+}
+
+async function executeMethodInWorker(
   opts: ExecuteMethodOptions,
 ): Promise<ExecuteMethodResult> {
   const w = await ensureWorker(opts.projectRoot);
@@ -286,4 +307,5 @@ export async function cleanupWorker(): Promise<void> {
     clearTimeout(req.timer);
   }
   pending.clear();
+  queueTail = Promise.resolve();
 }
