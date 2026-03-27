@@ -5,7 +5,7 @@ import { log } from '../logging/logger';
 export interface ConnectedClient {
   id: string;
   ws: WebSocket;
-  mode: 'iframe' | 'standalone';
+  mode: 'iframe' | 'standalone' | 'mirror';
   url: string;
   viewport: { w: number; h: number };
   connectedAt: number;
@@ -19,7 +19,7 @@ export class ClientRegistry {
 
   add(
     ws: WebSocket,
-    hello: { mode: 'iframe' | 'standalone'; url: string; viewport: { w: number; h: number } },
+    hello: { mode: 'iframe' | 'standalone' | 'mirror'; url: string; viewport: { w: number; h: number } },
   ): string {
     const id = randomBytes(4).toString('hex');
     this.clients.set(id, {
@@ -58,10 +58,16 @@ export class ClientRegistry {
     let fallback: ConnectedClient | null = null;
     for (const client of this.clients.values()) {
       if (client.activeCommandId) continue; // busy
+      if (client.mode === 'mirror') continue; // mirror clients don't execute commands
       if (client.mode === 'iframe') return client;
       if (!fallback) fallback = client;
     }
     return fallback;
+  }
+
+  /** Get all connected mirror-mode clients (for relaying mirror events). */
+  getMirrorClients(): ConnectedClient[] {
+    return [...this.clients.values()].filter((c) => c.mode === 'mirror');
   }
 
   getAll(): ConnectedClient[] {
