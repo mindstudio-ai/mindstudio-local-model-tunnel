@@ -100,6 +100,7 @@ async function startSession(
       branch,
       methods: appConfig.methods.map((m) => ({ id: m.id, export: m.export, path: m.path })),
     });
+    runner.setAppConfig(appConfig);
     const session = await runner.start();
     state.runner = runner;
 

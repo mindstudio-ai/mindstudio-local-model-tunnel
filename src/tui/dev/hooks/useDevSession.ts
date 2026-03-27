@@ -244,6 +244,7 @@ export function useDevSession(appConfig: AppConfig) {
             methods: currentConfig.methods.map((m) => ({ id: m.id, export: m.export, path: m.path })),
           },
         );
+        runner.setAppConfig(currentConfig);
         runnerRef.current = runner;
         const devSession = await runner.start();
 

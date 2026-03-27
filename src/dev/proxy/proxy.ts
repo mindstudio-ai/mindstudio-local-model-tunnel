@@ -322,7 +322,7 @@ export class DevProxy {
         }
         clearTimeout(helloTimeout);
 
-        const mode = msg.mode === 'iframe' ? 'iframe' : 'standalone';
+        const mode = msg.mode === 'iframe' ? 'iframe' : msg.mode === 'mirror' ? 'mirror' : 'standalone';
         const viewport = (msg.viewport as { w: number; h: number }) || {
           w: 0,
           h: 0,
@@ -348,6 +348,11 @@ export class DevProxy {
           if (Array.isArray(msg.entries)) {
             appendBrowserLogEntries(msg.entries as Record<string, unknown>[]);
           }
+          break;
+
+        case 'mirror':
+          // Relay mirror events from mobile client to all mirror viewers
+          this.relayMirrorEvents(data.toString());
           break;
       }
     });
@@ -548,6 +553,13 @@ export class DevProxy {
         this.handleFontProxy(clientReq, clientRes);
         return;
       }
+      if (
+        clientReq.url === '/__mindstudio_dev__/mirror' &&
+        clientReq.method === 'GET'
+      ) {
+        this.serveMirrorPage(clientRes);
+        return;
+      }
     }
 
     // CORS preflight
@@ -658,6 +670,95 @@ export class DevProxy {
       clientRes.writeHead(204, this.corsHeaders(clientReq));
       clientRes.end();
     });
+  }
+
+  /** Relay a raw mirror message (already JSON-stringified) to all mirror viewers. */
+  private relayMirrorEvents(raw: string): void {
+    const mirrors = this.clients.getMirrorClients();
+    for (const client of mirrors) {
+      try {
+        client.ws.send(raw);
+      } catch {
+        // Client will be cleaned up on close
+      }
+    }
+  }
+
+  /** Serve the mirror replay page — an rrweb Replayer in live mode. */
+  private serveMirrorPage(res: http.ServerResponse): void {
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mobile Mirror</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; background: #111; overflow: hidden; }
+    #player { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    .replayer-wrapper { box-shadow: 0 0 40px rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
+    #status { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); color: #666; font-family: -apple-system, system-ui, sans-serif; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div id="player"></div>
+  <div id="status">Waiting for mobile device...</div>
+  <script src="https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.13/dist/rrweb.umd.cjs.js"></script>
+  <script>
+    (function() {
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var ws = new WebSocket(proto + '//' + location.host + '/__mindstudio_dev__/ws');
+      var replayer = null;
+      var status = document.getElementById('status');
+
+      ws.onopen = function() {
+        ws.send(JSON.stringify({
+          type: 'hello',
+          mode: 'mirror',
+          url: location.href,
+          viewport: { w: window.innerWidth, h: window.innerHeight }
+        }));
+      };
+
+      ws.onmessage = function(e) {
+        var msg;
+        try { msg = JSON.parse(e.data); } catch(e) { return; }
+
+        if (msg.type !== 'mirror' || !Array.isArray(msg.events)) return;
+
+        for (var i = 0; i < msg.events.length; i++) {
+          var event = msg.events[i];
+          if (!replayer) {
+            replayer = new rrweb.Replayer([], {
+              root: document.getElementById('player'),
+              liveMode: true,
+              insertStyleRules: [
+                '.replayer-wrapper { position: relative !important; }',
+              ],
+            });
+            replayer.startLive(Date.now() - 500);
+            status.textContent = 'Connected';
+            setTimeout(function() { status.style.opacity = '0'; }, 2000);
+          }
+          replayer.addEvent(event);
+        }
+      };
+
+      ws.onclose = function() {
+        status.style.opacity = '1';
+        status.textContent = 'Disconnected — reconnecting...';
+        setTimeout(function() { location.reload(); }, 2000);
+      };
+    })();
+  </script>
+</body>
+</html>`;
+
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(html);
   }
 
   /**

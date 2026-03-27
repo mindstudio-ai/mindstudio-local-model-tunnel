@@ -32,8 +32,9 @@ import { randomBytes } from 'node:crypto';
 import { log } from '../logging/logger';
 import { logMethodExecution, logScenarioExecution } from '../logging/request-log';
 import { formatErrorForDisplay } from './format-error';
+import { readAgentConfig } from './agent-config';
 import type { DevProxy } from '../proxy/proxy';
-import type { DevSession, DevRequest, DevResult, AppScenario } from '../config/types';
+import type { DevSession, DevRequest, DevResult, AppScenario, AppConfig } from '../config/types';
 
 export class DevRunner {
   private isRunning = false;
@@ -43,6 +44,7 @@ export class DevRunner {
   private hadConnectionWarning = false;
   private proxyUrl: string | undefined;
   private proxy: DevProxy | null = null;
+  private appConfig: AppConfig | null = null;
   private roleOverride: string[] | null = null;
 
   constructor(
@@ -65,6 +67,10 @@ export class DevRunner {
 
   setProxy(proxy: DevProxy): void {
     this.proxy = proxy;
+  }
+
+  setAppConfig(appConfig: AppConfig): void {
+    this.appConfig = appConfig;
   }
 
   async start(): Promise<DevSession> {
@@ -395,6 +401,11 @@ export class DevRunner {
   }
 
   private async handleRequest(request: DevRequest): Promise<void> {
+    if (request.type === 'get-agent-config') {
+      await this.handleGetAgentConfig(request);
+      return;
+    }
+
     const startTime = Date.now();
 
     devRequestEvents.emitStart({
@@ -523,6 +534,50 @@ export class DevRunner {
         duration: Date.now() - startTime,
         error: message,
       });
+    }
+  }
+
+  private async handleGetAgentConfig(request: DevRequest): Promise<void> {
+    const startTime = Date.now();
+    log.info('runner', 'Agent config requested', { requestId: request.requestId, sessionId: this.session!.sessionId });
+
+    try {
+      if (!this.appConfig) {
+        throw new Error('App config not available');
+      }
+
+      const bundle = readAgentConfig(this.projectRoot, this.appConfig);
+
+      await submitDevResult(
+        this.appId,
+        this.session!.sessionId,
+        request.requestId,
+        {
+          type: 'get-agent-config',
+          success: true,
+          output: bundle,
+        },
+      );
+
+      log.info('runner', 'Agent config sent', { requestId: request.requestId, duration: Date.now() - startTime });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      log.error('runner', 'Agent config failed', { requestId: request.requestId, error: message });
+
+      try {
+        await submitDevResult(
+          this.appId,
+          this.session!.sessionId,
+          request.requestId,
+          {
+            type: 'get-agent-config',
+            success: false,
+            error: { message },
+          },
+        );
+      } catch (submitErr) {
+        log.error('runner', 'Failed to report agent config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
+      }
     }
   }
 
