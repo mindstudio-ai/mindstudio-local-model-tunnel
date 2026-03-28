@@ -149,3 +149,9 @@ jobs:
           # Upload the install scripts
           aws s3 cp install.sh "s3://${BUCKET}/local-model-tunnel/install.sh" --content-type "text/plain"
           aws s3 cp install.ps1 "s3://${BUCKET}/local-model-tunnel/install.ps1" --content-type "text/plain"
+
+      - name: Rebuild v2 sandbox snapshot
+        run: |
+          curl -sf -X POST \
+            -H "server-token: ${{ secrets.CRON_SECRET_TOKEN }}" \
+            https://v1.mindstudio-api.com/v1/admin/app-functions/rebuild-v2-sandbox-snapshot
