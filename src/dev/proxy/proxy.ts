@@ -368,11 +368,13 @@ export class DevProxy {
       clearTimeout(helloTimeout);
       if (clientId) {
         const client = this.clients.remove(clientId);
+        // Don't reject the pending command — the browser may reconnect
+        // after a navigation and deliver the result via resumePendingNavigation.
+        // The command's own timeout is the safety net if it never arrives.
         if (client?.activeCommandId) {
-          this.rejectPendingCommand(
-            client.activeCommandId,
-            'Browser disconnected during command execution',
-          );
+          log.debug('proxy', 'Browser disconnected with active command, keeping pending', {
+            commandId: client.activeCommandId,
+          });
         }
       }
     });
