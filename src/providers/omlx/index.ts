@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config();
+
 import { getProviderBaseUrl } from '../../config';
 import readme from './readme.md';
 import type {
@@ -24,7 +27,6 @@ class OMLXProvider implements Provider {
   readonly displayName = 'OMLX';
   readonly description =
     'Local models via OMLX endpoint. Supports text and image inputs.';
-  // Keeping this plural as it is defined on the class itself, not the LocalModel type
   readonly capabilities = ['text', 'image'] as const;
   readonly readme = readme;
   readonly defaultBaseUrl = 'http://localhost:8000/v1';
@@ -34,7 +36,11 @@ class OMLXProvider implements Provider {
   }
 
   private getHeaders(): Record<string, string> {
-    const apiKey = process.env.OMLX_API_KEY || '24079539';
+    const apiKey = process.env.OMLX_API_KEY;
+    
+    // DEBUG LOG: Let's prove the dotenv package worked
+    console.log("DEBUG - OMLX API KEY IS:", apiKey); 
+    
     return {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
@@ -43,12 +49,18 @@ class OMLXProvider implements Provider {
 
   async isRunning(): Promise<boolean> {
     try {
+      console.log("DEBUG - Pinging OMLX at:", `${this.baseUrl}/models`); 
+      
       const response = await fetch(`${this.baseUrl}/models`, {
         headers: this.getHeaders(),
         signal: AbortSignal.timeout(5000),
       });
+      
+      console.log("DEBUG - OMLX response status:", response.status); 
+      
       return response.ok;
-    } catch {
+    } catch (error) {
+      console.error("DEBUG - OMLX isRunning threw an error:", error); 
       return false;
     }
   }
