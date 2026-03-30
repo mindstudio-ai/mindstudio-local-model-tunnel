@@ -24,6 +24,7 @@ class OMLXProvider implements Provider {
   readonly displayName = 'OMLX';
   readonly description =
     'Local models via OMLX endpoint. Supports text and image inputs.';
+  // Keeping this plural as it is defined on the class itself, not the LocalModel type
   readonly capabilities = ['text', 'image'] as const;
   readonly readme = readme;
   readonly defaultBaseUrl = 'http://localhost:8000/v1';
@@ -32,8 +33,7 @@ class OMLXProvider implements Provider {
     return getProviderBaseUrl(this.name, this.defaultBaseUrl).replace(/\/$/, '');
   }
 
-  private getHeaders(): HeadersInit {
-    // Uses your .env variable, or falls back to your original token if it can't find it
+  private getHeaders(): Record<string, string> {
     const apiKey = process.env.OMLX_API_KEY || '24079539';
     return {
       'Content-Type': 'application/json',
@@ -60,7 +60,6 @@ class OMLXProvider implements Provider {
       });
       
       if (!response.ok) {
-        // Return an empty array if the endpoint returns an error
         return [];
       }
       
@@ -68,10 +67,9 @@ class OMLXProvider implements Provider {
       return data.data.map((m) => ({
         name: m.id,
         provider: this.name,
-        capabilities: ['text', 'image'],
+        capability: 'text', 
       }));
     } catch {
-      // Return an empty array if the request fails completely (e.g., server offline)
       return [];
     }
   }
@@ -89,7 +87,6 @@ class OMLXProvider implements Provider {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: this.getHeaders(),
-      signal: options?.signal, 
       body: JSON.stringify({
         model,
         messages,
