@@ -22,7 +22,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { log } from '../logging/logger';
 import { appendBrowserLogEntries } from '../logging/browser-log';
 import { ClientRegistry } from './ws-clients';
-import { getApiBaseUrl, getApiKey } from '../../config';
+import { getApiBaseUrl } from '../../config';
 
 interface PendingResult {
   resolve: (result: Record<string, unknown>) => void;
@@ -610,10 +610,7 @@ export class DevProxy {
       ...clientReq.headers,
       host: target.host,
     };
-    const apiKey = getApiKey();
-    if (apiKey) {
-      headers['authorization'] = `Bearer ${apiKey}`;
-    }
+    // Pass through the browser's Authorization header (ms_iface_... token) as-is
     delete headers['connection'];
 
     const proxyReq = httpModule.request(
