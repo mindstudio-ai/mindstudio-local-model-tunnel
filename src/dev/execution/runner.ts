@@ -408,17 +408,34 @@ export class DevRunner {
 
     const startTime = Date.now();
 
+    // Resolve method from app config by ID — the API only sends methodId,
+    // we look up the export name and file path from mindstudio.json.
+    const method = this.appConfig?.methods.find((m) => m.id === request.methodId);
+    if (!method) {
+      const message = `Unknown method ID: ${request.methodId}`;
+      log.error('runner', message, { requestId: request.requestId, sessionId: this.session!.sessionId });
+      try {
+        await submitDevResult(this.appId, this.session!.sessionId, request.requestId, {
+          type: 'execute',
+          success: false,
+          error: { message },
+        });
+      } catch {}
+      devRequestEvents.emitComplete({ id: request.requestId, success: false, duration: 0, error: message });
+      return;
+    }
+
     devRequestEvents.emitStart({
       id: request.requestId,
       type: request.type,
-      method: request.methodExport,
+      method: method.export,
       timestamp: startTime,
     });
 
-    log.info('runner', 'Method received', { requestId: request.requestId, method: request.methodExport, source: 'poll', sessionId: this.session!.sessionId });
+    log.info('runner', 'Method received', { requestId: request.requestId, method: method.export, source: 'poll', sessionId: this.session!.sessionId });
 
     try {
-      const transpiledPath = await this.transpiler!.transpile(request.methodPath);
+      const transpiledPath = await this.transpiler!.transpile(method.path);
 
       // Role override lets the platform test methods as different users/roles
       // without restarting the session. If present, we build a custom auth
@@ -436,7 +453,7 @@ export class DevRunner {
       // Execute in isolated child process
       const result = await executeMethod({
         transpiledPath,
-        methodExport: request.methodExport,
+        methodExport: method.export,
         input: request.input,
         auth,
         databases: this.session!.databases,
@@ -464,11 +481,11 @@ export class DevRunner {
 
       const duration = Date.now() - startTime;
       if (result.success) {
-        log.info('runner', 'Method complete', { requestId: request.requestId, method: request.methodExport, duration, sessionId: this.session!.sessionId });
+        log.info('runner', 'Method complete', { requestId: request.requestId, method: method.export, duration, sessionId: this.session!.sessionId });
       } else {
         log.warn('runner', 'Method failed', {
           requestId: request.requestId,
-          method: request.methodExport,
+          method: method.export,
           duration,
           error: result.error ? formatErrorForDisplay(result.error) : undefined,
           sessionId: this.session!.sessionId,
@@ -478,8 +495,8 @@ export class DevRunner {
       logMethodExecution({
         requestId: request.requestId,
         sessionId: this.session!.sessionId,
-        methodExport: request.methodExport,
-        methodPath: request.methodPath,
+        methodExport: method.export,
+        methodPath: method.path,
         input: request.input,
         roleOverride: request.roleOverride,
         authorizationToken: request.authorizationToken,
@@ -498,7 +515,7 @@ export class DevRunner {
       const message =
         error instanceof Error ? error.message : 'Unknown error';
       const duration = Date.now() - startTime;
-      log.error('runner', 'Method execution error', { requestId: request.requestId, method: request.methodExport, duration, error: message, sessionId: this.session!.sessionId });
+      log.error('runner', 'Method execution error', { requestId: request.requestId, method: method.export, duration, error: message, sessionId: this.session!.sessionId });
 
       try {
         await submitDevResult(
@@ -518,8 +535,8 @@ export class DevRunner {
       logMethodExecution({
         requestId: request.requestId,
         sessionId: this.session!.sessionId,
-        methodExport: request.methodExport,
-        methodPath: request.methodPath,
+        methodExport: method.export,
+        methodPath: method.path,
         input: request.input,
         roleOverride: request.roleOverride,
         authorizationToken: request.authorizationToken,
