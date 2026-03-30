@@ -2,6 +2,7 @@ import ollama from './ollama';
 import lmstudio from './lmstudio';
 import stableDiffusion from './stable-diffusion';
 import comfyui from './comfyui';
+import omlx from './omlx';
 import type {
   Provider,
   LocalModel,
@@ -17,6 +18,7 @@ export const allProviders: Provider[] = [
   lmstudio,
   stableDiffusion,
   comfyui,
+  omlx,
 ];
 
 /**
