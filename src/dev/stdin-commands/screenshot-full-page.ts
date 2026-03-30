@@ -24,13 +24,18 @@ export async function handleScreenshotFullPage(
     'image/jpeg',
   );
 
-  // 2. Dispatch to browser — always full-page with scroll-to-top
-  const result = await ctx.state.proxy.dispatchBrowserCommand(
-    [{ command: 'screenshotFullPage', uploadUrl, uploadFields }],
-    120_000,
-  );
+  // 2. Dispatch to browser — optionally navigate first, then full-page screenshot
+  const steps: Array<Record<string, unknown>> = [];
+  if (cmd.path) {
+    steps.push({ command: 'navigate', url: cmd.path as string });
+  }
+  steps.push({ command: 'screenshotFullPage', uploadUrl, uploadFields });
 
-  const stepResult = (result.steps as Array<Record<string, unknown>>)?.[0]
+  const result = await ctx.state.proxy.dispatchBrowserCommand(steps, 120_000);
+
+  // The screenshot result is the last step
+  const resultSteps = result.steps as Array<Record<string, unknown>>;
+  const stepResult = resultSteps?.[resultSteps.length - 1]
     ?.result as { width: number; height: number; uploaded?: boolean } | undefined;
 
   if (!stepResult?.uploaded) {
