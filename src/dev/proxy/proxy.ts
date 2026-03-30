@@ -612,6 +612,9 @@ export class DevProxy {
     };
     // Pass through the browser's Authorization header (ms_iface_... token) as-is
     delete headers['connection'];
+    // Don't request compressed responses — Node doesn't auto-decompress, and
+    // compressed chunks would break SSE streams piped back to the browser.
+    delete headers['accept-encoding'];
 
     const proxyReq = httpModule.request(
       {
