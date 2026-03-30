@@ -140,7 +140,7 @@ async function startSession(
         // Proxy persists across restarts — just update the context
         state.proxy.updateClientContext(session.clientContext);
       } else {
-        const proxy = new DevProxy(devPort, session.clientContext, bindAddress, opts.browserAgentUrl);
+        const proxy = new DevProxy(devPort, session.clientContext, appConfig.appId, bindAddress, opts.browserAgentUrl);
         const preferred = opts.proxyPort ?? stablePort(appConfig.appId);
         const proxyPort = await proxy.start(preferred);
         state.proxy = proxy;

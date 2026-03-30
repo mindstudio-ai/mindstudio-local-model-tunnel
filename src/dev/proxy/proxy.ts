@@ -15,12 +15,14 @@
 // - /__mindstudio_dev__/*: intercepted locally for browser agent communication
 
 import http from 'node:http';
+import https from 'node:https';
 import { randomBytes } from 'node:crypto';
 import type { Socket } from 'node:net';
 import { WebSocketServer, WebSocket } from 'ws';
 import { log } from '../logging/logger';
 import { appendBrowserLogEntries } from '../logging/browser-log';
 import { ClientRegistry } from './ws-clients';
+import { getApiBaseUrl } from '../../config';
 
 interface PendingResult {
   resolve: (result: Record<string, unknown>) => void;
@@ -59,6 +61,7 @@ export class DevProxy {
   constructor(
     private readonly upstreamPort: number,
     private clientContext: Record<string, unknown>,
+    private readonly appId: string,
     private readonly bindAddress: string = '127.0.0.1',
     // Dev override: 'https://seankoji-msba.ngrok.io/index.js'
     private readonly browserAgentUrl?: string,
@@ -573,8 +576,74 @@ export class DevProxy {
       return;
     }
 
+    // Same-origin API routes — forward to MindStudio API server
+    if (clientReq.url?.startsWith('/_/')) {
+      this.forwardToApi(clientReq, clientRes);
+      return;
+    }
+
     // Forward to upstream dev server
     this.forwardToUpstream(clientReq, clientRes);
+  }
+
+  // ---------------------------------------------------------------------------
+  // API forwarding (/_/ same-origin routes)
+  // ---------------------------------------------------------------------------
+
+  private forwardToApi(
+    clientReq: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+  ): void {
+    const cors = this.corsHeaders(clientReq);
+    const originalPath = clientReq.url!;
+
+    // Rewrite /_/{rest} → /_internal/v2/apps/{appId}/{rest}
+    const rest = originalPath.slice(3); // strip "/_/"
+    const apiPath = `/_internal/v2/apps/${this.appId}/${rest}`;
+
+    const apiBaseUrl = getApiBaseUrl();
+    const target = new URL(apiPath, apiBaseUrl);
+    const isHttps = target.protocol === 'https:';
+    const httpModule = isHttps ? https : http;
+
+    const headers: Record<string, string | string[] | undefined> = {
+      ...clientReq.headers,
+      host: target.host,
+    };
+    // Pass through the browser's Authorization header (ms_iface_... token) as-is
+    delete headers['connection'];
+    // Don't request compressed responses — Node doesn't auto-decompress, and
+    // compressed chunks would break SSE streams piped back to the browser.
+    delete headers['accept-encoding'];
+
+    const proxyReq = httpModule.request(
+      {
+        hostname: target.hostname,
+        port: target.port || (isHttps ? 443 : 80),
+        path: target.pathname + target.search,
+        method: clientReq.method,
+        headers,
+      },
+      (proxyRes) => {
+        const responseHeaders = { ...proxyRes.headers, ...cors };
+        responseHeaders['cache-control'] = 'no-store';
+        clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
+        proxyRes.pipe(clientRes);
+      },
+    );
+
+    proxyReq.on('error', (err) => {
+      log.warn('proxy', 'API proxy error', {
+        path: originalPath,
+        error: err.message,
+      });
+      if (!clientRes.headersSent) {
+        clientRes.writeHead(502, cors);
+        clientRes.end(`API proxy error: ${err.message}`);
+      }
+    });
+
+    clientReq.pipe(proxyReq);
   }
 
   // ---------------------------------------------------------------------------
