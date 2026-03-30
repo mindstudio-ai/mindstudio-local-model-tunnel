@@ -270,7 +270,7 @@ export function useDevSession(appConfig: AppConfig) {
 
         // Start the local proxy if we have a frontend port and client context
         if (actualPort != null && devSession.clientContext) {
-          const proxy = new DevProxy(actualPort, devSession.clientContext);
+          const proxy = new DevProxy(actualPort, devSession.clientContext, currentConfig.appId!);
           const preferredProxyPort = stablePort(currentConfig.appId!);
           const pPort = await proxy.start(preferredProxyPort);
           proxyRef.current = proxy;
