@@ -641,7 +641,9 @@ export class DevProxy {
             ? responseHeaders['set-cookie']
             : [responseHeaders['set-cookie']];
           responseHeaders['set-cookie'] = cookies.map((c) =>
-            c.replace(/;\s*[Dd]omain=[^;]*/g, ''),
+            c
+              .replace(/;\s*[Dd]omain=[^;]*/g, '')
+              .replace(/;\s*[Ss]ame[Ss]ite=[^;]*/g, '; SameSite=None'),
           ) as any;
 
           // Invalidate cached auth context when auth endpoints set new cookies
