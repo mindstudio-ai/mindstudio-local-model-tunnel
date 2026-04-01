@@ -52,9 +52,6 @@ export class DevProxy {
   private healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Cached auth context resolved from __ms_auth cookie. */
-  private authContext: { user: Record<string, unknown>; token: string; methods: Record<string, string> } | null = null;
-  private authContextCookie: string | null = null;
 
   private static readonly HEALTH_CHECK_INTERVAL = 3_000;
   private static readonly HEALTH_CHECK_INTERVAL_DOWN = 1_000;
@@ -73,7 +70,6 @@ export class DevProxy {
 
   updateClientContext(context: Record<string, unknown>): void {
     this.clientContext = context;
-    this.invalidateAuthCache();
   }
 
   /**
@@ -647,12 +643,6 @@ export class DevProxy {
           ) as any;
         }
 
-        // Invalidate cached auth context on any auth endpoint response —
-        // login, logout, verify, etc. all potentially change auth state.
-        if (originalPath.startsWith('/_/auth/')) {
-          this.invalidateAuthCache();
-        }
-
         clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
         proxyRes.pipe(clientRes);
       },
@@ -944,11 +934,6 @@ export class DevProxy {
    * Results are cached in memory — invalidated when auth endpoints set new cookies.
    */
   private async resolveAuthCookie(cookie: string): Promise<{ user: Record<string, unknown>; token: string; methods: Record<string, string> } | null> {
-    // Return cached result if the cookie hasn't changed
-    if (this.authContext && this.authContextCookie === cookie) {
-      return this.authContext;
-    }
-
     const apiBaseUrl = getApiBaseUrl();
     const url = new URL(`/_internal/v2/apps/${this.appId}/auth/me`, apiBaseUrl);
     const isHttps = url.protocol === 'https:';
@@ -973,9 +958,7 @@ export class DevProxy {
             try {
               const body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
               if (body.user && body.token) {
-                this.authContext = { user: body.user, token: body.token, methods: body.methods ?? {} };
-                this.authContextCookie = cookie;
-                resolve(this.authContext);
+                resolve({ user: body.user, token: body.token, methods: body.methods ?? {} });
               } else {
                 resolve(null);
               }
@@ -989,14 +972,6 @@ export class DevProxy {
       req.setTimeout(3000, () => { req.destroy(); resolve(null); });
       req.end();
     });
-  }
-
-  /**
-   * Invalidate cached auth context — called when auth endpoints return Set-Cookie.
-   */
-  private invalidateAuthCache(): void {
-    this.authContext = null;
-    this.authContextCookie = null;
   }
 
   /**
