@@ -406,6 +406,11 @@ export class DevRunner {
       return;
     }
 
+    if (request.type === 'get-auth-config') {
+      await this.handleGetAuthConfig(request);
+      return;
+    }
+
     const startTime = Date.now();
 
     // Resolve method from app config by ID — the API only sends methodId,
@@ -437,21 +442,18 @@ export class DevRunner {
     try {
       const transpiledPath = await this.transpiler!.transpile(method.path);
 
-      // Role override lets the platform test methods as different users/roles
-      // without restarting the session. Check three sources in priority order:
-      // 1. Platform-supplied override on this specific request
-      // 2. Local impersonation set via stdin command
-      // 3. Session default roles
+      // userId from the resolved ms_iface_ token — fresh on every request,
+      // changes as users log in/out. Never fall back to the stale session value.
+      const userId = request.userId || '';
+
+      // Role override: platform-supplied > local impersonation > none
       const roles = request.roleOverride ?? this.roleOverride;
-      const auth = roles
-        ? {
-            userId: this.session!.auth.userId,
-            roleAssignments: roles.map((roleName) => ({
-              userId: this.session!.auth.userId,
-              roleName,
-            })),
-          }
-        : this.session!.auth;
+      const auth = {
+        userId,
+        roleAssignments: roles
+          ? roles.map((roleName) => ({ userId, roleName }))
+          : [],
+      };
 
       // Execute in isolated child process
       const result = await executeMethod({
@@ -597,6 +599,47 @@ export class DevRunner {
         );
       } catch (submitErr) {
         log.error('runner', 'Failed to report agent config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
+      }
+    }
+  }
+
+  private async handleGetAuthConfig(request: DevRequest): Promise<void> {
+    log.info('runner', 'Auth config requested', { requestId: request.requestId, sessionId: this.session!.sessionId });
+
+    try {
+      if (!this.appConfig) {
+        throw new Error('App config not available');
+      }
+
+      await submitDevResult(
+        this.appId,
+        this.session!.sessionId,
+        request.requestId,
+        {
+          type: 'get-auth-config',
+          success: true,
+          output: { auth: this.appConfig.auth ?? null, name: this.appConfig.name },
+        },
+      );
+
+      log.info('runner', 'Auth config sent', { requestId: request.requestId });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      log.error('runner', 'Auth config failed', { requestId: request.requestId, error: message });
+
+      try {
+        await submitDevResult(
+          this.appId,
+          this.session!.sessionId,
+          request.requestId,
+          {
+            type: 'get-auth-config',
+            success: false,
+            error: { message },
+          },
+        );
+      } catch (submitErr) {
+        log.error('runner', 'Failed to report auth config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
       }
     }
   }
