@@ -73,6 +73,7 @@ export class DevProxy {
 
   updateClientContext(context: Record<string, unknown>): void {
     this.clientContext = context;
+    this.invalidateAuthCache();
   }
 
   /**
@@ -634,8 +635,7 @@ export class DevProxy {
         const responseHeaders = { ...proxyRes.headers, ...cors };
         responseHeaders['cache-control'] = 'no-store';
 
-        // Rewrite Set-Cookie domain for auth endpoints so cookies work on localhost.
-        // The platform sets Domain=myapp.msagent.ai which the browser rejects on 127.0.0.1.
+        // Rewrite Set-Cookie domain/flags for dev so cookies work on the proxy origin.
         if (responseHeaders['set-cookie']) {
           const cookies = Array.isArray(responseHeaders['set-cookie'])
             ? responseHeaders['set-cookie']
@@ -645,11 +645,12 @@ export class DevProxy {
               .replace(/;\s*[Dd]omain=[^;]*/g, '')
               .replace(/;\s*[Ss]ame[Ss]ite=[^;]*/g, '; SameSite=None'),
           ) as any;
+        }
 
-          // Invalidate cached auth context when auth endpoints set new cookies
-          if (originalPath.startsWith('/_/auth/')) {
-            this.invalidateAuthCache();
-          }
+        // Invalidate cached auth context on any auth endpoint response —
+        // login, logout, verify, etc. all potentially change auth state.
+        if (originalPath.startsWith('/_/auth/')) {
+          this.invalidateAuthCache();
         }
 
         clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
