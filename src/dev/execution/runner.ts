@@ -442,21 +442,21 @@ export class DevRunner {
     try {
       const transpiledPath = await this.transpiler!.transpile(method.path);
 
-      // Role override lets the platform test methods as different users/roles
-      // without restarting the session. Check three sources in priority order:
-      // 1. Platform-supplied override on this specific request
-      // 2. Local impersonation set via stdin command
-      // 3. Session default roles
+      // userId from the resolved ms_iface_ token — the authenticated app user,
+      // or empty string if unauthenticated. Falls back to session default.
+      const userId = request.userId || this.session!.auth.userId;
+
+      // Role override: platform-supplied > local impersonation > session default
       const roles = request.roleOverride ?? this.roleOverride;
       const auth = roles
         ? {
-            userId: this.session!.auth.userId,
+            userId,
             roleAssignments: roles.map((roleName) => ({
-              userId: this.session!.auth.userId,
+              userId,
               roleName,
             })),
           }
-        : this.session!.auth;
+        : { ...this.session!.auth, userId };
 
       // Execute in isolated child process
       const result = await executeMethod({

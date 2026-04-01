@@ -105,6 +105,7 @@ export interface DevRequest {
   methodExport?: string;
   methodPath?: string;
   input?: unknown;
+  userId?: string;
   roleOverride?: string[];
   streamId?: string;
 }
