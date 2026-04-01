@@ -437,7 +437,7 @@ export class DevRunner {
       timestamp: startTime,
     });
 
-    log.info('runner', 'Method received', { requestId: request.requestId, method: method.export, source: 'poll', sessionId: this.session!.sessionId });
+    log.info('runner', 'Method received', { requestId: request.requestId, method: method.export, source: 'poll', sessionId: this.session!.sessionId, requestUserId: request.userId });
 
     try {
       const transpiledPath = await this.transpiler!.transpile(method.path);
@@ -454,6 +454,8 @@ export class DevRunner {
           ? roles.map((roleName) => ({ userId, roleName }))
           : [],
       };
+
+      log.info('runner', 'Executing with auth', { requestId: request.requestId, authUserId: auth.userId, requestUserId: request.userId, authorizationToken: request.authorizationToken?.slice(0, 30) + '...' });
 
       // Execute in isolated child process
       const result = await executeMethod({
