@@ -406,6 +406,11 @@ export class DevRunner {
       return;
     }
 
+    if (request.type === 'get-auth-config') {
+      await this.handleGetAuthConfig(request);
+      return;
+    }
+
     const startTime = Date.now();
 
     // Resolve method from app config by ID — the API only sends methodId,
@@ -597,6 +602,47 @@ export class DevRunner {
         );
       } catch (submitErr) {
         log.error('runner', 'Failed to report agent config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
+      }
+    }
+  }
+
+  private async handleGetAuthConfig(request: DevRequest): Promise<void> {
+    log.info('runner', 'Auth config requested', { requestId: request.requestId, sessionId: this.session!.sessionId });
+
+    try {
+      if (!this.appConfig) {
+        throw new Error('App config not available');
+      }
+
+      await submitDevResult(
+        this.appId,
+        this.session!.sessionId,
+        request.requestId,
+        {
+          type: 'get-auth-config',
+          success: true,
+          output: { auth: this.appConfig.auth ?? null, name: this.appConfig.name },
+        },
+      );
+
+      log.info('runner', 'Auth config sent', { requestId: request.requestId });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      log.error('runner', 'Auth config failed', { requestId: request.requestId, error: message });
+
+      try {
+        await submitDevResult(
+          this.appId,
+          this.session!.sessionId,
+          request.requestId,
+          {
+            type: 'get-auth-config',
+            success: false,
+            error: { message },
+          },
+        );
+      } catch (submitErr) {
+        log.error('runner', 'Failed to report auth config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
       }
     }
   }
