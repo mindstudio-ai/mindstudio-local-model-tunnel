@@ -17,6 +17,11 @@ export async function handleRunScenario(
   const skipTruncate = cmd.skipTruncate === true;
   const result = await ctx.state.runner.runScenario(scenario, { skipTruncate });
 
+  // Reset the browser so it picks up the new data/roles from the scenario
+  if (result.success && ctx.state.proxy?.isBrowserConnected()) {
+    ctx.state.proxy.broadcastToClients('reload');
+  }
+
   return {
     success: result.success,
     scenarioId: scenario.id,
