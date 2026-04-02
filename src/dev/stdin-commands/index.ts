@@ -16,6 +16,7 @@ import { handleScreenshotFullPage } from './screenshot-full-page';
 import { handleDevServerRestarting } from './dev-server-restarting';
 import { handleBrowserStatus } from './browser-status';
 import { handleResetBrowser } from './reset-browser';
+import { handleDbQuery } from './db-query';
 import type { SessionState, CommandContext, CommandHandler } from './types';
 
 export type { SessionState } from './types';
@@ -29,6 +30,7 @@ const handlers: Record<string, CommandHandler> = {
   'screenshotFullPage': handleScreenshotFullPage,
   'browser-status': handleBrowserStatus,
   'reset-browser': handleResetBrowser,
+  'db-query': handleDbQuery,
   'dev-server-restarting': handleDevServerRestarting,
 };
 
