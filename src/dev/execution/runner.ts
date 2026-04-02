@@ -305,7 +305,7 @@ export class DevRunner {
           result,
           duration: Date.now() - startTime,
         });
-        return { success: false, databases, error };
+        return { success: false, databases: this.session.databases, error };
       }
 
       // 3. Impersonate the scenario's roles
@@ -324,7 +324,7 @@ export class DevRunner {
         result,
         duration,
       });
-      return { success: true, databases };
+      return { success: true, databases: this.session.databases };
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Unknown error';
       log.error('runner', 'Scenario failed', { id: scenario.id, name: scenarioName, duration: Date.now() - startTime, error });
