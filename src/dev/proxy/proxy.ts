@@ -639,7 +639,8 @@ export class DevProxy {
           responseHeaders['set-cookie'] = cookies.map((c) =>
             c
               .replace(/;\s*[Dd]omain=[^;]*/g, '')
-              .replace(/;\s*[Ss]ame[Ss]ite=[^;]*/g, '; SameSite=None'),
+              .replace(/;\s*[Ss]ame[Ss]ite=[^;]*/g, '; SameSite=None')
+              .replace(/;\s*[Hh]ttp[Oo]nly/g, ''),
           ) as any;
         }
 
