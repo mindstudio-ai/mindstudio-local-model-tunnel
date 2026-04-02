@@ -217,6 +217,7 @@ export class DevRunner {
         methodPath: opts.methodPath,
         input: opts.input,
         authorizationToken,
+        context: { auth, databases: this.session.databases },
         databases: this.session.databases,
         result,
         duration,
@@ -252,7 +253,7 @@ export class DevRunner {
 
   // Run a scenario: truncate tables → execute seed → impersonate roles.
   // Called directly (not via poll loop) by the TUI or headless stdin.
-  async runScenario(scenario: AppScenario): Promise<{
+  async runScenario(scenario: AppScenario, opts?: { skipTruncate?: boolean }): Promise<{
     success: boolean;
     databases: DevSession['databases'];
     error?: string;
@@ -267,10 +268,12 @@ export class DevRunner {
     log.info('runner', 'Scenario starting', { id: scenario.id, name: scenarioName });
 
     try {
-      // 1. Truncate all tables (clean slate)
-      log.debug('runner', 'Resetting database for scenario');
-      const databases = await resetDevDatabase(this.appId, this.session.sessionId, 'truncate');
-      this.session.databases = databases;
+      // 1. Truncate all tables (clean slate) unless caller opts out
+      if (!opts?.skipTruncate) {
+        log.debug('runner', 'Resetting database for scenario');
+        const databases = await resetDevDatabase(this.appId, this.session.sessionId, 'truncate');
+        this.session.databases = databases;
+      }
 
       // 2. Transpile and execute the seed function
       log.debug('runner', 'Transpiling scenario', { path: scenario.path });
@@ -440,11 +443,13 @@ export class DevRunner {
     log.info('runner', 'Method received', { requestId: request.requestId, method: method.export, source: 'poll', sessionId: this.session!.sessionId });
 
     try {
+      const t0 = Date.now();
       const transpiledPath = await this.transpiler!.transpile(method.path);
+      const t1 = Date.now();
 
       // userId from the resolved ms_iface_ token — fresh on every request,
       // changes as users log in/out. Never fall back to the stale session value.
-      const userId = request.userId || '';
+      const userId = request.userId ?? null;
 
       // Role override: platform-supplied > local impersonation > none
       const roles = request.roleOverride ?? this.roleOverride;
@@ -467,6 +472,7 @@ export class DevRunner {
         projectRoot: this.projectRoot,
         streamId: request.streamId,
       });
+      const t2 = Date.now();
 
       const devResult: DevResult = {
         type: 'execute',
@@ -483,15 +489,22 @@ export class DevRunner {
         request.requestId,
         devResult,
       );
+      const t3 = Date.now();
 
       const duration = Date.now() - startTime;
+      const timing = {
+        transpileMs: t1 - t0,
+        executeMs: t2 - t1,
+        submitMs: t3 - t2,
+        totalMs: duration,
+      };
       if (result.success) {
-        log.info('runner', 'Method complete', { requestId: request.requestId, method: method.export, duration, sessionId: this.session!.sessionId });
+        log.info('runner', 'Method complete', { requestId: request.requestId, method: method.export, timing, sessionId: this.session!.sessionId });
       } else {
         log.warn('runner', 'Method failed', {
           requestId: request.requestId,
           method: method.export,
-          duration,
+          timing,
           error: result.error ? formatErrorForDisplay(result.error) : undefined,
           sessionId: this.session!.sessionId,
         });
@@ -505,9 +518,11 @@ export class DevRunner {
         input: request.input,
         roleOverride: request.roleOverride,
         authorizationToken: request.authorizationToken,
+        context: { auth, databases: this.session!.databases },
         databases: this.session!.databases,
         result,
         duration,
+        timing,
       });
 
       devRequestEvents.emitComplete({
