@@ -21,9 +21,12 @@ export async function handleDbQuery(
     databaseId = session.databases[0].id;
   }
 
+  const appId = ctx.state.appConfig?.appId;
+  if (!appId) throw new Error('No app config available');
+
   ctx.started({ databaseId, sql });
 
-  const token = await fetchCallbackToken(ctx.state.appConfig!.appId!, session.sessionId);
+  const token = await fetchCallbackToken(appId, session.sessionId);
   const url = `${getApiBaseUrl()}/_internal/v2/db/query`;
 
   const res = await fetch(url, {
