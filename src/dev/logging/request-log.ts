@@ -19,9 +19,17 @@ export interface MethodLogEntry {
   input: unknown;
   roleOverride?: string[];
   authorizationToken: string;
+  /** The full globalThis.ai context at execution time. */
+  context?: { auth: unknown; databases: unknown };
   databases: DevSession['databases'];
   result: ExecuteMethodResult;
   duration: number;
+  timing?: {
+    transpileMs: number;
+    executeMs: number;
+    submitMs: number;
+    totalMs: number;
+  };
 }
 
 export interface ScenarioLogEntry {
@@ -62,7 +70,9 @@ export function logMethodExecution(entry: MethodLogEntry): void {
     output: entry.result.output ?? null,
     error: entry.result.error ?? null,
     stdout: entry.result.stdout ?? [],
+    context: entry.context ?? null,
     duration: entry.duration,
+    timing: entry.timing ?? null,
     stats: entry.result.stats ?? null,
   });
 }

@@ -33,6 +33,7 @@ export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
       appId: parsed.appId,
       name: parsed.name,
       description: parsed.description,
+      auth: parsed.auth ?? undefined,
       roles: parsed.roles ?? [],
       tables: parsed.tables ?? [],
       methods: parsed.methods,

@@ -217,6 +217,7 @@ export class DevRunner {
         methodPath: opts.methodPath,
         input: opts.input,
         authorizationToken,
+        context: { auth, databases: this.session.databases },
         databases: this.session.databases,
         result,
         duration,
@@ -252,7 +253,7 @@ export class DevRunner {
 
   // Run a scenario: truncate tables → execute seed → impersonate roles.
   // Called directly (not via poll loop) by the TUI or headless stdin.
-  async runScenario(scenario: AppScenario): Promise<{
+  async runScenario(scenario: AppScenario, opts?: { skipTruncate?: boolean }): Promise<{
     success: boolean;
     databases: DevSession['databases'];
     error?: string;
@@ -267,10 +268,12 @@ export class DevRunner {
     log.info('runner', 'Scenario starting', { id: scenario.id, name: scenarioName });
 
     try {
-      // 1. Truncate all tables (clean slate)
-      log.debug('runner', 'Resetting database for scenario');
-      const databases = await resetDevDatabase(this.appId, this.session.sessionId, 'truncate');
-      this.session.databases = databases;
+      // 1. Truncate all tables (clean slate) unless caller opts out
+      if (!opts?.skipTruncate) {
+        log.debug('runner', 'Resetting database for scenario');
+        const databases = await resetDevDatabase(this.appId, this.session.sessionId, 'truncate');
+        this.session.databases = databases;
+      }
 
       // 2. Transpile and execute the seed function
       log.debug('runner', 'Transpiling scenario', { path: scenario.path });
@@ -302,7 +305,7 @@ export class DevRunner {
           result,
           duration: Date.now() - startTime,
         });
-        return { success: false, databases, error };
+        return { success: false, databases: this.session.databases, error };
       }
 
       // 3. Impersonate the scenario's roles
@@ -321,7 +324,7 @@ export class DevRunner {
         result,
         duration,
       });
-      return { success: true, databases };
+      return { success: true, databases: this.session.databases };
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Unknown error';
       log.error('runner', 'Scenario failed', { id: scenario.id, name: scenarioName, duration: Date.now() - startTime, error });
@@ -406,6 +409,11 @@ export class DevRunner {
       return;
     }
 
+    if (request.type === 'get-auth-config') {
+      await this.handleGetAuthConfig(request);
+      return;
+    }
+
     const startTime = Date.now();
 
     // Resolve method from app config by ID — the API only sends methodId,
@@ -435,23 +443,22 @@ export class DevRunner {
     log.info('runner', 'Method received', { requestId: request.requestId, method: method.export, source: 'poll', sessionId: this.session!.sessionId });
 
     try {
+      const t0 = Date.now();
       const transpiledPath = await this.transpiler!.transpile(method.path);
+      const t1 = Date.now();
 
-      // Role override lets the platform test methods as different users/roles
-      // without restarting the session. Check three sources in priority order:
-      // 1. Platform-supplied override on this specific request
-      // 2. Local impersonation set via stdin command
-      // 3. Session default roles
+      // userId from the resolved ms_iface_ token — fresh on every request,
+      // changes as users log in/out. Never fall back to the stale session value.
+      const userId = request.userId ?? null;
+
+      // Role override: platform-supplied > local impersonation > none
       const roles = request.roleOverride ?? this.roleOverride;
-      const auth = roles
-        ? {
-            userId: this.session!.auth.userId,
-            roleAssignments: roles.map((roleName) => ({
-              userId: this.session!.auth.userId,
-              roleName,
-            })),
-          }
-        : this.session!.auth;
+      const auth = {
+        userId,
+        roleAssignments: roles
+          ? roles.map((roleName) => ({ userId, roleName }))
+          : [],
+      };
 
       // Execute in isolated child process
       const result = await executeMethod({
@@ -465,6 +472,7 @@ export class DevRunner {
         projectRoot: this.projectRoot,
         streamId: request.streamId,
       });
+      const t2 = Date.now();
 
       const devResult: DevResult = {
         type: 'execute',
@@ -481,15 +489,22 @@ export class DevRunner {
         request.requestId,
         devResult,
       );
+      const t3 = Date.now();
 
       const duration = Date.now() - startTime;
+      const timing = {
+        transpileMs: t1 - t0,
+        executeMs: t2 - t1,
+        submitMs: t3 - t2,
+        totalMs: duration,
+      };
       if (result.success) {
-        log.info('runner', 'Method complete', { requestId: request.requestId, method: method.export, duration, sessionId: this.session!.sessionId });
+        log.info('runner', 'Method complete', { requestId: request.requestId, method: method.export, timing, sessionId: this.session!.sessionId });
       } else {
         log.warn('runner', 'Method failed', {
           requestId: request.requestId,
           method: method.export,
-          duration,
+          timing,
           error: result.error ? formatErrorForDisplay(result.error) : undefined,
           sessionId: this.session!.sessionId,
         });
@@ -503,9 +518,11 @@ export class DevRunner {
         input: request.input,
         roleOverride: request.roleOverride,
         authorizationToken: request.authorizationToken,
+        context: { auth, databases: this.session!.databases },
         databases: this.session!.databases,
         result,
         duration,
+        timing,
       });
 
       devRequestEvents.emitComplete({
@@ -597,6 +614,47 @@ export class DevRunner {
         );
       } catch (submitErr) {
         log.error('runner', 'Failed to report agent config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
+      }
+    }
+  }
+
+  private async handleGetAuthConfig(request: DevRequest): Promise<void> {
+    log.info('runner', 'Auth config requested', { requestId: request.requestId, sessionId: this.session!.sessionId });
+
+    try {
+      if (!this.appConfig) {
+        throw new Error('App config not available');
+      }
+
+      await submitDevResult(
+        this.appId,
+        this.session!.sessionId,
+        request.requestId,
+        {
+          type: 'get-auth-config',
+          success: true,
+          output: { auth: this.appConfig.auth ?? null, name: this.appConfig.name },
+        },
+      );
+
+      log.info('runner', 'Auth config sent', { requestId: request.requestId });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      log.error('runner', 'Auth config failed', { requestId: request.requestId, error: message });
+
+      try {
+        await submitDevResult(
+          this.appId,
+          this.session!.sessionId,
+          request.requestId,
+          {
+            type: 'get-auth-config',
+            success: false,
+            error: { message },
+          },
+        );
+      } catch (submitErr) {
+        log.error('runner', 'Failed to report auth config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
       }
     }
   }

@@ -1,10 +1,20 @@
 // Types for the Apps v2 local dev mode feature.
 
 /** Parsed from mindstudio.json in the project root. */
+export interface AppAuthConfig {
+  enabled: boolean;
+  methods: string[];
+  table: {
+    name: string;
+    columns: Record<string, string>;
+  };
+}
+
 export interface AppConfig {
   appId?: string;
   name: string;
   description?: string;
+  auth?: AppAuthConfig;
   roles: AppRole[];
   tables: AppTable[];
   methods: AppMethod[];
@@ -88,20 +98,21 @@ export interface DevSession {
 /** Returned from GET /_internal/v2/apps/{appId}/dev/poll */
 export interface DevRequest {
   requestId: string;
-  type: 'execute' | 'get-agent-config';
+  type: 'execute' | 'get-agent-config' | 'get-auth-config';
   authorizationToken: string;
   // Present on 'execute' requests only:
   methodId?: string;
   methodExport?: string;
   methodPath?: string;
   input?: unknown;
+  userId?: string | null;
   roleOverride?: string[];
   streamId?: string;
 }
 
 /** Posted to POST /_internal/v2/apps/{appId}/dev/result/{requestId} */
 export interface DevResult {
-  type: 'execute' | 'get-agent-config';
+  type: 'execute' | 'get-agent-config' | 'get-auth-config';
   success: boolean;
   output?: unknown;
   error?: { message: string; stack?: string };
@@ -120,7 +131,7 @@ export interface SyncSchemaResponse {
 /** For request log display in the TUI. */
 export interface DevRequestLogEntry {
   id: string;
-  type: 'execute' | 'get-agent-config';
+  type: 'execute' | 'get-agent-config' | 'get-auth-config';
   method?: string;
   status: 'processing' | 'completed' | 'failed';
   startTime: number;

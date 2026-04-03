@@ -52,6 +52,7 @@ export class DevProxy {
   private healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setTimeout> | null = null;
 
+
   private static readonly HEALTH_CHECK_INTERVAL = 3_000;
   private static readonly HEALTH_CHECK_INTERVAL_DOWN = 1_000;
   private static readonly HEALTH_CHECK_TIMEOUT = 2_000;
@@ -629,6 +630,20 @@ export class DevProxy {
       (proxyRes) => {
         const responseHeaders = { ...proxyRes.headers, ...cors };
         responseHeaders['cache-control'] = 'no-store';
+
+        // Rewrite Set-Cookie domain/flags for dev so cookies work on the proxy origin.
+        if (responseHeaders['set-cookie']) {
+          const cookies = Array.isArray(responseHeaders['set-cookie'])
+            ? responseHeaders['set-cookie']
+            : [responseHeaders['set-cookie']];
+          responseHeaders['set-cookie'] = cookies.map((c) =>
+            c
+              .replace(/;\s*[Dd]omain=[^;]*/g, '')
+              .replace(/;\s*[Ss]ame[Ss]ite=[^;]*/g, '; SameSite=None')
+              .replace(/;\s*[Hh]ttp[Oo]nly/g, ''),
+          ) as any;
+        }
+
         clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
         proxyRes.pipe(clientRes);
       },
@@ -676,9 +691,25 @@ export class DevProxy {
         if (isHtml) {
           const chunks: Buffer[] = [];
           upstreamRes.on('data', (chunk) => chunks.push(chunk));
-          upstreamRes.on('end', () => {
+          upstreamRes.on('end', async () => {
             let html = Buffer.concat(chunks).toString('utf-8');
-            html = this.injectScripts(html);
+
+            // Resolve __ms_auth cookie to get authenticated context for injection
+            const authCookie = DevProxy.parseAuthCookie(clientReq.headers.cookie);
+            let contextOverride: Record<string, unknown> | undefined;
+            if (authCookie) {
+              const resolved = await this.resolveAuthCookie(authCookie);
+              if (resolved) {
+                contextOverride = {
+                  ...this.clientContext,
+                  user: resolved.user,
+                  token: resolved.token,
+                  methods: resolved.methods,
+                };
+              }
+            }
+
+            html = this.injectScripts(html, contextOverride);
 
             const headers = {
               ...upstreamRes.headers,
@@ -890,10 +921,66 @@ export class DevProxy {
   }
 
   /**
+   * Parse __ms_auth cookie value from a raw Cookie header.
+   */
+  private static parseAuthCookie(cookieHeader: string | undefined): string | null {
+    if (!cookieHeader) return null;
+    const match = cookieHeader.match(/(?:^|;\s*)__ms_auth=([^;]+)/);
+    return match ? match[1] : null;
+  }
+
+  /**
+   * Resolve __ms_auth cookie to an authenticated context via the platform.
+   * Returns { user, token, methods } or null if not authenticated.
+   * Results are cached in memory — invalidated when auth endpoints set new cookies.
+   */
+  private async resolveAuthCookie(cookie: string): Promise<{ user: Record<string, unknown>; token: string; methods: Record<string, string> } | null> {
+    const apiBaseUrl = getApiBaseUrl();
+    const url = new URL(`/_internal/v2/apps/${this.appId}/auth/me`, apiBaseUrl);
+    const isHttps = url.protocol === 'https:';
+    const httpModule = isHttps ? https : http;
+
+    return new Promise((resolve) => {
+      const req = httpModule.request(
+        {
+          hostname: url.hostname,
+          port: url.port || (isHttps ? 443 : 80),
+          path: url.pathname,
+          method: 'GET',
+          headers: {
+            cookie: `__ms_auth=${cookie}`,
+            host: url.host,
+          },
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk) => chunks.push(chunk));
+          res.on('end', () => {
+            try {
+              const body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+              if (body.user && body.token) {
+                resolve({ user: body.user, token: body.token, methods: body.methods ?? {} });
+              } else {
+                resolve(null);
+              }
+            } catch {
+              resolve(null);
+            }
+          });
+        },
+      );
+      req.on('error', () => resolve(null));
+      req.setTimeout(3000, () => { req.destroy(); resolve(null); });
+      req.end();
+    });
+  }
+
+  /**
    * Inject window.__MINDSTUDIO__ context and browser agent script tag into HTML.
    */
-  private injectScripts(html: string): string {
-    const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(this.clientContext)};</script>`;
+  private injectScripts(html: string, contextOverride?: Record<string, unknown>): string {
+    const context = contextOverride ?? this.clientContext;
+    const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(context)};</script>`;
     const agentUrl =
       this.browserAgentUrl ||
       'https://unpkg.com/@mindstudio-ai/browser-agent/dist/index.js';

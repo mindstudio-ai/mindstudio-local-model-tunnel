@@ -299,30 +299,54 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   process.on('SIGTERM', () => { shutdown().then(() => process.exit(0)); });
   process.on('SIGINT', () => { shutdown().then(() => process.exit(0)); });
 
-  // Initial session start — crash if it fails so the process manager can retry
+  // Initial session start — enter degraded state if config is invalid so the
+  // agent/user can fix mindstudio.json and the watcher will pick it up.
   const ok = await startSession(cwd, opts, state, shutdown);
   if (!ok) {
-    process.exit(1);
+    emitEvent('degraded-state', {
+      reason: 'Config invalid or missing at boot. Waiting for valid mindstudio.json.',
+    });
+    log.warn('session', 'Booting in degraded state — no valid config. Watching for changes.');
   }
 
   // Stdin command loop
   setupStdinCommands(state, cwd);
 
-  // Watch mindstudio.json for changes
+  // Watch mindstudio.json for changes — validate before teardown so corrupt
+  // writes don't kill a running session. In degraded state (no runner), a
+  // valid config triggers a fresh startSession.
   cleanupConfigWatcher = watchConfigFile(cwd, async () => {
-    if (stopping || restarting) {
-      log.debug('session', 'Config change ignored (restart in progress)');
-      return;
-    }
+    if (stopping || restarting) return;
     restarting = true;
     try {
-      log.info('session', 'mindstudio.json changed, restarting dev session');
       emitEvent('config-changed');
+
+      // Validate BEFORE tearing down the running session
+      const newConfig = detectAppConfig(cwd);
+      if (!newConfig || !newConfig.appId) {
+        emitEvent('config-error', {
+          message: 'mindstudio.json is invalid — keeping current session',
+        });
+        log.warn('session', 'Config change detected but file is invalid, keeping current session');
+        return;
+      }
+
+      const wasDegraded = !state.runner;
       await teardownRunner(state);
       const ok = await startSession(cwd, opts, state, shutdown);
-      if (ok && state.proxy) {
-        // Proxy stayed alive — clients are still connected, reload them
-        state.proxy.broadcastToClients('reload');
+      if (ok) {
+        if (wasDegraded) {
+          emitEvent('degraded-state-resolved', { appId: newConfig.appId });
+          log.info('session', 'Recovered from degraded state');
+        }
+        if (state.proxy) {
+          state.proxy.broadcastToClients('reload');
+        }
+      } else {
+        emitEvent('degraded-state', {
+          reason: 'Session restart failed after config change. Will retry on next change.',
+        });
+        log.warn('session', 'Session restart failed, entering degraded state');
       }
     } finally {
       restarting = false;
