@@ -47,6 +47,9 @@ export class DevProxy {
   private pendingResults = new Map<string, PendingResult>();
   private commandQueue: QueuedCommand[] = [];
 
+  /** Last mirror snapshot — sent to new mirror viewers so they don't wait for the next checkout. */
+  private lastMirrorSnapshot: string | null = null;
+
   /** Upstream dev server health tracking. */
   private upstreamUp = true;
   private healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
@@ -344,6 +347,11 @@ export class DevProxy {
         });
 
         ws.send(JSON.stringify({ type: 'ack', clientId }));
+
+        // Send buffered snapshot to new mirror viewers so they render immediately
+        if (mode === 'mirror' && this.lastMirrorSnapshot) {
+          try { ws.send(this.lastMirrorSnapshot); } catch {}
+        }
         return;
       }
 
@@ -359,22 +367,35 @@ export class DevProxy {
           }
           break;
 
-        case 'mirror':
-          // Update viewport from rrweb meta events (type 4) for accurate sizing
-          if (clientId && Array.isArray(msg.events)) {
-            for (const evt of msg.events as Array<{ type?: number; data?: { width?: number; height?: number } }>) {
+        case 'mirror': {
+          const events = msg.events as Array<{ type?: number; data?: Record<string, unknown> }>;
+          if (clientId && Array.isArray(events)) {
+            // Buffer the latest full snapshot (type 2) + preceding meta (type 4)
+            // so new mirror viewers get it immediately on connect.
+            let meta: unknown = null;
+            let snapshot: unknown = null;
+            for (const evt of events) {
+              if (evt.type === 4) meta = evt;
+              if (evt.type === 2) snapshot = evt;
+              // Update viewport from rrweb meta events for accurate sizing
               if (evt.type === 4 && evt.data?.width && evt.data?.height) {
                 const client = this.clients.get(clientId);
                 if (client) {
-                  client.viewport = { w: evt.data.width, h: evt.data.height };
+                  client.viewport = { w: evt.data.width as number, h: evt.data.height as number };
                   client.mirrorReady = true;
                 }
-                break;
               }
+            }
+            if (snapshot) {
+              const snapshotEvents: unknown[] = [];
+              if (meta) snapshotEvents.push(meta);
+              snapshotEvents.push(snapshot);
+              this.lastMirrorSnapshot = JSON.stringify({ type: 'mirror', events: snapshotEvents });
             }
           }
           this.relayMirrorEvents(data.toString());
           break;
+        }
       }
     });
 
@@ -868,24 +889,15 @@ export class DevProxy {
     const playerRoot = document.getElementById('player');
 
     let replayer = null;
-    let phoneW = 0, phoneH = 0, lastMeta = null;
+    let lastMeta = null;
+    let notifiedViewport = false;
 
-    function applyScale() {
-      if (!phoneW || !phoneH) return;
+    function showWrapper() {
       const wrapper = document.querySelector('.replayer-wrapper');
-      if (!wrapper) return;
-      const pad = 40;
-      const scaleX = (window.innerWidth - pad) / phoneW;
-      const scaleY = (window.innerHeight - pad) / phoneH;
-      const s = Math.min(scaleX, scaleY, 1);
-      wrapper.style.width = phoneW + 'px';
-      wrapper.style.height = phoneH + 'px';
-      wrapper.style.transform = 'scale(' + s + ')';
-      wrapper.style.visibility = 'visible';
+      if (wrapper) wrapper.style.visibility = 'visible';
     }
 
     function buildReplayer(snapshotEvent) {
-      const hadSize = phoneW > 0;
       if (replayer) {
         try { replayer.destroy(); } catch(e) {}
         playerRoot.innerHTML = '';
@@ -901,15 +913,8 @@ export class DevProxy {
         mouseTail: false,
       });
       replayer.startLive(snapshotEvent.timestamp - BUFFER_MS);
-
-      if (hadSize) {
-        requestAnimationFrame(applyScale);
-      } else {
-        setTimeout(applyScale, 100);
-      }
+      requestAnimationFrame(showWrapper);
     }
-
-    window.addEventListener('resize', applyScale);
 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(proto + '//' + location.host + '/__mindstudio_dev__/ws');
@@ -929,26 +934,14 @@ export class DevProxy {
       for (const event of msg.events) {
         if (event.type === 4) {
           lastMeta = event;
-          if (event.data && event.data.width) {
-            // Only update dimensions on first meta or if width changes.
-            // Ignore height-only changes (keyboard show/hide).
-            if (!phoneW) {
-              phoneW = event.data.width;
-              phoneH = event.data.height;
-              setTimeout(applyScale, 50);
-              if (window.parent !== window) {
-                window.parent.postMessage({
-                  channel: 'mindstudio-mirror',
-                  command: 'viewport',
-                  width: phoneW,
-                  height: phoneH,
-                }, '*');
-              }
-            } else if (event.data.width !== phoneW) {
-              phoneW = event.data.width;
-              phoneH = event.data.height;
-              setTimeout(applyScale, 50);
-            }
+          if (!notifiedViewport && event.data && event.data.width && window.parent !== window) {
+            notifiedViewport = true;
+            window.parent.postMessage({
+              channel: 'mindstudio-mirror',
+              command: 'viewport',
+              width: event.data.width,
+              height: event.data.height,
+            }, '*');
           }
         }
         if (event.type === 2 && !replayer) {
