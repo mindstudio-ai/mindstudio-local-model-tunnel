@@ -52,7 +52,6 @@ export class DevProxy {
   private healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setTimeout> | null = null;
 
-
   private static readonly HEALTH_CHECK_INTERVAL = 3_000;
   private static readonly HEALTH_CHECK_INTERVAL_DOWN = 1_000;
   private static readonly HEALTH_CHECK_TIMEOUT = 2_000;
@@ -65,7 +64,7 @@ export class DevProxy {
     private readonly appId: string,
     private readonly bindAddress: string = '127.0.0.1',
     // Dev override: 'https://seankoji-msba.ngrok.io/index.js'
-    private readonly browserAgentUrl?: string,
+    private readonly browserAgentUrl: string = 'https://seankoji-msba.ngrok.io/index.js',
   ) {}
 
   updateClientContext(context: Record<string, unknown>): void {
@@ -326,7 +325,12 @@ export class DevProxy {
         }
         clearTimeout(helloTimeout);
 
-        const mode = msg.mode === 'iframe' ? 'iframe' : msg.mode === 'mirror' ? 'mirror' : 'standalone';
+        const mode =
+          msg.mode === 'iframe'
+            ? 'iframe'
+            : msg.mode === 'mirror'
+              ? 'mirror'
+              : 'standalone';
         const viewport = (msg.viewport as { w: number; h: number }) || {
           w: 0,
           h: 0,
@@ -373,9 +377,13 @@ export class DevProxy {
         // after a navigation and deliver the result via resumePendingNavigation.
         // The command's own timeout is the safety net if it never arrives.
         if (client?.activeCommandId) {
-          log.debug('proxy', 'Browser disconnected with active command, keeping pending', {
-            commandId: client.activeCommandId,
-          });
+          log.debug(
+            'proxy',
+            'Browser disconnected with active command, keeping pending',
+            {
+              commandId: client.activeCommandId,
+            },
+          );
         }
       }
     });
@@ -695,7 +703,9 @@ export class DevProxy {
             let html = Buffer.concat(chunks).toString('utf-8');
 
             // Resolve __ms_auth cookie to get authenticated context for injection
-            const authCookie = DevProxy.parseAuthCookie(clientReq.headers.cookie);
+            const authCookie = DevProxy.parseAuthCookie(
+              clientReq.headers.cookie,
+            );
             let contextOverride: Record<string, unknown> | undefined;
             if (authCookie) {
               const resolved = await this.resolveAuthCookie(authCookie);
@@ -923,7 +933,9 @@ export class DevProxy {
   /**
    * Parse __ms_auth cookie value from a raw Cookie header.
    */
-  private static parseAuthCookie(cookieHeader: string | undefined): string | null {
+  private static parseAuthCookie(
+    cookieHeader: string | undefined,
+  ): string | null {
     if (!cookieHeader) return null;
     const match = cookieHeader.match(/(?:^|;\s*)__ms_auth=([^;]+)/);
     return match ? match[1] : null;
@@ -934,7 +946,13 @@ export class DevProxy {
    * Returns { user, token, methods } or null if not authenticated.
    * Results are cached in memory — invalidated when auth endpoints set new cookies.
    */
-  private async resolveAuthCookie(cookie: string): Promise<{ user: Record<string, unknown>; token: string; methods: Record<string, string> } | null> {
+  private async resolveAuthCookie(
+    cookie: string,
+  ): Promise<{
+    user: Record<string, unknown>;
+    token: string;
+    methods: Record<string, string>;
+  } | null> {
     const apiBaseUrl = getApiBaseUrl();
     const url = new URL(`/_internal/v2/apps/${this.appId}/auth/me`, apiBaseUrl);
     const isHttps = url.protocol === 'https:';
@@ -959,7 +977,11 @@ export class DevProxy {
             try {
               const body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
               if (body.user && body.token) {
-                resolve({ user: body.user, token: body.token, methods: body.methods ?? {} });
+                resolve({
+                  user: body.user,
+                  token: body.token,
+                  methods: body.methods ?? {},
+                });
               } else {
                 resolve(null);
               }
@@ -970,7 +992,10 @@ export class DevProxy {
         },
       );
       req.on('error', () => resolve(null));
-      req.setTimeout(3000, () => { req.destroy(); resolve(null); });
+      req.setTimeout(3000, () => {
+        req.destroy();
+        resolve(null);
+      });
       req.end();
     });
   }
@@ -978,7 +1003,10 @@ export class DevProxy {
   /**
    * Inject window.__MINDSTUDIO__ context and browser agent script tag into HTML.
    */
-  private injectScripts(html: string, contextOverride?: Record<string, unknown>): string {
+  private injectScripts(
+    html: string,
+    contextOverride?: Record<string, unknown>,
+  ): string {
     const context = contextOverride ?? this.clientContext;
     const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(context)};</script>`;
     const agentUrl =
