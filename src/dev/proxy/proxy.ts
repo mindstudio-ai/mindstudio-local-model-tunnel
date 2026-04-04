@@ -815,7 +815,7 @@ export class DevProxy {
 <body>
   <div id="player"></div>
   <div id="status">Waiting for mobile device...</div>
-  <script src="https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.13/dist/rrweb.umd.cjs.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.4/dist/rrweb-all.js"></script>
   <script>
     (function() {
       var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
