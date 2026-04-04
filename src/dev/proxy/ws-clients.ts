@@ -6,6 +6,10 @@ export interface ConnectedClient {
   id: string;
   ws: WebSocket;
   mode: 'iframe' | 'standalone' | 'mirror';
+  /** This client is a mirror recording source (phone with ?mirror=true). */
+  mirrorSource: boolean;
+  /** True once the first rrweb meta event has updated the viewport with accurate dimensions. */
+  mirrorReady: boolean;
   url: string;
   viewport: { w: number; h: number };
   connectedAt: number;
@@ -19,20 +23,22 @@ export class ClientRegistry {
 
   add(
     ws: WebSocket,
-    hello: { mode: 'iframe' | 'standalone' | 'mirror'; url: string; viewport: { w: number; h: number } },
+    hello: { mode: 'iframe' | 'standalone' | 'mirror'; url: string; viewport: { w: number; h: number }; mirror?: boolean },
   ): string {
     const id = randomBytes(4).toString('hex');
     this.clients.set(id, {
       id,
       ws,
       mode: hello.mode,
+      mirrorSource: !!hello.mirror,
+      mirrorReady: false,
       url: hello.url,
       viewport: hello.viewport,
       connectedAt: Date.now(),
       alive: true,
       activeCommandId: null,
     });
-    log.info('proxy', 'Browser client connected', { clientId: id, mode: hello.mode, url: hello.url });
+    log.info('proxy', 'Browser client connected', { clientId: id, mode: hello.mode, mirror: !!hello.mirror, url: hello.url });
     return id;
   }
 
@@ -65,9 +71,25 @@ export class ClientRegistry {
     return fallback;
   }
 
-  /** Get all connected mirror-mode clients (for relaying mirror events). */
+  /** Get all connected mirror viewer clients (for relaying mirror events). */
   getMirrorClients(): ConnectedClient[] {
     return [...this.clients.values()].filter((c) => c.mode === 'mirror');
+  }
+
+  /** Check if a mirror recording source (phone) is connected. */
+  hasMirrorSource(): boolean {
+    for (const client of this.clients.values()) {
+      if (client.mirrorSource) return true;
+    }
+    return false;
+  }
+
+  /** Get the mirror source client if connected. */
+  getMirrorSource(): ConnectedClient | undefined {
+    for (const client of this.clients.values()) {
+      if (client.mirrorSource) return client;
+    }
+    return undefined;
   }
 
   getAll(): ConnectedClient[] {

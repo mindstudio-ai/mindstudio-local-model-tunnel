@@ -47,11 +47,13 @@ export class DevProxy {
   private pendingResults = new Map<string, PendingResult>();
   private commandQueue: QueuedCommand[] = [];
 
+  /** Last mirror snapshot — sent to new mirror viewers so they don't wait for the next checkout. */
+  private lastMirrorSnapshot: string | null = null;
+
   /** Upstream dev server health tracking. */
   private upstreamUp = true;
   private healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setTimeout> | null = null;
-
 
   private static readonly HEALTH_CHECK_INTERVAL = 3_000;
   private static readonly HEALTH_CHECK_INTERVAL_DOWN = 1_000;
@@ -326,7 +328,12 @@ export class DevProxy {
         }
         clearTimeout(helloTimeout);
 
-        const mode = msg.mode === 'iframe' ? 'iframe' : msg.mode === 'mirror' ? 'mirror' : 'standalone';
+        const mode =
+          msg.mode === 'iframe'
+            ? 'iframe'
+            : msg.mode === 'mirror'
+              ? 'mirror'
+              : 'standalone';
         const viewport = (msg.viewport as { w: number; h: number }) || {
           w: 0,
           h: 0,
@@ -336,9 +343,17 @@ export class DevProxy {
           mode,
           url: String(msg.url || ''),
           viewport,
+          mirror: !!msg.mirror,
         });
 
         ws.send(JSON.stringify({ type: 'ack', clientId }));
+
+        // Send buffered snapshot to new mirror viewers so they render immediately
+        if (mode === 'mirror' && this.lastMirrorSnapshot) {
+          try {
+            ws.send(this.lastMirrorSnapshot);
+          } catch {}
+        }
         return;
       }
 
@@ -354,10 +369,44 @@ export class DevProxy {
           }
           break;
 
-        case 'mirror':
-          // Relay mirror events from mobile client to all mirror viewers
+        case 'mirror': {
+          const events = msg.events as Array<{
+            type?: number;
+            data?: Record<string, unknown>;
+          }>;
+          if (clientId && Array.isArray(events)) {
+            // Buffer the latest full snapshot (type 2) + preceding meta (type 4)
+            // so new mirror viewers get it immediately on connect.
+            let meta: unknown = null;
+            let snapshot: unknown = null;
+            for (const evt of events) {
+              if (evt.type === 4) meta = evt;
+              if (evt.type === 2) snapshot = evt;
+              // Update viewport from rrweb meta events for accurate sizing
+              if (evt.type === 4 && evt.data?.width && evt.data?.height) {
+                const client = this.clients.get(clientId);
+                if (client) {
+                  client.viewport = {
+                    w: evt.data.width as number,
+                    h: evt.data.height as number,
+                  };
+                  client.mirrorReady = true;
+                }
+              }
+            }
+            if (snapshot) {
+              const snapshotEvents: unknown[] = [];
+              if (meta) snapshotEvents.push(meta);
+              snapshotEvents.push(snapshot);
+              this.lastMirrorSnapshot = JSON.stringify({
+                type: 'mirror',
+                events: snapshotEvents,
+              });
+            }
+          }
           this.relayMirrorEvents(data.toString());
           break;
+        }
       }
     });
 
@@ -373,9 +422,13 @@ export class DevProxy {
         // after a navigation and deliver the result via resumePendingNavigation.
         // The command's own timeout is the safety net if it never arrives.
         if (client?.activeCommandId) {
-          log.debug('proxy', 'Browser disconnected with active command, keeping pending', {
-            commandId: client.activeCommandId,
-          });
+          log.debug(
+            'proxy',
+            'Browser disconnected with active command, keeping pending',
+            {
+              commandId: client.activeCommandId,
+            },
+          );
         }
       }
     });
@@ -566,6 +619,24 @@ export class DevProxy {
         this.serveMirrorPage(clientRes);
         return;
       }
+      if (
+        clientReq.url === '/__mindstudio_dev__/mirror-status' &&
+        clientReq.method === 'GET'
+      ) {
+        const source = this.clients.getMirrorSource();
+        const ready = source?.mirrorReady ?? false;
+        const body = JSON.stringify({
+          active: ready,
+          viewport: ready ? source!.viewport : null,
+        });
+        clientRes.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+          ...this.corsHeaders(clientReq),
+        });
+        clientRes.end(body);
+        return;
+      }
     }
 
     // CORS preflight
@@ -695,7 +766,9 @@ export class DevProxy {
             let html = Buffer.concat(chunks).toString('utf-8');
 
             // Resolve __ms_auth cookie to get authenticated context for injection
-            const authCookie = DevProxy.parseAuthCookie(clientReq.headers.cookie);
+            const authCookie = DevProxy.parseAuthCookie(
+              clientReq.headers.cookie,
+            );
             let contextOverride: Record<string, unknown> | undefined;
             if (authCookie) {
               const resolved = await this.resolveAuthCookie(authCookie);
@@ -794,64 +867,105 @@ export class DevProxy {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mobile Mirror</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@rrweb/replay@latest/dist/style.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { height: 100%; background: #111; overflow: hidden; }
-    #player { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-    .replayer-wrapper { box-shadow: 0 0 40px rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
-    #status { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); color: #666; font-family: -apple-system, system-ui, sans-serif; font-size: 13px; }
+    html, body { height: 100%; background: #eaeaea; overflow: hidden; }
+    #player { width: 100%; height: 100%; }
+    .replayer-wrapper { overflow: hidden; transform-origin: center center; visibility: hidden; }
+    .replayer-wrapper iframe { border: none; outline: none; }
+    .replayer-mouse.touch-device {
+      width: 44px; height: 44px; margin-left: -22px; margin-top: -22px;
+      border-width: 2px; border-color: rgba(221, 37, 144, 0);
+      background: rgba(221, 37, 144, 0.06);
+    }
+    .replayer-mouse.touch-device.touch-active {
+      border-color: rgba(221, 37, 144, 0.8);
+      background: rgba(221, 37, 144, 0.12);
+    }
+    .replayer-mouse.touch-device::after,
+    .replayer-mouse.touch-device.active::after { display: none !important; }
+    .replayer-mouse:not(.touch-device) { display: none !important; }
   </style>
+  <script type="importmap">
+  { "imports": { "@rrweb/replay": "https://cdn.jsdelivr.net/npm/@rrweb/replay@latest/+esm" } }
+  </script>
 </head>
 <body>
   <div id="player"></div>
-  <div id="status">Waiting for mobile device...</div>
-  <script src="https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.13/dist/rrweb.umd.cjs.js"></script>
-  <script>
-    (function() {
-      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      var ws = new WebSocket(proto + '//' + location.host + '/__mindstudio_dev__/ws');
-      var replayer = null;
-      var status = document.getElementById('status');
+  <script type="module">
+    import { Replayer } from '@rrweb/replay';
 
-      ws.onopen = function() {
-        ws.send(JSON.stringify({
-          type: 'hello',
-          mode: 'mirror',
-          url: location.href,
-          viewport: { w: window.innerWidth, h: window.innerHeight }
-        }));
-      };
+    const BUFFER_MS = 50;
+    const playerRoot = document.getElementById('player');
 
-      ws.onmessage = function(e) {
-        var msg;
-        try { msg = JSON.parse(e.data); } catch(e) { return; }
+    let replayer = null;
+    let lastMeta = null;
+    let notifiedViewport = false;
 
-        if (msg.type !== 'mirror' || !Array.isArray(msg.events)) return;
+    function showWrapper() {
+      const wrapper = document.querySelector('.replayer-wrapper');
+      if (wrapper) wrapper.style.visibility = 'visible';
+    }
 
-        for (var i = 0; i < msg.events.length; i++) {
-          var event = msg.events[i];
-          if (!replayer) {
-            replayer = new rrweb.Replayer([], {
-              root: document.getElementById('player'),
-              liveMode: true,
-              insertStyleRules: [
-                '.replayer-wrapper { position: relative !important; }',
-              ],
-            });
-            replayer.startLive(Date.now() - 500);
-            status.textContent = 'Connected';
-            setTimeout(function() { status.style.opacity = '0'; }, 2000);
+    function buildReplayer(snapshotEvent) {
+      if (replayer) {
+        try { replayer.destroy(); } catch(e) {}
+        playerRoot.innerHTML = '';
+      }
+      const initEvents = [];
+      if (lastMeta) initEvents.push(lastMeta);
+      initEvents.push(snapshotEvent);
+
+      replayer = new Replayer(initEvents, {
+        root: playerRoot,
+        liveMode: true,
+        pauseAnimation: false,
+        mouseTail: false,
+      });
+      replayer.startLive(snapshotEvent.timestamp - BUFFER_MS);
+      requestAnimationFrame(showWrapper);
+    }
+
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(proto + '//' + location.host + '/__mindstudio_dev__/ws');
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        type: 'hello', mode: 'mirror', url: location.href,
+        viewport: { w: window.innerWidth, h: window.innerHeight },
+      }));
+    };
+
+    ws.onmessage = (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.type !== 'mirror' || !Array.isArray(msg.events)) return;
+
+      for (const event of msg.events) {
+        if (event.type === 4) {
+          lastMeta = event;
+          if (!notifiedViewport && event.data && event.data.width && window.parent !== window) {
+            notifiedViewport = true;
+            window.parent.postMessage({
+              channel: 'mindstudio-mirror',
+              command: 'viewport',
+              width: event.data.width,
+              height: event.data.height,
+            }, '*');
           }
-          replayer.addEvent(event);
         }
-      };
+        if (event.type === 2 && !replayer) {
+          buildReplayer(event);
+          continue;
+        }
+        if (replayer) replayer.addEvent(event);
+      }
+    };
 
-      ws.onclose = function() {
-        status.style.opacity = '1';
-        status.textContent = 'Disconnected — reconnecting...';
-        setTimeout(function() { location.reload(); }, 2000);
-      };
-    })();
+    ws.onclose = () => {
+      setTimeout(() => location.reload(), 2000);
+    };
   </script>
 </body>
 </html>`;
@@ -923,7 +1037,9 @@ export class DevProxy {
   /**
    * Parse __ms_auth cookie value from a raw Cookie header.
    */
-  private static parseAuthCookie(cookieHeader: string | undefined): string | null {
+  private static parseAuthCookie(
+    cookieHeader: string | undefined,
+  ): string | null {
     if (!cookieHeader) return null;
     const match = cookieHeader.match(/(?:^|;\s*)__ms_auth=([^;]+)/);
     return match ? match[1] : null;
@@ -934,7 +1050,11 @@ export class DevProxy {
    * Returns { user, token, methods } or null if not authenticated.
    * Results are cached in memory — invalidated when auth endpoints set new cookies.
    */
-  private async resolveAuthCookie(cookie: string): Promise<{ user: Record<string, unknown>; token: string; methods: Record<string, string> } | null> {
+  private async resolveAuthCookie(cookie: string): Promise<{
+    user: Record<string, unknown>;
+    token: string;
+    methods: Record<string, string>;
+  } | null> {
     const apiBaseUrl = getApiBaseUrl();
     const url = new URL(`/_internal/v2/apps/${this.appId}/auth/me`, apiBaseUrl);
     const isHttps = url.protocol === 'https:';
@@ -959,7 +1079,11 @@ export class DevProxy {
             try {
               const body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
               if (body.user && body.token) {
-                resolve({ user: body.user, token: body.token, methods: body.methods ?? {} });
+                resolve({
+                  user: body.user,
+                  token: body.token,
+                  methods: body.methods ?? {},
+                });
               } else {
                 resolve(null);
               }
@@ -970,7 +1094,10 @@ export class DevProxy {
         },
       );
       req.on('error', () => resolve(null));
-      req.setTimeout(3000, () => { req.destroy(); resolve(null); });
+      req.setTimeout(3000, () => {
+        req.destroy();
+        resolve(null);
+      });
       req.end();
     });
   }
@@ -978,7 +1105,10 @@ export class DevProxy {
   /**
    * Inject window.__MINDSTUDIO__ context and browser agent script tag into HTML.
    */
-  private injectScripts(html: string, contextOverride?: Record<string, unknown>): string {
+  private injectScripts(
+    html: string,
+    contextOverride?: Record<string, unknown>,
+  ): string {
     const context = contextOverride ?? this.clientContext;
     const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(context)};</script>`;
     const agentUrl =
