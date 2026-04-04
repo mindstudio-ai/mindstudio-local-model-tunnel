@@ -828,6 +828,7 @@ export class DevProxy {
     html, body { height: 100%; background: transparent; overflow: hidden; }
     #player { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
     .replayer-wrapper { overflow: hidden; transform-origin: center center; visibility: hidden; }
+    .replayer-wrapper iframe { border: none; outline: none; }
     .replayer-mouse.touch-device {
       width: 44px; height: 44px; margin-left: -22px; margin-top: -22px;
       border-width: 2px; border-color: rgba(221, 37, 144, 0);
@@ -921,10 +922,26 @@ export class DevProxy {
       for (const event of msg.events) {
         if (event.type === 4) {
           lastMeta = event;
-          if (event.data && event.data.width && event.data.width !== phoneW) {
-            phoneW = event.data.width;
-            phoneH = event.data.height;
-            setTimeout(applyScale, 50);
+          if (event.data && event.data.width) {
+            // Only update dimensions on first meta or if width changes.
+            // Ignore height-only changes (keyboard show/hide).
+            if (!phoneW) {
+              phoneW = event.data.width;
+              phoneH = event.data.height;
+              setTimeout(applyScale, 50);
+              if (window.parent !== window) {
+                window.parent.postMessage({
+                  channel: 'mindstudio-mirror',
+                  command: 'viewport',
+                  width: phoneW,
+                  height: phoneH,
+                }, '*');
+              }
+            } else if (event.data.width !== phoneW) {
+              phoneW = event.data.width;
+              phoneH = event.data.height;
+              setTimeout(applyScale, 50);
+            }
           }
         }
         if (event.type === 2) {
