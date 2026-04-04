@@ -8,6 +8,8 @@ export interface ConnectedClient {
   mode: 'iframe' | 'standalone' | 'mirror';
   /** This client is a mirror recording source (phone with ?mirror=true). */
   mirrorSource: boolean;
+  /** True once the first rrweb meta event has updated the viewport with accurate dimensions. */
+  mirrorReady: boolean;
   url: string;
   viewport: { w: number; h: number };
   connectedAt: number;
@@ -29,6 +31,7 @@ export class ClientRegistry {
       ws,
       mode: hello.mode,
       mirrorSource: !!hello.mirror,
+      mirrorReady: false,
       url: hello.url,
       viewport: hello.viewport,
       connectedAt: Date.now(),

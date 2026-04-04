@@ -360,7 +360,19 @@ export class DevProxy {
           break;
 
         case 'mirror':
-          // Relay mirror events from mobile client to all mirror viewers
+          // Update viewport from rrweb meta events (type 4) for accurate sizing
+          if (clientId && Array.isArray(msg.events)) {
+            for (const evt of msg.events as Array<{ type?: number; data?: { width?: number; height?: number } }>) {
+              if (evt.type === 4 && evt.data?.width && evt.data?.height) {
+                const client = this.clients.get(clientId);
+                if (client) {
+                  client.viewport = { w: evt.data.width, h: evt.data.height };
+                  client.mirrorReady = true;
+                }
+                break;
+              }
+            }
+          }
           this.relayMirrorEvents(data.toString());
           break;
       }
@@ -580,9 +592,10 @@ export class DevProxy {
         clientReq.method === 'GET'
       ) {
         const source = this.clients.getMirrorSource();
+        const ready = source?.mirrorReady ?? false;
         const body = JSON.stringify({
-          active: !!source,
-          viewport: source ? source.viewport : null,
+          active: ready,
+          viewport: ready ? source!.viewport : null,
         });
         clientRes.writeHead(200, {
           'Content-Type': 'application/json',
@@ -938,7 +951,7 @@ export class DevProxy {
             }
           }
         }
-        if (event.type === 2) {
+        if (event.type === 2 && !replayer) {
           buildReplayer(event);
           continue;
         }
