@@ -825,8 +825,8 @@ export class DevProxy {
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@rrweb/replay@latest/dist/style.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { height: 100%; background: transparent; overflow: hidden; }
-    #player { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    html, body { height: 100%; background: #eaeaea; overflow: hidden; }
+    #player { width: 100%; height: 100%; }
     .replayer-wrapper { overflow: hidden; transform-origin: center center; visibility: hidden; }
     .replayer-wrapper iframe { border: none; outline: none; }
     .replayer-mouse.touch-device {
@@ -841,8 +841,6 @@ export class DevProxy {
     .replayer-mouse.touch-device::after,
     .replayer-mouse.touch-device.active::after { display: none !important; }
     .replayer-mouse:not(.touch-device) { display: none !important; }
-    #status { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-      color: #666; font-family: -apple-system, system-ui, sans-serif; font-size: 13px; z-index: 10; }
   </style>
   <script type="importmap">
   { "imports": { "@rrweb/replay": "https://cdn.jsdelivr.net/npm/@rrweb/replay@latest/+esm" } }
@@ -850,13 +848,11 @@ export class DevProxy {
 </head>
 <body>
   <div id="player"></div>
-  <div id="status">Waiting for mobile device...</div>
   <script type="module">
     import { Replayer } from '@rrweb/replay';
 
     const BUFFER_MS = 200;
     const playerRoot = document.getElementById('player');
-    const statusEl = document.getElementById('status');
 
     let replayer = null;
     let phoneW = 0, phoneH = 0, lastMeta = null;
@@ -896,8 +892,6 @@ export class DevProxy {
       if (hadSize) {
         requestAnimationFrame(applyScale);
       } else {
-        statusEl.textContent = 'Connected';
-        setTimeout(() => { statusEl.style.opacity = '0'; }, 2000);
         setTimeout(applyScale, 100);
       }
     }
@@ -953,8 +947,6 @@ export class DevProxy {
     };
 
     ws.onclose = () => {
-      statusEl.style.opacity = '1';
-      statusEl.textContent = 'Disconnected — reconnecting...';
       setTimeout(() => location.reload(), 2000);
     };
   </script>
