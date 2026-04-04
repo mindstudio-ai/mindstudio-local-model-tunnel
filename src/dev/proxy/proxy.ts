@@ -885,7 +885,7 @@ export class DevProxy {
   <script type="module">
     import { Replayer } from '@rrweb/replay';
 
-    const BUFFER_MS = 200;
+    const BUFFER_MS = 50;
     const playerRoot = document.getElementById('player');
 
     let replayer = null;
