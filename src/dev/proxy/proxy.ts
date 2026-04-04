@@ -67,7 +67,7 @@ export class DevProxy {
     private readonly appId: string,
     private readonly bindAddress: string = '127.0.0.1',
     // Dev override: 'https://seankoji-msba.ngrok.io/index.js'
-    private readonly browserAgentUrl: string = 'https://seankoji-msba.ngrok.io/index.js',
+    private readonly browserAgentUrl?: string,
   ) {}
 
   updateClientContext(context: Record<string, unknown>): void {
@@ -350,7 +350,9 @@ export class DevProxy {
 
         // Send buffered snapshot to new mirror viewers so they render immediately
         if (mode === 'mirror' && this.lastMirrorSnapshot) {
-          try { ws.send(this.lastMirrorSnapshot); } catch {}
+          try {
+            ws.send(this.lastMirrorSnapshot);
+          } catch {}
         }
         return;
       }
@@ -368,7 +370,10 @@ export class DevProxy {
           break;
 
         case 'mirror': {
-          const events = msg.events as Array<{ type?: number; data?: Record<string, unknown> }>;
+          const events = msg.events as Array<{
+            type?: number;
+            data?: Record<string, unknown>;
+          }>;
           if (clientId && Array.isArray(events)) {
             // Buffer the latest full snapshot (type 2) + preceding meta (type 4)
             // so new mirror viewers get it immediately on connect.
@@ -381,7 +386,10 @@ export class DevProxy {
               if (evt.type === 4 && evt.data?.width && evt.data?.height) {
                 const client = this.clients.get(clientId);
                 if (client) {
-                  client.viewport = { w: evt.data.width as number, h: evt.data.height as number };
+                  client.viewport = {
+                    w: evt.data.width as number,
+                    h: evt.data.height as number,
+                  };
                   client.mirrorReady = true;
                 }
               }
@@ -390,7 +398,10 @@ export class DevProxy {
               const snapshotEvents: unknown[] = [];
               if (meta) snapshotEvents.push(meta);
               snapshotEvents.push(snapshot);
-              this.lastMirrorSnapshot = JSON.stringify({ type: 'mirror', events: snapshotEvents });
+              this.lastMirrorSnapshot = JSON.stringify({
+                type: 'mirror',
+                events: snapshotEvents,
+              });
             }
           }
           this.relayMirrorEvents(data.toString());
@@ -1039,9 +1050,7 @@ export class DevProxy {
    * Returns { user, token, methods } or null if not authenticated.
    * Results are cached in memory — invalidated when auth endpoints set new cookies.
    */
-  private async resolveAuthCookie(
-    cookie: string,
-  ): Promise<{
+  private async resolveAuthCookie(cookie: string): Promise<{
     user: Record<string, unknown>;
     token: string;
     methods: Record<string, string>;
