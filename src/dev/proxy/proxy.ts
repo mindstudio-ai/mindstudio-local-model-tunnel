@@ -340,6 +340,7 @@ export class DevProxy {
           mode,
           url: String(msg.url || ''),
           viewport,
+          mirror: !!msg.mirror,
         });
 
         ws.send(JSON.stringify({ type: 'ack', clientId }));
@@ -574,6 +575,23 @@ export class DevProxy {
         this.serveMirrorPage(clientRes);
         return;
       }
+      if (
+        clientReq.url === '/__mindstudio_dev__/mirror-status' &&
+        clientReq.method === 'GET'
+      ) {
+        const source = this.clients.getMirrorSource();
+        const body = JSON.stringify({
+          active: !!source,
+          viewport: source ? source.viewport : null,
+        });
+        clientRes.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+          ...this.corsHeaders(clientReq),
+        });
+        clientRes.end(body);
+        return;
+      }
     }
 
     // CORS preflight
@@ -804,64 +822,124 @@ export class DevProxy {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mobile Mirror</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@rrweb/replay@latest/dist/style.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { height: 100%; background: #111; overflow: hidden; }
+    html, body { height: 100%; background: transparent; overflow: hidden; }
     #player { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-    .replayer-wrapper { box-shadow: 0 0 40px rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
-    #status { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); color: #666; font-family: -apple-system, system-ui, sans-serif; font-size: 13px; }
+    .replayer-wrapper { overflow: hidden; transform-origin: center center; visibility: hidden; }
+    .replayer-mouse.touch-device {
+      width: 44px; height: 44px; margin-left: -22px; margin-top: -22px;
+      border-width: 2px; border-color: rgba(221, 37, 144, 0);
+      background: rgba(221, 37, 144, 0.06);
+    }
+    .replayer-mouse.touch-device.touch-active {
+      border-color: rgba(221, 37, 144, 0.8);
+      background: rgba(221, 37, 144, 0.12);
+    }
+    .replayer-mouse.touch-device::after,
+    .replayer-mouse.touch-device.active::after { display: none !important; }
+    .replayer-mouse:not(.touch-device) { display: none !important; }
+    #status { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+      color: #666; font-family: -apple-system, system-ui, sans-serif; font-size: 13px; z-index: 10; }
   </style>
+  <script type="importmap">
+  { "imports": { "@rrweb/replay": "https://cdn.jsdelivr.net/npm/@rrweb/replay@latest/+esm" } }
+  </script>
 </head>
 <body>
   <div id="player"></div>
   <div id="status">Waiting for mobile device...</div>
-  <script src="https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.4/dist/rrweb-all.js"></script>
-  <script>
-    (function() {
-      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      var ws = new WebSocket(proto + '//' + location.host + '/__mindstudio_dev__/ws');
-      var replayer = null;
-      var status = document.getElementById('status');
+  <script type="module">
+    import { Replayer } from '@rrweb/replay';
 
-      ws.onopen = function() {
-        ws.send(JSON.stringify({
-          type: 'hello',
-          mode: 'mirror',
-          url: location.href,
-          viewport: { w: window.innerWidth, h: window.innerHeight }
-        }));
-      };
+    const BUFFER_MS = 200;
+    const playerRoot = document.getElementById('player');
+    const statusEl = document.getElementById('status');
 
-      ws.onmessage = function(e) {
-        var msg;
-        try { msg = JSON.parse(e.data); } catch(e) { return; }
+    let replayer = null;
+    let phoneW = 0, phoneH = 0, lastMeta = null;
 
-        if (msg.type !== 'mirror' || !Array.isArray(msg.events)) return;
+    function applyScale() {
+      if (!phoneW || !phoneH) return;
+      const wrapper = document.querySelector('.replayer-wrapper');
+      if (!wrapper) return;
+      const pad = 40;
+      const scaleX = (window.innerWidth - pad) / phoneW;
+      const scaleY = (window.innerHeight - pad) / phoneH;
+      const s = Math.min(scaleX, scaleY, 1);
+      wrapper.style.width = phoneW + 'px';
+      wrapper.style.height = phoneH + 'px';
+      wrapper.style.transform = 'scale(' + s + ')';
+      wrapper.style.visibility = 'visible';
+    }
 
-        for (var i = 0; i < msg.events.length; i++) {
-          var event = msg.events[i];
-          if (!replayer) {
-            replayer = new rrweb.Replayer([], {
-              root: document.getElementById('player'),
-              liveMode: true,
-              insertStyleRules: [
-                '.replayer-wrapper { position: relative !important; }',
-              ],
-            });
-            replayer.startLive(Date.now() - 500);
-            status.textContent = 'Connected';
-            setTimeout(function() { status.style.opacity = '0'; }, 2000);
+    function buildReplayer(snapshotEvent) {
+      const hadSize = phoneW > 0;
+      if (replayer) {
+        try { replayer.destroy(); } catch(e) {}
+        playerRoot.innerHTML = '';
+      }
+      const initEvents = [];
+      if (lastMeta) initEvents.push(lastMeta);
+      initEvents.push(snapshotEvent);
+
+      replayer = new Replayer(initEvents, {
+        root: playerRoot,
+        liveMode: true,
+        pauseAnimation: false,
+        mouseTail: false,
+      });
+      replayer.startLive(snapshotEvent.timestamp - BUFFER_MS);
+
+      if (hadSize) {
+        requestAnimationFrame(applyScale);
+      } else {
+        statusEl.textContent = 'Connected';
+        setTimeout(() => { statusEl.style.opacity = '0'; }, 2000);
+        setTimeout(applyScale, 100);
+      }
+    }
+
+    window.addEventListener('resize', applyScale);
+
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(proto + '//' + location.host + '/__mindstudio_dev__/ws');
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        type: 'hello', mode: 'mirror', url: location.href,
+        viewport: { w: window.innerWidth, h: window.innerHeight },
+      }));
+    };
+
+    ws.onmessage = (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.type !== 'mirror' || !Array.isArray(msg.events)) return;
+
+      for (const event of msg.events) {
+        if (event.type === 4) {
+          lastMeta = event;
+          if (event.data && event.data.width && event.data.width !== phoneW) {
+            phoneW = event.data.width;
+            phoneH = event.data.height;
+            setTimeout(applyScale, 50);
           }
-          replayer.addEvent(event);
         }
-      };
+        if (event.type === 2) {
+          buildReplayer(event);
+          continue;
+        }
+        if (replayer) replayer.addEvent(event);
+      }
+    };
 
-      ws.onclose = function() {
-        status.style.opacity = '1';
-        status.textContent = 'Disconnected — reconnecting...';
-        setTimeout(function() { location.reload(); }, 2000);
-      };
-    })();
+    ws.onclose = () => {
+      statusEl.style.opacity = '1';
+      statusEl.textContent = 'Disconnected — reconnecting...';
+      setTimeout(() => location.reload(), 2000);
+    };
   </script>
 </body>
 </html>`;
