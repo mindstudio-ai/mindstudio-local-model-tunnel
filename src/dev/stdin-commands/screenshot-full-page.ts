@@ -36,7 +36,7 @@ export async function handleScreenshotFullPage(
   // The screenshot result is the last step
   const resultSteps = result.steps as Array<Record<string, unknown>>;
   const stepResult = resultSteps?.[resultSteps.length - 1]
-    ?.result as { width: number; height: number; uploaded?: boolean } | undefined;
+    ?.result as { width: number; height: number; uploaded?: boolean; styleMap?: string } | undefined;
 
   if (!stepResult?.uploaded) {
     throw new Error('Screenshot capture or upload failed');
@@ -46,6 +46,7 @@ export async function handleScreenshotFullPage(
     url: publicUrl,
     width: stepResult.width,
     height: stepResult.height,
+    ...(stepResult.styleMap ? { styleMap: stepResult.styleMap } : {}),
     duration: Date.now() - startTime,
   };
 }
