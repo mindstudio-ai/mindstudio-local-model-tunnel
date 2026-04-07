@@ -33,7 +33,11 @@ export async function handleSetupBrowser(
     steps.push({ command: 'navigate', url: path });
   }
 
+  // Trailing snapshot ensures the command completes through the
+  // stash/resume path after reload (reload kills the page; remaining
+  // steps are stashed in sessionStorage and resumed on reconnect).
   if (steps.length > 0) {
+    steps.push({ command: 'snapshot' });
     await ctx.state.proxy.dispatchBrowserCommand(steps);
   }
 
