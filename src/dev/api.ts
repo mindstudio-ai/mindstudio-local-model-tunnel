@@ -210,6 +210,18 @@ export async function getUploadUrl(
   );
 }
 
+export async function createAuthSession(
+  appId: string,
+  opts: { email?: string; phone?: string; roles?: string[] },
+): Promise<{ cookie: string; user: Record<string, unknown> }> {
+  return apiRequest(
+    'POST',
+    `${basePath(appId)}/create-auth-session`,
+    getHeaders(),
+    opts,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Error classes
 // ---------------------------------------------------------------------------
