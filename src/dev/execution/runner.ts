@@ -474,6 +474,7 @@ export class DevRunner {
         projectRoot: this.projectRoot,
         sessionId: this.session!.sessionId,
         streamId: request.streamId,
+        secrets: request.secrets,
       });
       const t2 = Date.now();
 

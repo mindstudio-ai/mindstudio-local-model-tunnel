@@ -108,6 +108,7 @@ export interface DevRequest {
   userId?: string | null;
   roleOverride?: string[];
   streamId?: string;
+  secrets?: Record<string, string>;
 }
 
 /** Posted to POST /_internal/v2/apps/{appId}/dev/result/{requestId} */
