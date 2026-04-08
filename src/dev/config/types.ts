@@ -98,7 +98,7 @@ export interface DevSession {
 /** Returned from GET /_internal/v2/apps/{appId}/dev/poll */
 export interface DevRequest {
   requestId: string;
-  type: 'execute' | 'get-agent-config' | 'get-auth-config';
+  type: 'execute' | 'get-agent-config' | 'get-auth-config' | 'get-api-config';
   authorizationToken: string;
   // Present on 'execute' requests only:
   methodId?: string;
@@ -113,7 +113,7 @@ export interface DevRequest {
 
 /** Posted to POST /_internal/v2/apps/{appId}/dev/result/{requestId} */
 export interface DevResult {
-  type: 'execute' | 'get-agent-config' | 'get-auth-config';
+  type: 'execute' | 'get-agent-config' | 'get-auth-config' | 'get-api-config';
   success: boolean;
   output?: unknown;
   error?: { message: string; stack?: string };
@@ -132,7 +132,7 @@ export interface SyncSchemaResponse {
 /** For request log display in the TUI. */
 export interface DevRequestLogEntry {
   id: string;
-  type: 'execute' | 'get-agent-config' | 'get-auth-config';
+  type: 'execute' | 'get-agent-config' | 'get-auth-config' | 'get-api-config';
   method?: string;
   status: 'processing' | 'completed' | 'failed';
   startTime: number;
