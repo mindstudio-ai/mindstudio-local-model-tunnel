@@ -287,9 +287,11 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   let cleanupConfigWatcher: (() => void) | undefined;
 
   let stopping = false;
+  let degradedRetryTimer: ReturnType<typeof setInterval> | null = null;
   const shutdown = async () => {
     if (stopping) return;
     stopping = true;
+    if (degradedRetryTimer) { clearInterval(degradedRetryTimer); degradedRetryTimer = null; }
     emitEvent('session-stopping');
     cleanupConfigWatcher?.();
     await teardownAll(state);
@@ -299,14 +301,53 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   process.on('SIGTERM', () => { shutdown().then(() => process.exit(0)); });
   process.on('SIGINT', () => { shutdown().then(() => process.exit(0)); });
 
-  // Initial session start — enter degraded state if config is invalid so the
-  // agent/user can fix mindstudio.json and the watcher will pick it up.
-  const ok = await startSession(cwd, opts, state, shutdown);
-  if (!ok) {
+  // Initial session start — retry a few times with backoff before degrading.
+  // Snapshot resumes often hit a transient 400 from /manage/start because the
+  // platform-side session state is stale. A short retry usually recovers.
+  const MAX_START_RETRIES = 5;
+  let started = false;
+  for (let attempt = 1; attempt <= MAX_START_RETRIES && !stopping; attempt++) {
+    started = await startSession(cwd, opts, state, shutdown);
+    if (started) break;
+    if (attempt < MAX_START_RETRIES) {
+      const delay = Math.min(1000 * 2 ** (attempt - 1), 10_000);
+      log.info('session', `Start failed, retrying in ${delay}ms`, { attempt, maxAttempts: MAX_START_RETRIES });
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+
+  if (!started && !stopping) {
     emitEvent('degraded-state', {
       reason: 'Config invalid or missing at boot. Waiting for valid mindstudio.json.',
     });
     log.warn('session', 'Booting in degraded state — no valid config. Watching for changes.');
+
+    // Periodically retry in degraded state (covers transient platform issues
+    // that outlast the initial retry window, e.g. long snapshot resume).
+    degradedRetryTimer = setInterval(async () => {
+      if (stopping || restarting || state.runner) {
+        if (state.runner && degradedRetryTimer) {
+          clearInterval(degradedRetryTimer);
+          degradedRetryTimer = null;
+        }
+        return;
+      }
+      restarting = true;
+      try {
+        log.info('session', 'Retrying session start from degraded state');
+        const ok = await startSession(cwd, opts, state, shutdown);
+        if (ok) {
+          emitEvent('degraded-state-resolved', { appId: state.appConfig?.appId });
+          log.info('session', 'Recovered from degraded state');
+          if (degradedRetryTimer) {
+            clearInterval(degradedRetryTimer);
+            degradedRetryTimer = null;
+          }
+        }
+      } finally {
+        restarting = false;
+      }
+    }, 15_000);
   }
 
   // Stdin command loop
@@ -338,6 +379,7 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
         if (wasDegraded) {
           emitEvent('degraded-state-resolved', { appId: newConfig.appId });
           log.info('session', 'Recovered from degraded state');
+          if (degradedRetryTimer) { clearInterval(degradedRetryTimer); degradedRetryTimer = null; }
         }
         if (state.proxy) {
           state.proxy.broadcastToClients('reload');
