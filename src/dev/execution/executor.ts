@@ -4,16 +4,21 @@
 // cold start), we keep a single long-lived worker that receives requests over
 // IPC. The Node runtime and SDK modules stay warm across invocations.
 //
-// Methods execute one at a time via a queue. This is required because
-// per-request state (process.env.CALLBACK_TOKEN, global.ai) is set globally
-// in the worker — concurrent execution would cause methods to read each
-// other's auth tokens, leading to random 401s from the platform.
+// Two execution modes depending on the installed @mindstudio-ai/agent version:
+//
+// ALS mode (>= 0.1.46): Uses runWithContext() + AsyncLocalStorage for per-request
+// auth/token scoping. Methods execute concurrently. Fire-and-forget background
+// tasks retain their auth context. Matches production sandbox behavior.
+//
+// Legacy mode (< 0.1.46): Per-request state (process.env.CALLBACK_TOKEN, global.ai)
+// is set globally. Methods are serialized via a queue to prevent auth leakage.
 //
 // The worker is lazily spawned on first use, respawned if it dies, and killed
-// on cleanup. Per-request state (env vars, global.ai) is set before each call.
+// on cleanup.
 
 import { fork, type ChildProcess } from 'node:child_process';
 import { writeFile, unlink } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -55,11 +60,14 @@ interface PendingRequest {
 let worker: ChildProcess | null = null;
 let workerScriptPath: string | null = null;
 let workerProjectRoot: string | null = null;
+let workerSupportsAls = false;
 const pending = new Map<string, PendingRequest>();
 
-/** Build the persistent worker script. */
-function buildWorkerScript(): string {
-  return `
+// ---------------------------------------------------------------------------
+// Shared error serializer (used by both worker scripts)
+// ---------------------------------------------------------------------------
+
+const SERIALIZE_ERROR_FN = `
 function serializeError(err) {
   if (!err) return { message: 'Unknown error' };
 
@@ -94,6 +102,86 @@ function serializeError(err) {
 
   return serialized;
 }
+`;
+
+// ---------------------------------------------------------------------------
+// ALS worker script — concurrent execution with per-request context
+// ---------------------------------------------------------------------------
+
+function buildAlsWorkerScript(): string {
+  return `
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { runWithContext } from '@mindstudio-ai/agent';
+
+${SERIALIZE_ERROR_FN}
+
+// Per-request console capture via AsyncLocalStorage
+const consoleAls = new AsyncLocalStorage();
+const _origLog = console.log;
+const _origWarn = console.warn;
+const _origError = console.error;
+
+console.log = (...args) => {
+  const stdout = consoleAls.getStore();
+  if (stdout) stdout.push(args.map(String).join(' '));
+  _origLog(...args);
+};
+console.warn = (...args) => {
+  const stdout = consoleAls.getStore();
+  if (stdout) stdout.push(args.map(String).join(' '));
+  _origWarn(...args);
+};
+console.error = (...args) => {
+  const stdout = consoleAls.getStore();
+  if (stdout) stdout.push(args.map(String).join(' '));
+  _origError(...args);
+};
+
+process.on('message', async (msg) => {
+  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, streamId } = msg;
+
+  const ctx = {
+    callbackToken: authorizationToken,
+    remoteHostname: apiBaseUrl,
+    auth: auth ?? undefined,
+    databases: databases ?? undefined,
+    streamId: streamId ?? undefined,
+  };
+
+  const stdout = [];
+  const startTime = Date.now();
+
+  try {
+    const returnValue = await consoleAls.run(stdout, () =>
+      runWithContext(ctx, async () => {
+        const mod = await import(transpiledPath + '?t=' + Date.now());
+        const fn = mod[methodExport];
+        if (typeof fn !== 'function') {
+          throw new Error(methodExport + ' is not a function (got ' + typeof fn + ')');
+        }
+        return fn(input);
+      }),
+    );
+    const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
+    process.send({ id, success: true, output: returnValue, stdout, stats });
+  } catch (err) {
+    const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
+    process.send({ id, success: false, error: serializeError(err), stdout, stats });
+  }
+});
+
+// Signal ready
+process.send({ type: 'ready' });
+`;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy worker script — globals + serialized execution
+// ---------------------------------------------------------------------------
+
+function buildLegacyWorkerScript(): string {
+  return `
+${SERIALIZE_ERROR_FN}
 
 // Save original console methods so we can restore after each request
 const _origLog = console.log;
@@ -146,6 +234,27 @@ process.send({ type: 'ready' });
 `;
 }
 
+// ---------------------------------------------------------------------------
+// SDK version detection
+// ---------------------------------------------------------------------------
+
+function detectAlsSupport(projectRoot: string): boolean {
+  try {
+    const pkgPath = join(projectRoot, 'node_modules', '@mindstudio-ai', 'agent', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    const parts = (pkg.version || '').split('.').map(Number);
+    const [major = 0, minor = 0, patch = 0] = parts;
+    // runWithContext was added in 0.1.46
+    return major > 0 || minor > 1 || (minor === 1 && patch >= 46);
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Worker lifecycle
+// ---------------------------------------------------------------------------
+
 /** Ensure a live worker process exists; spawn one if needed. */
 async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
   // Respawn if worker died or project root changed
@@ -172,16 +281,21 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
     workerScriptPath = null;
   }
 
+  // Detect execution mode
+  workerSupportsAls = detectAlsSupport(projectRoot);
+  log.info('executor', 'SDK context support', { als: workerSupportsAls });
+
   // Write worker script
   const scriptPath = join(
     tmpdir(),
     `ms-dev-worker-${randomBytes(4).toString('hex')}.mjs`,
   );
-  await writeFile(scriptPath, buildWorkerScript(), 'utf-8');
+  const script = workerSupportsAls ? buildAlsWorkerScript() : buildLegacyWorkerScript();
+  await writeFile(scriptPath, script, 'utf-8');
   workerScriptPath = scriptPath;
   workerProjectRoot = projectRoot;
 
-  log.debug('executor', 'Spawning method execution process', { cwd: projectRoot, scriptPath });
+  log.debug('executor', 'Spawning method execution process', { cwd: projectRoot, scriptPath, als: workerSupportsAls });
 
   const child = fork(scriptPath, [], {
     cwd: projectRoot,
@@ -235,7 +349,7 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
 }
 
 // ---------------------------------------------------------------------------
-// Execution queue — serialize method calls so env/globals don't collide
+// Execution queue — only used in legacy mode (SDK < 0.1.46)
 // ---------------------------------------------------------------------------
 
 let queueTail: Promise<unknown> = Promise.resolve();
@@ -252,11 +366,14 @@ function enqueue<T>(fn: () => Promise<T>): Promise<T> {
 
 /**
  * Execute a transpiled method in the persistent worker process.
- * Queued so only one method runs at a time (avoids env/global races).
+ * In ALS mode, executes directly (concurrent). In legacy mode, queued.
  */
 export function executeMethod(
   opts: ExecuteMethodOptions,
 ): Promise<ExecuteMethodResult> {
+  if (workerSupportsAls) {
+    return executeMethodInWorker(opts);
+  }
   return enqueue(() => executeMethodInWorker(opts));
 }
 
@@ -309,6 +426,7 @@ export async function cleanupWorker(): Promise<void> {
     workerScriptPath = null;
   }
   workerProjectRoot = null;
+  workerSupportsAls = false;
   for (const [, req] of pending) {
     clearTimeout(req.timer);
   }
