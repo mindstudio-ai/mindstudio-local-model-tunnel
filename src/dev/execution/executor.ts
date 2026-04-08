@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { log } from '../logging/logger';
+import { logMethodStart, logMethodStdout, logBackgroundStdout } from '../logging/request-log';
 import type { DevSession } from '../config/types';
 
 const EXECUTION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes — matches prod
@@ -36,6 +37,7 @@ export interface ExecuteMethodOptions {
   authorizationToken: string;
   apiBaseUrl: string;
   projectRoot: string;
+  sessionId?: string;
   streamId?: string;
 }
 
@@ -62,6 +64,9 @@ let workerScriptPath: string | null = null;
 let workerProjectRoot: string | null = null;
 let workerSupportsAls = false;
 const pending = new Map<string, PendingRequest>();
+
+/** Metadata for requests, used for lifecycle log events. */
+const requestMeta = new Map<string, { sessionId: string; method: string; input: unknown }>();
 
 // ---------------------------------------------------------------------------
 // Shared error serializer (used by both worker scripts)
@@ -149,6 +154,31 @@ process.on('message', async (msg) => {
   };
 
   const stdout = [];
+  let flushed = 0;
+  let done = false;
+
+  // Flush new stdout lines every 1s while the method is running.
+  // After the method returns, switches to background-stdout type.
+  const flushInterval = setInterval(() => {
+    if (stdout.length > flushed) {
+      const lines = stdout.slice(flushed);
+      flushed = stdout.length;
+      try {
+        process.send({ type: done ? 'background-stdout' : 'stdout', id, lines });
+      } catch {}
+      idleTicks = 0;
+    } else if (done) {
+      idleTicks++;
+      if (idleTicks >= 2) {
+        clearInterval(flushInterval);
+        try { process.send({ type: 'stdout-end', id }); } catch {}
+      }
+    }
+  }, 1000);
+  let idleTicks = 0;
+
+  process.send({ type: 'start', id });
+
   const startTime = Date.now();
 
   try {
@@ -163,10 +193,25 @@ process.on('message', async (msg) => {
       }),
     );
     const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
-    process.send({ id, success: true, output: returnValue, stdout, stats });
+
+    // Final flush of any remaining lines before sending result
+    if (stdout.length > flushed) {
+      try { process.send({ type: 'stdout', id, lines: stdout.slice(flushed) }); } catch {}
+      flushed = stdout.length;
+    }
+
+    done = true;
+    process.send({ id, success: true, output: returnValue, stats });
   } catch (err) {
     const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
-    process.send({ id, success: false, error: serializeError(err), stdout, stats });
+
+    if (stdout.length > flushed) {
+      try { process.send({ type: 'stdout', id, lines: stdout.slice(flushed) }); } catch {}
+      flushed = stdout.length;
+    }
+
+    done = true;
+    process.send({ id, success: false, error: serializeError(err), stats });
   }
 });
 
@@ -316,9 +361,27 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
     child.on('exit', (code) => reject(new Error(`Worker exited during startup with code ${code}`)));
   });
 
-  // Route responses to pending requests
+  // Route lifecycle events and results from the worker
   child.on('message', (msg: any) => {
     if (!msg?.id) return;
+    const meta = requestMeta.get(msg.id);
+
+    switch (msg.type) {
+      case 'start':
+        if (meta) logMethodStart(msg.id, meta.sessionId, meta.method, meta.input);
+        return;
+      case 'stdout':
+        if (meta && msg.lines?.length) logMethodStdout(msg.id, meta.sessionId, meta.method, msg.lines);
+        return;
+      case 'background-stdout':
+        if (meta && msg.lines?.length) logBackgroundStdout(msg.id, meta.sessionId, meta.method, msg.lines);
+        return;
+      case 'stdout-end':
+        requestMeta.delete(msg.id);
+        return;
+    }
+
+    // Method result — resolve the pending promise
     const req = pending.get(msg.id);
     if (!req) return;
     pending.delete(msg.id);
@@ -397,6 +460,9 @@ async function executeMethodInWorker(
     }, EXECUTION_TIMEOUT_MS);
 
     pending.set(id, { resolve, timer });
+    if (opts.sessionId) {
+      requestMeta.set(id, { sessionId: opts.sessionId, method: opts.methodExport, input: opts.input });
+    }
 
     w.send({
       id,
@@ -431,5 +497,6 @@ export async function cleanupWorker(): Promise<void> {
     clearTimeout(req.timer);
   }
   pending.clear();
+  requestMeta.clear();
   queueTail = Promise.resolve();
 }
