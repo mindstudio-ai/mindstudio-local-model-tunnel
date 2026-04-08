@@ -674,7 +674,14 @@ export class DevRunner {
     log.info('runner', 'API config requested', { requestId: request.requestId, sessionId: this.session!.sessionId });
 
     try {
-      const apiJsonPath = join(this.projectRoot, 'dist', 'interfaces', 'api', 'api.json');
+      const apiInterface = this.appConfig?.interfaces.find(
+        (i) => i.type === 'api' && i.enabled !== false,
+      );
+      if (!apiInterface) {
+        throw new Error('No API interface config found');
+      }
+
+      const apiJsonPath = join(this.projectRoot, apiInterface.path);
       const raw = readFileSync(apiJsonPath, 'utf-8');
       const parsed = JSON.parse(raw);
 
