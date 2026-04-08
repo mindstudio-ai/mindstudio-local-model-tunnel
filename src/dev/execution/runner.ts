@@ -28,6 +28,8 @@ import { executeMethod, cleanupWorker } from './executor';
 import { getApiBaseUrl } from '../../config';
 import { requestDeviceAuth, pollDeviceAuth } from '../../api';
 import { setApiKey, setUserId } from '../../config';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { log } from '../logging/logger';
 import { logMethodExecution, logScenarioExecution } from '../logging/request-log';
@@ -416,6 +418,11 @@ export class DevRunner {
       return;
     }
 
+    if (request.type === 'get-api-config') {
+      await this.handleGetApiConfig(request);
+      return;
+    }
+
     const startTime = Date.now();
 
     // Resolve method from app config by ID — the API only sends methodId,
@@ -474,6 +481,7 @@ export class DevRunner {
         projectRoot: this.projectRoot,
         sessionId: this.session!.sessionId,
         streamId: request.streamId,
+        secrets: request.secrets,
       });
       const t2 = Date.now();
 
@@ -658,6 +666,58 @@ export class DevRunner {
         );
       } catch (submitErr) {
         log.error('runner', 'Failed to report auth config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
+      }
+    }
+  }
+
+  private async handleGetApiConfig(request: DevRequest): Promise<void> {
+    log.info('runner', 'API config requested', { requestId: request.requestId, sessionId: this.session!.sessionId });
+
+    try {
+      const apiInterface = this.appConfig?.interfaces.find(
+        (i) => i.type === 'api' && i.enabled !== false,
+      );
+      if (!apiInterface) {
+        throw new Error('No API interface config found');
+      }
+
+      const apiJsonPath = join(this.projectRoot, apiInterface.path);
+      const raw = readFileSync(apiJsonPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+
+      if (!parsed.api) {
+        throw new Error('No API interface config found');
+      }
+
+      await submitDevResult(
+        this.appId,
+        this.session!.sessionId,
+        request.requestId,
+        {
+          type: 'get-api-config',
+          success: true,
+          output: parsed.api,
+        },
+      );
+
+      log.info('runner', 'API config sent', { requestId: request.requestId });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      log.error('runner', 'API config failed', { requestId: request.requestId, error: message });
+
+      try {
+        await submitDevResult(
+          this.appId,
+          this.session!.sessionId,
+          request.requestId,
+          {
+            type: 'get-api-config',
+            success: false,
+            error: { message },
+          },
+        );
+      } catch (submitErr) {
+        log.error('runner', 'Failed to report API config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
       }
     }
   }

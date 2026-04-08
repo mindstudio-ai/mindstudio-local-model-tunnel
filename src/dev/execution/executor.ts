@@ -39,6 +39,7 @@ export interface ExecuteMethodOptions {
   projectRoot: string;
   sessionId?: string;
   streamId?: string;
+  secrets?: Record<string, string>;
 }
 
 export interface ExecuteMethodResult {
@@ -143,8 +144,16 @@ console.error = (...args) => {
   _origError(...args);
 };
 
+// Track secret keys so we can clean up between requests
+let _activeSecretKeys = [];
+
 process.on('message', async (msg) => {
-  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, streamId } = msg;
+  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, streamId, secrets } = msg;
+
+  // Apply per-request secrets to process.env (clean up previous first)
+  for (const key of _activeSecretKeys) delete process.env[key];
+  _activeSecretKeys = secrets ? Object.keys(secrets) : [];
+  if (secrets) Object.assign(process.env, secrets);
 
   const ctx = {
     callbackToken: authorizationToken,
@@ -234,14 +243,22 @@ const _origLog = console.log;
 const _origWarn = console.warn;
 const _origError = console.error;
 
+// Track secret keys so we can clean up between requests
+let _activeSecretKeys = [];
+
 process.on('message', async (msg) => {
-  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, streamId } = msg;
+  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, streamId, secrets } = msg;
 
   // Update per-request env vars
   process.env.CALLBACK_TOKEN = authorizationToken;
   process.env.REMOTE_HOSTNAME = apiBaseUrl;
   if (streamId) process.env.STREAM_ID = streamId;
   else delete process.env.STREAM_ID;
+
+  // Apply per-request secrets to process.env (clean up previous first)
+  for (const key of _activeSecretKeys) delete process.env[key];
+  _activeSecretKeys = secrets ? Object.keys(secrets) : [];
+  if (secrets) Object.assign(process.env, secrets);
 
   // Update global context
   global.ai = { auth, databases };
@@ -475,6 +492,7 @@ async function executeMethodInWorker(
       authorizationToken: opts.authorizationToken,
       apiBaseUrl: opts.apiBaseUrl,
       streamId: opts.streamId,
+      secrets: opts.secrets,
     });
   });
 }
