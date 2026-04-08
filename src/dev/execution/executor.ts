@@ -143,8 +143,8 @@ process.on('message', async (msg) => {
   const ctx = {
     callbackToken: authorizationToken,
     remoteHostname: apiBaseUrl,
-    auth: auth ?? undefined,
-    databases: databases ?? undefined,
+    auth: auth ?? { userId: null, roleAssignments: [] },
+    databases: databases ?? [],
     streamId: streamId ?? undefined,
   };
 
