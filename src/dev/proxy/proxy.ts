@@ -690,6 +690,12 @@ export class DevProxy {
     // compressed chunks would break SSE streams piped back to the browser.
     delete headers['accept-encoding'];
 
+    // API routes need the dev release ID so the platform routes execution
+    // back through the tunnel's poll queue instead of the live release.
+    if (originalPath.startsWith('/_/api/') && this.clientContext.releaseId) {
+      headers['x-dev-session'] = this.clientContext.releaseId as string;
+    }
+
     const proxyReq = httpModule.request(
       {
         hostname: target.hostname,
