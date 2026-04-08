@@ -194,6 +194,7 @@ export class DevRunner {
         authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
         projectRoot: this.projectRoot,
+        sessionId: this.session.sessionId,
       });
 
       const duration = Date.now() - startTime;
@@ -293,6 +294,7 @@ export class DevRunner {
         authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
         projectRoot: this.projectRoot,
+        sessionId: this.session.sessionId,
       });
 
       if (!result.success) {
@@ -470,6 +472,7 @@ export class DevRunner {
         authorizationToken: request.authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
         projectRoot: this.projectRoot,
+        sessionId: this.session!.sessionId,
         streamId: request.streamId,
       });
       const t2 = Date.now();
