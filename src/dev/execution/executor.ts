@@ -116,6 +116,7 @@ function serializeError(err) {
 function buildAlsWorkerScript(): string {
   return `
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { format } from 'node:util';
 import { runWithContext } from '@mindstudio-ai/agent';
 
 ${SERIALIZE_ERROR_FN}
@@ -128,17 +129,17 @@ const _origError = console.error;
 
 console.log = (...args) => {
   const stdout = consoleAls.getStore();
-  if (stdout) stdout.push(args.map(String).join(' '));
+  if (stdout) stdout.push(format(...args));
   _origLog(...args);
 };
 console.warn = (...args) => {
   const stdout = consoleAls.getStore();
-  if (stdout) stdout.push(args.map(String).join(' '));
+  if (stdout) stdout.push(format(...args));
   _origWarn(...args);
 };
 console.error = (...args) => {
   const stdout = consoleAls.getStore();
-  if (stdout) stdout.push(args.map(String).join(' '));
+  if (stdout) stdout.push(format(...args));
   _origError(...args);
 };
 
