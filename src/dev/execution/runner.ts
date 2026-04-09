@@ -80,6 +80,14 @@ export class DevRunner {
 
     log.info('runner', 'Dev session starting', { appId: this.appId, branch: this.startOpts.branch });
     const session = await startDevSession(this.appId, this.startOpts);
+
+    // Default auth is anonymous — matches production behavior for
+    // unauthenticated requests. The platform user's identity should never
+    // leak into the app's auth context. Users get a real identity by
+    // logging in through the app's auth flow, impersonating, or passing
+    // roles/userId on the runMethod command.
+    session.auth = { userId: null, roleAssignments: [] };
+
     this.session = session;
     this.transpiler = new Transpiler(this.projectRoot);
     this.isRunning = true;

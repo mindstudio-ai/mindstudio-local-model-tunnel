@@ -71,8 +71,8 @@ export interface DevSession {
   releaseId: string;   // same value as sessionId
   branch: string;
   auth: {
-    userId: string;
-    roleAssignments: Array<{ userId: string; roleName: string }>;
+    userId: string | null;
+    roleAssignments: Array<{ userId: string | null; roleName: string }>;
   };
   databases: Array<{
     id: string;
