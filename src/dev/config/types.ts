@@ -106,6 +106,7 @@ export interface DevRequest {
   methodPath?: string;
   input?: unknown;
   userId?: string | null;
+  roleAssignments?: Array<{ userId: string | null; roleName: string }>;
   roleOverride?: string[];
   streamId?: string;
   secrets?: Record<string, string>;
