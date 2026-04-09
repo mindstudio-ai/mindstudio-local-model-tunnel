@@ -460,13 +460,13 @@ export class DevRunner {
       // changes as users log in/out. Never fall back to the stale session value.
       const userId = request.userId ?? null;
 
-      // Role override: platform-supplied > local impersonation > none
-      const roles = request.roleOverride ?? this.roleOverride;
+      // Role override (impersonation) > actual role assignments from DB
+      const overrideRoles = request.roleOverride ?? this.roleOverride;
       const auth = {
         userId,
-        roleAssignments: roles
-          ? roles.map((roleName) => ({ userId, roleName }))
-          : [],
+        roleAssignments: overrideRoles
+          ? overrideRoles.map((roleName) => ({ userId, roleName }))
+          : request.roleAssignments ?? [],
       };
 
       // Execute in isolated child process
