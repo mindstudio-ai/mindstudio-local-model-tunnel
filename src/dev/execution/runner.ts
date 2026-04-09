@@ -32,7 +32,7 @@ import { randomBytes } from 'node:crypto';
 import { log } from '../logging/logger';
 import { logMethodExecution, logScenarioExecution } from '../logging/request-log';
 import { formatErrorForDisplay } from './format-error';
-import { readAgentConfig } from './agent-config';
+import { readConfig } from '../interfaces/read-config';
 import type { DevProxy } from '../proxy/proxy';
 import type { DevSession, DevRequest, DevResult, AppScenario, AppConfig } from '../config/types';
 
@@ -194,6 +194,7 @@ export class DevRunner {
         authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
         projectRoot: this.projectRoot,
+        sessionId: this.session.sessionId,
       });
 
       const duration = Date.now() - startTime;
@@ -293,6 +294,7 @@ export class DevRunner {
         authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
         projectRoot: this.projectRoot,
+        sessionId: this.session.sessionId,
       });
 
       if (!result.success) {
@@ -404,13 +406,8 @@ export class DevRunner {
   }
 
   private async handleRequest(request: DevRequest): Promise<void> {
-    if (request.type === 'get-agent-config') {
-      await this.handleGetAgentConfig(request);
-      return;
-    }
-
-    if (request.type === 'get-auth-config') {
-      await this.handleGetAuthConfig(request);
+    if (request.type === 'get-config') {
+      await this.handleGetConfig(request);
       return;
     }
 
@@ -451,13 +448,13 @@ export class DevRunner {
       // changes as users log in/out. Never fall back to the stale session value.
       const userId = request.userId ?? null;
 
-      // Role override: platform-supplied > local impersonation > none
-      const roles = request.roleOverride ?? this.roleOverride;
+      // Role override (impersonation) > actual role assignments from DB
+      const overrideRoles = request.roleOverride ?? this.roleOverride;
       const auth = {
         userId,
-        roleAssignments: roles
-          ? roles.map((roleName) => ({ userId, roleName }))
-          : [],
+        roleAssignments: overrideRoles
+          ? overrideRoles.map((roleName) => ({ userId, roleName }))
+          : request.roleAssignments ?? [],
       };
 
       // Execute in isolated child process
@@ -470,7 +467,9 @@ export class DevRunner {
         authorizationToken: request.authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
         projectRoot: this.projectRoot,
+        sessionId: this.session!.sessionId,
         streamId: request.streamId,
+        secrets: request.secrets,
       });
       const t2 = Date.now();
 
@@ -574,32 +573,31 @@ export class DevRunner {
     }
   }
 
-  private async handleGetAgentConfig(request: DevRequest): Promise<void> {
-    const startTime = Date.now();
-    log.info('runner', 'Agent config requested', { requestId: request.requestId, sessionId: this.session!.sessionId });
+  private async handleGetConfig(request: DevRequest): Promise<void> {
+    log.info('runner', 'Config requested', { requestId: request.requestId, sessionId: this.session!.sessionId });
 
     try {
       if (!this.appConfig) {
         throw new Error('App config not available');
       }
 
-      const bundle = readAgentConfig(this.projectRoot, this.appConfig);
+      const config = readConfig(this.projectRoot, this.appConfig);
 
       await submitDevResult(
         this.appId,
         this.session!.sessionId,
         request.requestId,
         {
-          type: 'get-agent-config',
+          type: 'get-config',
           success: true,
-          output: bundle,
+          output: config,
         },
       );
 
-      log.info('runner', 'Agent config sent', { requestId: request.requestId, duration: Date.now() - startTime });
+      log.info('runner', 'Config sent', { requestId: request.requestId });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      log.error('runner', 'Agent config failed', { requestId: request.requestId, error: message });
+      log.error('runner', 'Config failed', { requestId: request.requestId, error: message });
 
       try {
         await submitDevResult(
@@ -607,54 +605,13 @@ export class DevRunner {
           this.session!.sessionId,
           request.requestId,
           {
-            type: 'get-agent-config',
+            type: 'get-config',
             success: false,
             error: { message },
           },
         );
       } catch (submitErr) {
-        log.error('runner', 'Failed to report agent config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
-      }
-    }
-  }
-
-  private async handleGetAuthConfig(request: DevRequest): Promise<void> {
-    log.info('runner', 'Auth config requested', { requestId: request.requestId, sessionId: this.session!.sessionId });
-
-    try {
-      if (!this.appConfig) {
-        throw new Error('App config not available');
-      }
-
-      await submitDevResult(
-        this.appId,
-        this.session!.sessionId,
-        request.requestId,
-        {
-          type: 'get-auth-config',
-          success: true,
-          output: { auth: this.appConfig.auth ?? null, name: this.appConfig.name },
-        },
-      );
-
-      log.info('runner', 'Auth config sent', { requestId: request.requestId });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      log.error('runner', 'Auth config failed', { requestId: request.requestId, error: message });
-
-      try {
-        await submitDevResult(
-          this.appId,
-          this.session!.sessionId,
-          request.requestId,
-          {
-            type: 'get-auth-config',
-            success: false,
-            error: { message },
-          },
-        );
-      } catch (submitErr) {
-        log.error('runner', 'Failed to report auth config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
+        log.error('runner', 'Failed to report config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
       }
     }
   }

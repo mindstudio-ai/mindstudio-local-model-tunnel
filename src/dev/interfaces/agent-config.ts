@@ -1,11 +1,13 @@
 // Read the local agent interface config and inline all file references
 // into a single bundle the platform can use to run the agent loop.
 //
-// Called on every get-agent-config poll request — no caching, so edits
-// to system.md and tools/*.md are picked up immediately.
+// Called via readConfig() on every get-config poll request — no caching,
+// so edits to system.md and tools/*.md are picked up immediately.
 
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { extractInputSchema } from './schema/extract';
+import { EMPTY_OBJECT_SCHEMA } from './schema/types';
 import type { AppConfig } from '../config/types';
 
 export interface AgentConfigBundle {
@@ -16,7 +18,7 @@ export interface AgentConfigBundle {
   tools: Array<{
     name: string;
     description: string;
-    inputSchema?: Record<string, unknown>;
+    inputSchema: Record<string, unknown>;
   }>;
 }
 
@@ -64,9 +66,9 @@ export function readAgentConfig(
     );
   }
 
-  // Read and inline each tool description
+  // Read and inline each tool description + extract inputSchema from source
   const tools = (config.tools ?? []).map(
-    (tool: { method: string; description: string }) => {
+    (tool: { method: string; description: string; inputSchema?: Record<string, unknown> }) => {
       const descPath = join(agentDir, tool.description);
       let description: string;
       try {
@@ -76,10 +78,19 @@ export function readAgentConfig(
           `Agent tool description not found at ${tool.description} for method "${tool.method}" — run your build command`,
         );
       }
-      return {
-        name: tool.method,
-        description,
-      };
+
+      // Use compiled inputSchema if present, otherwise extract from TS source
+      let inputSchema: Record<string, unknown>;
+      if (tool.inputSchema) {
+        inputSchema = tool.inputSchema;
+      } else {
+        const method = appConfig.methods.find((m) => m.id === tool.method);
+        inputSchema = method
+          ? extractInputSchema(join(projectRoot, method.path), method.export)
+          : EMPTY_OBJECT_SCHEMA;
+      }
+
+      return { name: tool.method, description, inputSchema };
     },
   );
 

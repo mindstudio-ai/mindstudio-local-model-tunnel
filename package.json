@@ -1,6 +1,6 @@
 {
   "name": "@mindstudio-ai/local-model-tunnel",
-  "version": "0.5.37",
+  "version": "0.5.46",
   "description": "Run local AI models with MindStudio",
   "type": "module",
   "main": "dist/index.js",
@@ -50,6 +50,7 @@
     "open": "^10.2.0",
     "ora": "^8.0.0",
     "react": "^19.2.4",
+    "typescript": "^5.0.0",
     "ws": "^8.20.0"
   },
   "devDependencies": {
@@ -60,8 +61,7 @@
     "@types/ws": "^8.18.1",
     "prettier": "^3.8.1",
     "ts-node": "^10.9.0",
-    "tsup": "^8.5.1",
-    "typescript": "^5.0.0"
+    "tsup": "^8.5.1"
   },
   "publishConfig": {
     "access": "public"

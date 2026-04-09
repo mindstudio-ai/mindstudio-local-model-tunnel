@@ -105,6 +105,63 @@ export function logScenarioExecution(entry: ScenarioLogEntry): void {
   });
 }
 
+export function logMethodStart(
+  requestId: string,
+  sessionId: string,
+  method: string,
+  input: unknown,
+): void {
+  ndjsonLog.append({
+    ts: Date.now(),
+    level: 'info',
+    module: 'execution',
+    msg: 'Method started',
+    type: 'method-start',
+    requestId,
+    sessionId,
+    method,
+    input,
+  });
+}
+
+export function logMethodStdout(
+  requestId: string,
+  sessionId: string,
+  method: string,
+  lines: string[],
+): void {
+  ndjsonLog.append({
+    ts: Date.now(),
+    level: 'info',
+    module: 'execution',
+    msg: 'Method stdout',
+    type: 'method-stdout',
+    requestId,
+    sessionId,
+    method,
+    stdout: lines,
+  });
+}
+
+export function logBackgroundStdout(
+  requestId: string,
+  sessionId: string,
+  method: string,
+  lines: string[],
+): void {
+  ndjsonLog.append({
+    ts: Date.now(),
+    level: 'info',
+    module: 'execution',
+    msg: 'Background stdout',
+    type: 'method-background-stdout',
+    requestId,
+    sessionId,
+    method,
+    stdout: lines,
+  });
+}
+
 export function closeRequestLog(): void {
   ndjsonLog.close();
 }

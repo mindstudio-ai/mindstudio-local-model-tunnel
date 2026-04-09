@@ -690,6 +690,12 @@ export class DevProxy {
     // compressed chunks would break SSE streams piped back to the browser.
     delete headers['accept-encoding'];
 
+    // API routes need the dev release ID so the platform routes execution
+    // back through the tunnel's poll queue instead of the live release.
+    if (originalPath.startsWith('/_/api/') && this.clientContext.releaseId) {
+      headers['x-dev-session'] = this.clientContext.releaseId as string;
+    }
+
     const proxyReq = httpModule.request(
       {
         hostname: target.hostname,
@@ -1057,6 +1063,10 @@ export class DevProxy {
   } | null> {
     const apiBaseUrl = getApiBaseUrl();
     const url = new URL(`/_internal/v2/apps/${this.appId}/auth/me`, apiBaseUrl);
+    // Pass the dev release ID so the platform resolves the session against
+    // the dev release instead of the live release.
+    const releaseId = this.clientContext.releaseId as string | undefined;
+    if (releaseId) url.searchParams.set('releaseId', releaseId);
     const isHttps = url.protocol === 'https:';
     const httpModule = isHttps ? https : http;
 
@@ -1065,7 +1075,7 @@ export class DevProxy {
         {
           hostname: url.hostname,
           port: url.port || (isHttps ? 443 : 80),
-          path: url.pathname,
+          path: url.pathname + url.search,
           method: 'GET',
           headers: {
             cookie: `__ms_auth=${cookie}`,
