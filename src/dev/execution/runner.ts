@@ -160,6 +160,8 @@ export class DevRunner {
     methodExport: string;
     methodPath: string;
     input: unknown;
+    roles?: string[];
+    userId?: string;
   }): Promise<{ success: boolean; output?: unknown; error?: Record<string, unknown> | null; stdout?: string[]; duration: number }> {
     if (!this.session || !this.transpiler) {
       return { success: false, error: { message: 'Session not started' }, duration: 0 };
@@ -174,16 +176,15 @@ export class DevRunner {
       const authorizationToken = await fetchCallbackToken(this.appId, this.session.sessionId);
       const transpiledPath = await this.transpiler.transpile(opts.methodPath);
 
-      // Apply role override if impersonation is active (same logic as poll path)
-      const auth = this.roleOverride
+      // Per-request overrides > session impersonation > session default
+      const userId = opts.userId ?? this.session.auth.userId;
+      const roles = opts.roles ?? this.roleOverride;
+      const auth = roles
         ? {
-            userId: this.session.auth.userId,
-            roleAssignments: this.roleOverride.map((roleName) => ({
-              userId: this.session!.auth.userId,
-              roleName,
-            })),
+            userId,
+            roleAssignments: roles.map((roleName) => ({ userId, roleName })),
           }
-        : this.session.auth;
+        : { ...this.session.auth, userId };
 
       const result = await executeMethod({
         transpiledPath,

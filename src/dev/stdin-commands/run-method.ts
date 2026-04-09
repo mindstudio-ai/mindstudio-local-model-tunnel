@@ -22,6 +22,8 @@ export async function handleRunMethod(
     methodExport: method.export,
     methodPath: method.path,
     input: cmd.input ?? {},
+    roles: Array.isArray(cmd.roles) ? cmd.roles as string[] : undefined,
+    userId: typeof cmd.userId === 'string' ? cmd.userId : undefined,
   });
 
   return {
