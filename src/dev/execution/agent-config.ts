@@ -66,7 +66,7 @@ export function readAgentConfig(
 
   // Read and inline each tool description
   const tools = (config.tools ?? []).map(
-    (tool: { method: string; description: string }) => {
+    (tool: { method: string; description: string; inputSchema?: Record<string, unknown> }) => {
       const descPath = join(agentDir, tool.description);
       let description: string;
       try {
@@ -76,10 +76,12 @@ export function readAgentConfig(
           `Agent tool description not found at ${tool.description} for method "${tool.method}" — run your build command`,
         );
       }
-      return {
+      const entry: { name: string; description: string; inputSchema?: Record<string, unknown> } = {
         name: tool.method,
         description,
       };
+      if (tool.inputSchema) entry.inputSchema = tool.inputSchema;
+      return entry;
     },
   );
 
