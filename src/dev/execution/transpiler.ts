@@ -17,6 +17,7 @@ import { log } from '../logging/logger';
 export class Transpiler {
   private projectRoot: string;
   private outputFiles: Set<string> = new Set();
+  private outDir: string | null = null;
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
@@ -55,6 +56,7 @@ export class Transpiler {
     }
     const outDir = join(nodeModulesDir, '.cache', 'mindstudio-dev');
     await mkdir(outDir, { recursive: true });
+    this.outDir = outDir;
 
     const outfile = join(outDir, `${name}.__ms_dev__.mjs`);
 
@@ -73,6 +75,16 @@ export class Transpiler {
     this.outputFiles.add(outfile);
     log.info('transpiler', 'Method transpiled', { duration: Date.now() - start, methodPath, outfile });
     return outfile;
+  }
+
+  /**
+   * Get the output directory where transpiled files and the worker script
+   * are written. Returns null if no method has been transpiled yet.
+   * This is inside node_modules/.cache/mindstudio-dev/ — Node's module
+   * resolution can find @mindstudio-ai/agent from here.
+   */
+  getOutputDir(): string | null {
+    return this.outDir;
   }
 
   /**
