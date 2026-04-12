@@ -195,6 +195,7 @@ export class DevRunner {
         : { ...this.session.auth, userId };
 
       const result = await executeMethod({
+        requestId,
         transpiledPath,
         methodExport: opts.methodExport,
         input: opts.input,
@@ -272,10 +273,11 @@ export class DevRunner {
       return { success: false, databases: [], error: 'Session not started' };
     }
 
+    const requestId = randomBytes(8).toString('hex');
     const startTime = Date.now();
     const scenarioName = scenario.name ?? scenario.export;
 
-    log.info('runner', 'Scenario starting', { id: scenario.id, name: scenarioName });
+    log.info('runner', 'Scenario starting', { requestId, id: scenario.id, name: scenarioName });
 
     try {
       // 1. Truncate all tables (clean slate) unless caller opts out
@@ -295,6 +297,7 @@ export class DevRunner {
 
       log.debug('runner', 'Running scenario seed function', { export: scenario.export });
       const result = await executeMethod({
+        requestId,
         transpiledPath,
         methodExport: scenario.export,
         input: {},
@@ -468,6 +471,7 @@ export class DevRunner {
 
       // Execute in isolated child process
       const result = await executeMethod({
+        requestId: request.requestId,
         transpiledPath,
         methodExport: method.export,
         input: request.input,

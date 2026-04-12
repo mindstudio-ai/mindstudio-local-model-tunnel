@@ -29,6 +29,7 @@ import type { DevSession } from '../config/types';
 const EXECUTION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes — matches prod
 
 export interface ExecuteMethodOptions {
+  requestId: string;
   transpiledPath: string;
   methodExport: string;
   input: unknown;
@@ -494,7 +495,7 @@ async function executeMethodInWorker(
 ): Promise<ExecuteMethodResult> {
   const w = await ensureWorker(opts.projectRoot, dirname(opts.transpiledPath));
 
-  const id = randomBytes(8).toString('hex');
+  const id = opts.requestId;
 
   log.debug('executor', 'Sending method to execution process', { id, methodExport: opts.methodExport });
 
