@@ -122,17 +122,36 @@ grep '"success":false' .logs/requests.ndjson | jq .  # failed methods
 
 ### Stdin Commands
 
-Headless mode accepts NDJSON commands on stdin (one JSON object per line). Every command must include a `requestId` for response correlation:
+Headless mode accepts NDJSON commands on stdin (one JSON object per line). Every command must include a `requestId` for response correlation.
+
+**Response protocol:** All command responses include `event`, `requestId`, `status` ("started" or "completed"), and `success` (boolean). Failed responses include `error` (human-readable string) and `errorCode` (machine-readable code). System events (session lifecycle, connection health) have no `requestId`.
+
+**Error codes:**
+
+| Code | Meaning |
+|---|---|
+| `NO_SESSION` | No active dev session |
+| `NO_BROWSER` | No browser agent connected via WebSocket |
+| `BROWSER_TIMEOUT` | Browser command timed out (120s) |
+| `BROWSER_DISCONNECTED` | Browser disconnected mid-command |
+| `BROWSER_SEND_FAILED` | Failed to send command over WebSocket |
+| `BROWSER_ERROR` | Browser agent returned an error in step results |
+| `INVALID_INPUT` | Missing or invalid required fields |
+| `EXECUTION_ERROR` | Method/scenario/query threw during execution |
+| `UNKNOWN_ACTION` | Unrecognized action field |
+| `UPLOAD_FAILED` | Screenshot upload to S3 failed |
+| `INFRASTRUCTURE` | Catch-all for unexpected errors |
 
 **Run a method:**
 ```json
 {"requestId": "r1", "action": "run-method", "method": "listHaikus", "input": {"topic": "cats"}}
 ```
-Looks up the method by export name (falls back to ID). Executes it directly with a fresh callback token -- the method's SDK calls (db queries, etc.) still go through the platform. Response:
+Looks up the method by export name (falls back to ID). Executes it directly with a fresh callback token. Optional `roles` (string array) and `userId` (string) fields override the auth context for this execution without affecting session state. Response:
 ```json
 {"event": "run-method", "requestId": "r1", "status": "started", "method": "listHaikus"}
 {"event": "run-method", "requestId": "r1", "status": "completed", "success": true, "method": "listHaikus", "output": {...}, "duration": 145}
 ```
+On failure, `error` is a string message, `errorCode` is `EXECUTION_ERROR`, and `errorDetail` contains the full error object (with `message`, `stack`, etc.).
 
 **Run a scenario:**
 ```json
@@ -146,12 +165,18 @@ Resets the database, runs the seed function, and sets role overrides. Response i
 ```
 Sends commands to the browser agent via WebSocket. Commands execute sequentially; steps stop on first error. Response:
 ```json
-{"event": "browser", "requestId": "r3", "status": "completed", "steps": [{"index": 0, "command": "snapshot", "result": "navigation \"My App\" [ref=e1]\n  button \"Create\" [ref=e2]\n  ..."}], "duration": 250}
+{"event": "browser", "requestId": "r3", "status": "completed", "success": true, "steps": [{"index": 0, "command": "snapshot", "result": "..."}], "duration": 250}
 ```
-Times out after 30s if no browser is connected.
+Times out after 120s. If the browser disconnects mid-command, rejects after a 10s grace period (to allow for navigation reconnects).
 
 Available commands:
 - `snapshot` -- returns a compact accessibility-tree-style representation of the page DOM, with stable `[ref=eN]` identifiers on interactive elements. Waits for network requests to settle before walking.
+
+**Check browser connection:**
+```json
+{"requestId": "r3b", "action": "browser-status"}
+```
+Returns `{"connected": true/false}`. Use before sending browser commands to avoid waiting for a timeout.
 
 **Set/clear role override:**
 ```json
@@ -159,7 +184,17 @@ Available commands:
 {"requestId": "r5", "action": "clear-impersonation"}
 ```
 
-**Response protocol:** All command responses include `requestId` and `status` ("started" or "completed"). System events (session lifecycle, connection health, platform-triggered methods) have no `requestId`. Commands without `requestId` are rejected to stderr. Errors are always in the `completed` response, never as separate events. See HEADLESS.md for full protocol details.
+**Setup browser auth:**
+```json
+{"requestId": "r6", "action": "setup-browser", "auth": {"email": "user@example.com", "roles": ["admin"]}, "path": "/dashboard"}
+```
+Mints an auth cookie, injects it into the browser, reloads, and optionally navigates to a path.
+
+**Database query:**
+```json
+{"requestId": "r7", "action": "db-query", "sql": "SELECT * FROM users LIMIT 10"}
+```
+Executes a SQL query against the dev database. Optional `databaseId` field; defaults to the first database.
 
 ### Browser Agent
 
@@ -202,3 +237,9 @@ If the platform returns a 401 during polling, the runner automatically initiates
 ### Method Execution
 
 Methods run in a persistent worker process (spawned via `fork()`) to avoid Node.js cold-start overhead on each invocation. The worker stays warm across method calls -- the Node runtime and SDK modules are loaded once. The worker is respawned if it crashes, and killed on session stop.
+
+**Auth context:** Dev sessions default to anonymous (`auth.userId = null`, `auth.roles = []`), matching production behavior. Users get a real identity by logging in through the app's auth flow, impersonating via a scenario, or passing `roles`/`userId` on `run-method`. The platform developer's identity never leaks into the app auth context.
+
+**Execution modes:** SDK >= 0.1.46 uses `runWithContext()` + AsyncLocalStorage for concurrent execution with per-request auth scoping. Older SDKs use a serialized queue with global state. Detection is automatic based on installed `@mindstudio-ai/agent` version.
+
+**Secrets:** Per-request `secrets` (from the poll queue) are injected into `process.env` before each method execution and cleaned up after. Never logged or persisted.

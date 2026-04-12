@@ -22,10 +22,12 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { log } from '../logging/logger';
 import { appendBrowserLogEntries } from '../logging/browser-log';
 import { ClientRegistry } from './ws-clients';
+import { CommandError } from '../stdin-commands/types';
 import { getApiBaseUrl } from '../../config';
 
 interface PendingResult {
   resolve: (result: Record<string, unknown>) => void;
+  reject: (err: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
   clientId: string;
 }
@@ -91,9 +93,7 @@ export class DevProxy {
   ): Promise<Record<string, unknown>> {
     if (!this.clients.hasConnected()) {
       return Promise.reject(
-        new Error(
-          'No browser connected, please refresh the MindStudio preview',
-        ),
+        new CommandError('No browser connected', 'NO_BROWSER'),
       );
     }
 
@@ -121,6 +121,15 @@ export class DevProxy {
    * Try to send the next queued command to an available client.
    */
   private drainCommandQueue(): void {
+    // Reject all queued commands if no clients are connected at all
+    if (!this.clients.hasConnected() && this.commandQueue.length > 0) {
+      const orphaned = this.commandQueue.splice(0);
+      for (const cmd of orphaned) {
+        cmd.reject(new CommandError('No browser connected', 'NO_BROWSER'));
+      }
+      return;
+    }
+
     while (this.commandQueue.length > 0) {
       const target = this.clients.getCommandTarget();
       if (!target) break; // no idle client available
@@ -145,11 +154,11 @@ export class DevProxy {
           id,
           pendingCount: this.pendingResults.size,
         });
-        reject(new Error('Browser command timed out'));
+        reject(new CommandError('Browser command timed out', 'BROWSER_TIMEOUT'));
         this.drainCommandQueue();
       }, timeoutMs);
 
-      this.pendingResults.set(id, { resolve, timeout, clientId: target.id });
+      this.pendingResults.set(id, { resolve, reject, timeout, clientId: target.id });
       target.activeCommandId = id;
 
       try {
@@ -162,7 +171,7 @@ export class DevProxy {
           id,
           clientId: target.id,
         });
-        reject(new Error('Failed to send command to browser'));
+        reject(new CommandError('Failed to send command to browser', 'BROWSER_SEND_FAILED'));
         // Continue draining — next command might target a different client
       }
     }
@@ -277,15 +286,15 @@ export class DevProxy {
     }
 
     // Reject pending commands so callers don't hang
-    for (const [id, pending] of this.pendingResults) {
+    for (const [, pending] of this.pendingResults) {
       clearTimeout(pending.timeout);
-      pending.resolve({ id, steps: [], error: 'Proxy stopped' });
+      pending.reject(new CommandError('Proxy stopped', 'INFRASTRUCTURE'));
     }
     this.pendingResults.clear();
 
     // Reject queued commands
     for (const queued of this.commandQueue) {
-      queued.reject(new Error('Proxy stopped'));
+      queued.reject(new CommandError('Proxy stopped', 'INFRASTRUCTURE'));
     }
     this.commandQueue.length = 0;
   }
@@ -418,17 +427,20 @@ export class DevProxy {
       clearTimeout(helloTimeout);
       if (clientId) {
         const client = this.clients.remove(clientId);
-        // Don't reject the pending command — the browser may reconnect
-        // after a navigation and deliver the result via resumePendingNavigation.
-        // The command's own timeout is the safety net if it never arrives.
+        // Browser may reconnect after a navigation and deliver the result
+        // (stash/resume pattern). Give a short grace period, then reject
+        // if no client reconnects — avoids waiting the full command timeout
+        // when the browser is truly gone.
         if (client?.activeCommandId) {
-          log.debug(
-            'proxy',
-            'Browser disconnected with active command, keeping pending',
-            {
-              commandId: client.activeCommandId,
-            },
-          );
+          const commandId = client.activeCommandId;
+          log.debug('proxy', 'Browser disconnected with active command', { commandId });
+          setTimeout(() => {
+            // If still pending and no client has picked it up, reject
+            if (this.pendingResults.has(commandId) && !this.clients.findByCommandId(commandId)) {
+              this.rejectPendingCommand(commandId, new CommandError('Browser disconnected', 'BROWSER_DISCONNECTED'));
+              this.drainCommandQueue();
+            }
+          }, 10_000);
         }
       }
     });
@@ -472,13 +484,13 @@ export class DevProxy {
     }
   }
 
-  private rejectPendingCommand(commandId: string, reason: string): void {
+  private rejectPendingCommand(commandId: string, error: CommandError): void {
     const pending = this.pendingResults.get(commandId);
     if (pending) {
       clearTimeout(pending.timeout);
       this.pendingResults.delete(commandId);
-      pending.resolve({ id: commandId, steps: [], error: reason });
-      log.warn('proxy', 'Pending command rejected', { id: commandId, reason });
+      pending.reject(error);
+      log.warn('proxy', 'Pending command rejected', { id: commandId, code: error.code, reason: error.message });
 
       // Client slot freed — dispatch next queued command
       this.drainCommandQueue();
@@ -497,7 +509,7 @@ export class DevProxy {
         if (activeCommandId) {
           this.rejectPendingCommand(
             activeCommandId,
-            'Browser client timed out',
+            new CommandError('Browser client timed out', 'BROWSER_DISCONNECTED'),
           );
         }
       }

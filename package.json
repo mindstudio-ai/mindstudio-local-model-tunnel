@@ -1,6 +1,6 @@
 {
   "name": "@mindstudio-ai/local-model-tunnel",
-  "version": "0.5.48",
+  "version": "0.5.49",
   "description": "Run local AI models with MindStudio",
   "type": "module",
   "main": "dist/index.js",
@@ -28,38 +28,36 @@
     "dist"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/mindstudio-ai/mindstudio-local-model-tunnel"
   },
   "dependencies": {
-    "chalk": "^5.3.0",
+    "chalk": "^5.6.2",
     "chokidar": "^5.0.0",
-    "commander": "^12.0.0",
-    "conf": "^12.0.0",
-    "esbuild": "^0.24.0",
-    "ink": "^6.6.0",
+    "conf": "^15.1.0",
+    "esbuild": "^0.28.0",
+    "ink": "^7.0.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "marked": "^15.0.12",
     "marked-terminal": "^7.3.0",
-    "ollama": "^0.5.0",
-    "open": "^10.2.0",
-    "ora": "^8.0.0",
-    "react": "^19.2.4",
-    "typescript": "^5.0.0",
+    "ollama": "^0.6.3",
+    "open": "^11.0.0",
+    "react": "^19.2.5",
+    "typescript": "^6.0.2",
     "ws": "^8.20.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/marked-terminal": "^6.1.1",
-    "@types/node": "^20.0.0",
-    "@types/react": "^19.2.10",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
     "@types/ws": "^8.18.1",
-    "prettier": "^3.8.1",
-    "ts-node": "^10.9.0",
+    "prettier": "^3.8.2",
+    "ts-node": "^10.9.2",
     "tsup": "^8.5.1"
   },
   "publishConfig": {

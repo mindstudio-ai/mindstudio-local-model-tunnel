@@ -1,15 +1,16 @@
 import { getUploadUrl } from '../api';
+import { CommandError } from './types';
 import type { CommandContext } from './types';
 
 export async function handleBrowser(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!ctx.state.proxy) throw new Error('No active proxy — browser commands require a web interface');
+  if (!ctx.state.proxy) throw new CommandError('No active proxy', 'NO_BROWSER');
 
   const steps = cmd.steps as Array<Record<string, unknown>>;
   if (!Array.isArray(steps) || steps.length === 0) {
-    throw new Error('browser action requires a non-empty "steps" array');
+    throw new CommandError('browser action requires a non-empty "steps" array', 'INVALID_INPUT');
   }
 
   // Inject upload details into any screenshotViewport steps so the browser
@@ -30,7 +31,12 @@ export async function handleBrowser(
     }
   }
 
+  // Check for step-level errors from the browser agent
+  const hasStepError = resultSteps.some((s) => s.error);
+
   return {
+    success: !hasStepError,
+    ...(hasStepError ? { errorCode: 'BROWSER_ERROR' } : {}),
     steps: resultSteps,
     snapshot: result.snapshot,
     logs: result.logs,
