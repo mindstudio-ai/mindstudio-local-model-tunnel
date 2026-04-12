@@ -20,6 +20,7 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { writeFile, unlink } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { log } from '../logging/logger';
@@ -312,7 +313,11 @@ process.send({ type: 'ready' });
 
 function detectAlsSupport(projectRoot: string): boolean {
   try {
-    const pkgPath = join(projectRoot, 'node_modules', '@mindstudio-ai', 'agent', 'package.json');
+    // Use createRequire to find the package wherever Node's module
+    // resolution locates it (e.g. dist/methods/node_modules/ in sandboxes),
+    // rather than assuming a fixed path under projectRoot/node_modules/.
+    const localRequire = createRequire(join(projectRoot, 'package.json'));
+    const pkgPath = localRequire.resolve('@mindstudio-ai/agent/package.json');
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
     const parts = (pkg.version || '').split('.').map(Number);
     const [major = 0, minor = 0, patch = 0] = parts;
