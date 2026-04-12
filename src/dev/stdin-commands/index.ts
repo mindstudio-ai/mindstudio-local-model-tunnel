@@ -18,6 +18,7 @@ import { handleBrowserStatus } from './browser-status';
 import { handleResetBrowser } from './reset-browser';
 import { handleDbQuery } from './db-query';
 import { handleSetupBrowser } from './setup-browser';
+import { CommandError } from './types';
 import type { SessionState, CommandContext, CommandHandler } from './types';
 
 export type { SessionState } from './types';
@@ -82,6 +83,7 @@ async function handleStdinCommand(
     emitResponse(action ?? 'unknown', requestId, 'completed', {
       success: false,
       error: `Unknown action: ${action}`,
+      errorCode: 'UNKNOWN_ACTION',
     });
     return;
   }
@@ -100,10 +102,13 @@ async function handleStdinCommand(
     log.info('stdin', 'Command complete', { requestId, action, success: result.success !== false });
     emitResponse(action, requestId, 'completed', result);
   } catch (err) {
-    log.warn('stdin', 'Command failed', { requestId, action, error: err instanceof Error ? err.message : String(err) });
+    const code = err instanceof CommandError ? err.code : 'INFRASTRUCTURE';
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn('stdin', 'Command failed', { requestId, action, error: message, errorCode: code });
     emitResponse(action, requestId, 'completed', {
       success: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
+      errorCode: code,
     });
   }
 }

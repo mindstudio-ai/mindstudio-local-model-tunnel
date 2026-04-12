@@ -1,16 +1,17 @@
 import { getUploadUrl } from '../api';
+import { CommandError } from './types';
 import type { CommandContext } from './types';
 
 export async function handleScreenshotFullPage(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!ctx.state.proxy) throw new Error('No active proxy');
+  if (!ctx.state.proxy) throw new CommandError('No active proxy', 'NO_BROWSER');
   if (!ctx.state.proxy.isBrowserConnected()) {
-    throw new Error('No browser connected, please refresh the MindStudio preview');
+    throw new CommandError('No browser connected', 'NO_BROWSER');
   }
   if (!ctx.state.runner?.getSession() || !ctx.state.appConfig?.appId) {
-    throw new Error('No active session');
+    throw new CommandError('No active session', 'NO_SESSION');
   }
 
   const startTime = Date.now();
@@ -39,10 +40,11 @@ export async function handleScreenshotFullPage(
     ?.result as { width: number; height: number; uploaded?: boolean; styleMap?: string } | undefined;
 
   if (!stepResult?.uploaded) {
-    throw new Error('Screenshot capture or upload failed');
+    throw new CommandError('Screenshot capture or upload failed', 'UPLOAD_FAILED');
   }
 
   return {
+    success: true,
     url: publicUrl,
     width: stepResult.width,
     height: stepResult.height,

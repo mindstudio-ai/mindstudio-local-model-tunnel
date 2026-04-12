@@ -147,6 +147,34 @@ console.error = (...args) => {
 // Track secret keys so we can clean up between requests
 let _activeSecretKeys = [];
 
+// ---------------------------------------------------------------------------
+// Single flush loop for all active requests
+// ---------------------------------------------------------------------------
+// One interval sweeps all tracked requests instead of one interval per
+// request. This stays efficient even with thousands of concurrent requests.
+
+const BACKGROUND_TIMEOUT = 30 * 60 * 1000; // 30 minutes after method returns
+
+const activeRequests = new Map();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, req] of activeRequests) {
+    if (req.stdout.length > req.flushed) {
+      const lines = req.stdout.slice(req.flushed);
+      req.flushed = req.stdout.length;
+      try {
+        process.send({ type: req.done ? 'background-stdout' : 'stdout', id, lines });
+      } catch {}
+    } else if (req.done && now - req.doneAt > BACKGROUND_TIMEOUT) {
+      activeRequests.delete(id);
+      try { process.send({ type: 'stdout-end', id }); } catch {}
+    }
+  }
+}, 1000);
+
+// ---------------------------------------------------------------------------
+
 process.on('message', async (msg) => {
   const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, streamId, secrets } = msg;
 
@@ -163,36 +191,15 @@ process.on('message', async (msg) => {
     streamId: streamId ?? undefined,
   };
 
-  const stdout = [];
-  let flushed = 0;
-  let done = false;
-
-  // Flush new stdout lines every 1s while the method is running.
-  // After the method returns, switches to background-stdout type.
-  const flushInterval = setInterval(() => {
-    if (stdout.length > flushed) {
-      const lines = stdout.slice(flushed);
-      flushed = stdout.length;
-      try {
-        process.send({ type: done ? 'background-stdout' : 'stdout', id, lines });
-      } catch {}
-      idleTicks = 0;
-    } else if (done) {
-      idleTicks++;
-      if (idleTicks >= 2) {
-        clearInterval(flushInterval);
-        try { process.send({ type: 'stdout-end', id }); } catch {}
-      }
-    }
-  }, 1000);
-  let idleTicks = 0;
+  const req = { stdout: [], flushed: 0, done: false, doneAt: 0 };
+  activeRequests.set(id, req);
 
   process.send({ type: 'start', id });
 
   const startTime = Date.now();
 
   try {
-    const returnValue = await consoleAls.run(stdout, () =>
+    const returnValue = await consoleAls.run(req.stdout, () =>
       runWithContext(ctx, async () => {
         const mod = await import(transpiledPath + '?t=' + Date.now());
         const fn = mod[methodExport];
@@ -205,22 +212,24 @@ process.on('message', async (msg) => {
     const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
 
     // Final flush of any remaining lines before sending result
-    if (stdout.length > flushed) {
-      try { process.send({ type: 'stdout', id, lines: stdout.slice(flushed) }); } catch {}
-      flushed = stdout.length;
+    if (req.stdout.length > req.flushed) {
+      try { process.send({ type: 'stdout', id, lines: req.stdout.slice(req.flushed) }); } catch {}
+      req.flushed = req.stdout.length;
     }
 
-    done = true;
+    req.done = true;
+    req.doneAt = Date.now();
     process.send({ id, success: true, output: returnValue, stats });
   } catch (err) {
     const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
 
-    if (stdout.length > flushed) {
-      try { process.send({ type: 'stdout', id, lines: stdout.slice(flushed) }); } catch {}
-      flushed = stdout.length;
+    if (req.stdout.length > req.flushed) {
+      try { process.send({ type: 'stdout', id, lines: req.stdout.slice(req.flushed) }); } catch {}
+      req.flushed = req.stdout.length;
     }
 
-    done = true;
+    req.done = true;
+    req.doneAt = Date.now();
     process.send({ id, success: false, error: serializeError(err), stats });
   }
 });
