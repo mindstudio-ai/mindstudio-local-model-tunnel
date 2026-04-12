@@ -17,9 +17,9 @@
 // on cleanup.
 
 import { fork, type ChildProcess } from 'node:child_process';
-import { writeFile, unlink } from 'node:fs/promises';
+import { writeFile, unlink, mkdir } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { log } from '../logging/logger';
@@ -29,6 +29,7 @@ import type { DevSession } from '../config/types';
 const EXECUTION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes — matches prod
 
 export interface ExecuteMethodOptions {
+  requestId: string;
   transpiledPath: string;
   methodExport: string;
   input: unknown;
@@ -310,17 +311,32 @@ process.send({ type: 'ready' });
 // SDK version detection
 // ---------------------------------------------------------------------------
 
-function detectAlsSupport(projectRoot: string): boolean {
-  try {
-    const pkgPath = join(projectRoot, 'node_modules', '@mindstudio-ai', 'agent', 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    const parts = (pkg.version || '').split('.').map(Number);
-    const [major = 0, minor = 0, patch = 0] = parts;
-    // runWithContext was added in 0.1.46
-    return major > 0 || minor > 1 || (minor === 1 && patch >= 46);
-  } catch {
-    return false;
+/**
+ * Detect ALS support by checking the @mindstudio-ai/agent version.
+ * Uses the transpiler's output directory to locate the package — the
+ * transpiled methods resolve imports from there, so the agent package
+ * is guaranteed to be findable from that location.
+ */
+function detectAlsSupport(scriptDir: string): boolean {
+  // Walk up from scriptDir (e.g. dist/methods/node_modules/.cache/mindstudio-dev/)
+  // to find @mindstudio-ai/agent/package.json via normal node_modules resolution.
+  let dir = scriptDir;
+  while (true) {
+    const candidate = join(dir, 'node_modules', '@mindstudio-ai', 'agent', 'package.json');
+    try {
+      const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
+      const parts = (pkg.version || '').split('.').map(Number);
+      const [major = 0, minor = 0, patch = 0] = parts;
+      // runWithContext was added in 0.1.46
+      return major > 0 || minor > 1 || (minor === 1 && patch >= 46);
+    } catch {
+      // Not at this level — walk up
+    }
+    const parent = join(dir, '..');
+    if (parent === dir) break;
+    dir = parent;
   }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -328,7 +344,7 @@ function detectAlsSupport(projectRoot: string): boolean {
 // ---------------------------------------------------------------------------
 
 /** Ensure a live worker process exists; spawn one if needed. */
-async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
+async function ensureWorker(projectRoot: string, scriptDir?: string): Promise<ChildProcess> {
   // Respawn if worker died or project root changed
   if (worker?.connected && workerProjectRoot === projectRoot) {
     return worker;
@@ -353,13 +369,20 @@ async function ensureWorker(projectRoot: string): Promise<ChildProcess> {
     workerScriptPath = null;
   }
 
-  // Detect execution mode
-  workerSupportsAls = detectAlsSupport(projectRoot);
-  log.info('executor', 'SDK context support', { als: workerSupportsAls });
+  // Detect execution mode — use the transpiler's output directory for
+  // module resolution (the agent package is findable from there).
+  workerSupportsAls = scriptDir ? detectAlsSupport(scriptDir) : false;
+  log.info('executor', 'SDK context support', { als: workerSupportsAls, scriptDir: scriptDir ?? null });
 
-  // Write worker script
+  // Write worker script in the same directory as transpiled methods so
+  // the ALS worker's `import '@mindstudio-ai/agent'` resolves correctly.
+  // Falls back to /tmp/ for legacy mode (no agent import needed).
+  const workerDir = workerSupportsAls && scriptDir ? scriptDir : tmpdir();
+  if (workerDir !== tmpdir()) {
+    await mkdir(workerDir, { recursive: true });
+  }
   const scriptPath = join(
-    tmpdir(),
+    workerDir,
     `ms-dev-worker-${randomBytes(4).toString('hex')}.mjs`,
   );
   const script = workerSupportsAls ? buildAlsWorkerScript() : buildLegacyWorkerScript();
@@ -470,9 +493,9 @@ export function executeMethod(
 async function executeMethodInWorker(
   opts: ExecuteMethodOptions,
 ): Promise<ExecuteMethodResult> {
-  const w = await ensureWorker(opts.projectRoot);
+  const w = await ensureWorker(opts.projectRoot, dirname(opts.transpiledPath));
 
-  const id = randomBytes(8).toString('hex');
+  const id = opts.requestId;
 
   log.debug('executor', 'Sending method to execution process', { id, methodExport: opts.methodExport });
 
