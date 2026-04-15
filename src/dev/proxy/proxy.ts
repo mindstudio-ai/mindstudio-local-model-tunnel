@@ -149,7 +149,13 @@ export class DevProxy {
       const timeout = setTimeout(() => {
         this.pendingResults.delete(id);
         const client = this.clients.findByCommandId(id);
-        if (client) client.activeCommandId = null;
+        if (client) {
+          // Client didn't respond — treat it as dead so subsequent
+          // commands don't get dispatched to the same zombie.
+          log.warn('proxy', 'Removing unresponsive browser client', { clientId: client.id });
+          this.clients.remove(client.id);
+          try { client.ws.terminate(); } catch {}
+        }
         log.warn('proxy', 'Browser command timed out', {
           id,
           pendingCount: this.pendingResults.size,
