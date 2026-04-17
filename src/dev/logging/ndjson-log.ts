@@ -18,8 +18,8 @@ export class NdjsonLog {
   constructor(
     private readonly filename: string,
     private readonly maxLines = 500,
-    private readonly keepLines = 300,
     private readonly maxBytes = 2 * 1024 * 1024,
+    private readonly keepBytes = 1 * 1024 * 1024,
   ) {}
 
   init(projectRoot: string): void {
@@ -39,6 +39,9 @@ export class NdjsonLog {
       }
 
       this.fd = fs.openSync(this.logPath, 'a');
+      // If the file was left over-cap by a previous run, rotate now so the
+      // first append doesn't race against a huge file.
+      this.maybeRotate();
       log.debug('logging', `${this.filename} log initialized`, {
         path: this.logPath,
         existingEntries: this.lineCount,
@@ -96,7 +99,18 @@ export class NdjsonLog {
 
       const content = fs.readFileSync(this.logPath, 'utf-8');
       const lines = content.split('\n').filter((l) => l.trim());
-      const kept = lines.slice(-this.keepLines);
+
+      // Walk from the newest line backwards, keeping lines until the next one
+      // would push us over the byte budget. Always keep at least one line so a
+      // single pathologically-large entry doesn't empty the file entirely.
+      const kept: string[] = [];
+      let bytes = 0;
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const lineBytes = Buffer.byteLength(lines[i], 'utf-8') + 1;
+        if (bytes + lineBytes > this.keepBytes && kept.length > 0) break;
+        kept.unshift(lines[i]);
+        bytes += lineBytes;
+      }
 
       fs.closeSync(this.fd);
       fs.writeFileSync(this.logPath, kept.join('\n') + '\n', 'utf-8');
