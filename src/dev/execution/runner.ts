@@ -19,6 +19,7 @@ import {
   impersonate,
   refreshContext,
   fetchCallbackToken,
+  createAuthSession,
   ApiError,
   DevPollError,
 } from '../api';
@@ -36,6 +37,14 @@ import { readConfig } from '../interfaces/read-config';
 import type { DevProxy } from '../proxy/proxy';
 import type { DevSession, DevRequest, DevResult, AppScenario, AppConfig } from '../config/types';
 
+// Reserved sentinel on run-method's userId: resolves to the dev-bypass user
+// (find-or-create via platform), so agents can invoke auth-gated methods
+// without round-tripping a scenario-seeded ID. The platform bypasses OTP
+// verification for either identifier.
+const TEST_USER_SENTINEL = 'testUser';
+const TEST_USER_EMAIL = 'remy@mindstudio.ai';
+const TEST_USER_PHONE = '+15555555555';
+
 export class DevRunner {
   private isRunning = false;
   private session: DevSession | null = null;
@@ -46,6 +55,7 @@ export class DevRunner {
   private proxy: DevProxy | null = null;
   private appConfig: AppConfig | null = null;
   private roleOverride: string[] | null = null;
+  private testUserId: string | null = null;
 
   constructor(
     private readonly appId: string,
@@ -184,8 +194,12 @@ export class DevRunner {
       const authorizationToken = await fetchCallbackToken(this.appId, this.session.sessionId);
       const transpiledPath = await this.transpiler.transpile(opts.methodPath);
 
-      // Per-request overrides > session impersonation > session default
-      const userId = opts.userId ?? this.session.auth.userId;
+      // Per-request overrides > session impersonation > session default.
+      // "testUser" is a reserved sentinel — resolves to the dev-bypass user.
+      const userId =
+        opts.userId === TEST_USER_SENTINEL
+          ? await this.resolveTestUserId()
+          : (opts.userId ?? this.session.auth.userId);
       const roles = opts.roles ?? this.roleOverride;
       const auth = roles
         ? {
@@ -685,6 +699,41 @@ export class DevRunner {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async resolveTestUserId(): Promise<string> {
+    if (this.testUserId) return this.testUserId;
+    const auth = this.appConfig?.auth;
+    if (!auth?.enabled) {
+      throw new Error(
+        `Cannot resolve userId="${TEST_USER_SENTINEL}": auth is not enabled in mindstudio.json. ` +
+          `Add an "auth" block with enabled: true and a users table.`,
+      );
+    }
+    // Prefer email when both are configured — it's the more common dev setup.
+    const methods = auth.methods ?? [];
+    const hasEmail = methods.some((m) => m.includes('email'));
+    const hasPhone = methods.some((m) => m.includes('phone'));
+    let opts: { email?: string; phone?: string };
+    if (hasEmail) {
+      opts = { email: TEST_USER_EMAIL };
+    } else if (hasPhone) {
+      opts = { phone: TEST_USER_PHONE };
+    } else {
+      throw new Error(
+        `Cannot resolve userId="${TEST_USER_SENTINEL}": auth.methods in mindstudio.json ` +
+          `does not include an email- or phone-based method (got ${JSON.stringify(methods)}).`,
+      );
+    }
+    const { user } = await createAuthSession(this.appId, opts);
+    const id = (user as { id?: unknown }).id;
+    if (typeof id !== 'string') {
+      throw new Error(
+        `createAuthSession did not return a string user.id for the test user`,
+      );
+    }
+    this.testUserId = id;
+    return id;
   }
 }
 

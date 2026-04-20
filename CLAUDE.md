@@ -146,7 +146,7 @@ Headless mode accepts NDJSON commands on stdin (one JSON object per line). Every
 ```json
 {"requestId": "r1", "action": "run-method", "method": "listHaikus", "input": {"topic": "cats"}}
 ```
-Looks up the method by export name (falls back to ID). Executes it directly with a fresh callback token. Optional `roles` (string array) and `userId` (string) fields override the auth context for this execution without affecting session state. Response:
+Looks up the method by export name (falls back to ID). Executes it directly with a fresh callback token. Optional `roles` (string array) and `userId` (string) fields override the auth context for this execution without affecting session state. `userId: "testUser"` is a reserved sentinel that resolves to the platform's dev-bypass user (find-or-created by email `remy@mindstudio.ai` for email-auth apps, or phone `+15555555555` for phone-auth apps — the platform bypasses OTP verification for both), cached for the session. Use it to invoke auth-gated methods without first seeding a user through a scenario. Response:
 ```json
 {"event": "run-method", "requestId": "r1", "status": "started", "method": "listHaikus"}
 {"event": "run-method", "requestId": "r1", "status": "completed", "success": true, "method": "listHaikus", "output": {...}, "duration": 145}
