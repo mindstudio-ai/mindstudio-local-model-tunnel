@@ -351,8 +351,13 @@ export class DevProxy {
         clearTimeout(helloTimeout);
 
         const helloUrl = String(msg.url || '');
+        // A client is the sandbox's headless Chrome when BOTH:
+        //   1. the hello comes from loopback (127.0.0.1 / ::1)
+        //   2. the agent flagged itself (sessionStorage-backed, survives
+        //      `location.href='/'` reloads) OR the URL still has the marker
         const isSandboxBrowser =
-          isLoopback && helloUrl.includes('ms_sandbox=1');
+          isLoopback &&
+          (msg.sandbox === true || helloUrl.includes('ms_sandbox=1'));
         const mode: 'iframe' | 'standalone' | 'mirror' | 'headless' =
           isSandboxBrowser
             ? 'headless'
@@ -361,6 +366,15 @@ export class DevProxy {
               : msg.mode === 'mirror'
                 ? 'mirror'
                 : 'standalone';
+
+        log.debug('proxy', 'WS hello received', {
+          remoteAddr,
+          isLoopback,
+          helloMode: msg.mode,
+          helloSandbox: msg.sandbox,
+          helloUrl,
+          resolvedMode: mode,
+        });
         const viewport = (msg.viewport as { w: number; h: number }) || {
           w: 0,
           h: 0,

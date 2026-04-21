@@ -28,8 +28,15 @@ export async function handleScreenshotFullPage(
   //    pixels directly and skip the WS round-trip. On any failure fall
   //    through to the WS path so we never harden user-visible errors.
   const page = ctx.state.browser?.getActivePage();
+  log.debug('browser', 'screenshotFullPage dispatch decision', {
+    hasActivePage: !!page,
+    path: typeof cmd.path === 'string' ? cmd.path : null,
+  });
   if (page) {
     try {
+      log.info('browser', 'screenshotFullPage via CDP', {
+        path: typeof cmd.path === 'string' ? cmd.path : null,
+      });
       const r = await captureViaCdp(page, {
         fullPage: true,
         path: typeof cmd.path === 'string' ? cmd.path : undefined,

@@ -73,6 +73,11 @@ export class BrowserSupervisor {
   private async launchOnce(): Promise<void> {
     if (this.stopping) return;
 
+    log.info('browser', 'Sandbox browser launch starting', {
+      proxyPort: this.proxyPort,
+      attempt: this.consecutiveFailures + 1,
+    });
+
     try {
       const launched = await launchSandboxBrowser({ proxyPort: this.proxyPort });
       if (!launched) {

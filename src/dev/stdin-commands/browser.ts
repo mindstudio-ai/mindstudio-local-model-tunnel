@@ -26,7 +26,15 @@ export async function handleBrowser(
   // next WS sub-batch so we never harden existing behavior.
   const page = ctx.state.browser?.getActivePage();
   const hasInterceptable = preparedSteps.some(isInterceptableStep);
+  log.debug('browser', 'handleBrowser dispatch decision', {
+    hasActivePage: !!page,
+    hasInterceptable,
+    stepCommands: preparedSteps.map((s) => s.command),
+  });
   if (page && hasInterceptable) {
+    log.info('browser', 'handleBrowser using split-dispatch (CDP + WS)', {
+      stepCount: preparedSteps.length,
+    });
     const result = await dispatchSplit(ctx, preparedSteps, page);
     normalizeUploadedResults(result.steps);
     return result;
