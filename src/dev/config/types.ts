@@ -60,6 +60,8 @@ export interface AppInterface {
 export interface WebInterfaceConfig {
   devPort?: number;
   devCommand?: string;
+  /** Default preview viewport for the editor and the sandbox-owned Chrome. */
+  defaultPreviewMode?: 'desktop' | 'mobile';
 }
 
 /** Response from POST /_internal/v2/apps/{appId}/dev/manage/start.

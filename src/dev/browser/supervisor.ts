@@ -15,7 +15,7 @@
  */
 
 import type { Browser, Page } from 'puppeteer-core';
-import { launchSandboxBrowser } from './launcher';
+import { launchSandboxBrowser, type PreviewMode } from './launcher';
 import { log } from '../logging/logger';
 
 const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
@@ -30,7 +30,10 @@ export class BrowserSupervisor {
   private consecutiveFailures = 0;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private readonly proxyPort: number) {}
+  constructor(
+    private readonly proxyPort: number,
+    private readonly previewMode: PreviewMode = 'desktop',
+  ) {}
 
   async start(): Promise<void> {
     if (this.browser) return;
@@ -79,7 +82,10 @@ export class BrowserSupervisor {
     });
 
     try {
-      const launched = await launchSandboxBrowser({ proxyPort: this.proxyPort });
+      const launched = await launchSandboxBrowser({
+        proxyPort: this.proxyPort,
+        previewMode: this.previewMode,
+      });
       if (!launched) {
         // No Chrome executable — enter degraded mode permanently for this session.
         this.degraded = true;

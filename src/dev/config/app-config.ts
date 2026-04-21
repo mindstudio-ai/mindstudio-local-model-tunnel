@@ -86,6 +86,12 @@ export function getWebInterfaceConfig(
     return {
       devPort: typeof web.devPort === 'number' ? web.devPort : undefined,
       devCommand: typeof web.devCommand === 'string' ? web.devCommand : undefined,
+      defaultPreviewMode:
+        web.defaultPreviewMode === 'mobile'
+          ? 'mobile'
+          : web.defaultPreviewMode === 'desktop'
+            ? 'desktop'
+            : undefined,
     };
   } catch {
     return null;

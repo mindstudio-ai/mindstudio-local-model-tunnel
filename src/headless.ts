@@ -155,9 +155,13 @@ async function startSession(
 
       // Optional sandbox-side headless Chrome. Connects back to the proxy
       // as just another WS client; the proxy registers it with mode='headless'
-      // and getCommandTarget() prefers it for automation.
+      // and getCommandTarget() prefers it for automation. Viewport follows
+      // the web interface's defaultPreviewMode so mobile-first apps render
+      // at mobile dimensions in the sandbox Chrome too.
       if (opts.sandboxBrowser && state.proxyPort !== null && !state.browser) {
-        const supervisor = new BrowserSupervisor(state.proxyPort);
+        const webConfig = getWebInterfaceConfig(appConfig, cwd);
+        const previewMode = webConfig?.defaultPreviewMode ?? 'desktop';
+        const supervisor = new BrowserSupervisor(state.proxyPort, previewMode);
         state.browser = supervisor;
         supervisor.start().catch((err) => {
           log.warn('browser', 'Sandbox browser failed to start', {

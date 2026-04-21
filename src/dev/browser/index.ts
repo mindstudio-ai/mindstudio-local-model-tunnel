@@ -3,3 +3,4 @@ export { resolveChromePath } from './chrome-path';
 export { captureViaCdp } from './screenshot';
 export type { CaptureOpts, CaptureResult } from './screenshot';
 export { setAuthCookie, clearAuthCookies } from './cookies';
+export type { PreviewMode } from './launcher';

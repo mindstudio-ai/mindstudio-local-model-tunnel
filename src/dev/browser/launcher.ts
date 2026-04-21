@@ -11,7 +11,7 @@
  * dispatch path — those stay untouched. It only spawns Chrome and navigates.
  */
 
-import puppeteer, { type Browser, type Page } from 'puppeteer-core';
+import puppeteer, { type Browser, type Page, type Viewport } from 'puppeteer-core';
 import { resolveChromePath } from './chrome-path';
 import { log } from '../logging/logger';
 
@@ -20,6 +20,8 @@ export interface LaunchedBrowser {
   page: Page;
   executablePath: string;
 }
+
+export type PreviewMode = 'desktop' | 'mobile';
 
 const LAUNCH_ARGS = [
   '--no-sandbox',
@@ -32,10 +34,33 @@ const LAUNCH_ARGS = [
   '--lang=en-US',
 ];
 
-const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
+// Modern laptop — fits most desktop-first app layouts without extra gutters.
+const DESKTOP_VIEWPORT: Viewport = {
+  width: 1440,
+  height: 900,
+  deviceScaleFactor: 1,
+  isMobile: false,
+  hasTouch: false,
+};
+
+// iPhone 15 Pro portrait. DPR 2 is the sweet spot — retina-ish fidelity
+// without 3× screenshot bloat. `isMobile`/`hasTouch` engage Chrome's mobile
+// emulation (viewport meta tag handling, touch events, orientation APIs).
+const MOBILE_VIEWPORT: Viewport = {
+  width: 390,
+  height: 844,
+  deviceScaleFactor: 2,
+  isMobile: true,
+  hasTouch: true,
+};
+
+function viewportFor(mode: PreviewMode): Viewport {
+  return mode === 'mobile' ? MOBILE_VIEWPORT : DESKTOP_VIEWPORT;
+}
 
 export async function launchSandboxBrowser(opts: {
   proxyPort: number;
+  previewMode?: PreviewMode;
 }): Promise<LaunchedBrowser | null> {
   const executablePath = resolveChromePath();
   if (!executablePath) {
@@ -46,11 +71,14 @@ export async function launchSandboxBrowser(opts: {
     return null;
   }
 
+  const previewMode: PreviewMode = opts.previewMode === 'mobile' ? 'mobile' : 'desktop';
+  const viewport = viewportFor(previewMode);
+
   const browser = await puppeteer.launch({
     executablePath,
     headless: true,
     args: LAUNCH_ARGS,
-    defaultViewport: DEFAULT_VIEWPORT,
+    defaultViewport: viewport,
   });
 
   // Pipe Chrome stderr through the debug logger. Chrome is chatty on startup
@@ -70,6 +98,8 @@ export async function launchSandboxBrowser(opts: {
   log.info('browser', 'Sandbox browser launched', {
     executablePath,
     target,
+    previewMode,
+    viewport: `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}x`,
     pid: proc?.pid ?? null,
   });
 
