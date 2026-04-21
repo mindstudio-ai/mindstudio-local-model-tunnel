@@ -28,6 +28,12 @@ const GOTO_TIMEOUT_MS = 15_000;
 const SETTLE_TIMEOUT_MS = 3_000;
 const SETTLE_IDLE_MS = 200;
 const JPEG_QUALITY = 85;
+// Pre-roll timings: used only for fullPage captures to trigger
+// IntersectionObservers, lazy-loaded images, and scroll-linked animations
+// before the single-shot CDP capture.
+const PREROLL_BOTTOM_DWELL_MS = 300;
+const PREROLL_NETWORK_IDLE_MS = 1_500;
+const PREROLL_TOP_DWELL_MS = 100;
 
 export async function captureViaCdp(
   page: Page,
@@ -45,6 +51,15 @@ export async function captureViaCdp(
   await page
     .waitForNetworkIdle({ timeout: SETTLE_TIMEOUT_MS, idleTime: SETTLE_IDLE_MS })
     .catch(() => {});
+
+  // Pre-roll for fullPage captures only. CDP's `fullPage: true` renders in a
+  // single pass with the viewport logically at the top, so IntersectionObserver
+  // callbacks, lazy-loaded images, and scroll-triggered animations never fire.
+  // Scrolling to the bottom and back nudges them into their revealed state;
+  // Chrome then captures the fully-revealed layout in one shot.
+  if (opts.fullPage) {
+    await preRollScroll(page);
+  }
 
   let width: number;
   let height: number;
@@ -92,6 +107,52 @@ export async function captureViaCdp(
     height,
     ...(styleMap ? { styleMap } : {}),
   };
+}
+
+/**
+ * Scroll the document to the bottom, wait for observer callbacks and any
+ * lazy-loaded content to settle, then scroll back to the top. Gives
+ * fullPage captures a chance to include scroll-triggered fade-ins, lazy
+ * images, and windowed-list items.
+ *
+ * Best-effort — all timeouts swallowed. If the page can't be scrolled
+ * (short content, scroll-locked body) the function is effectively a no-op.
+ */
+async function preRollScroll(page: Page): Promise<void> {
+  try {
+    const scrolled = await page.evaluate(() => {
+      const el = document.scrollingElement || document.documentElement;
+      const max = Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight,
+      );
+      if (max <= window.innerHeight + 10) return false; // nothing to scroll
+      el.scrollTo({ top: max, left: 0, behavior: 'instant' as ScrollBehavior });
+      return true;
+    });
+
+    if (!scrolled) return;
+
+    // Let IntersectionObservers fire and any triggered animations settle.
+    await new Promise((r) => setTimeout(r, PREROLL_BOTTOM_DWELL_MS));
+
+    // If the observers kicked off image/data loads, wait for them briefly.
+    await page
+      .waitForNetworkIdle({
+        timeout: PREROLL_NETWORK_IDLE_MS,
+        idleTime: SETTLE_IDLE_MS,
+      })
+      .catch(() => {});
+
+    await page.evaluate(() => {
+      const el = document.scrollingElement || document.documentElement;
+      el.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+    });
+
+    await new Promise((r) => setTimeout(r, PREROLL_TOP_DWELL_MS));
+  } catch {
+    // Non-fatal — proceed to capture regardless.
+  }
 }
 
 async function uploadToPresigned(

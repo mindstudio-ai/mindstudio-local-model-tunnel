@@ -169,6 +169,8 @@ Sends commands to the browser agent via WebSocket. Commands execute sequentially
 ```
 Times out after 120s. If the browser disconnects mid-command, rejects after a 10s grace period (to allow for navigation reconnects).
 
+When a batch contains any interactive step (`click`, `type`, `select`), the browser agent records the session via rrweb and returns the events. The tunnel uploads them to S3 and adds a `recordingUrl` field to the response — UIs can load that URL in an rrweb player for per-tool-call replay. Screenshot-only and read-only batches don't produce recordings. Very short recordings (<5 KB JSON) are discarded as not worth keeping.
+
 Available commands:
 - `snapshot` -- returns a compact accessibility-tree-style representation of the page DOM, with stable `[ref=eN]` identifiers on interactive elements. Waits for network requests to settle before walking.
 

@@ -4,6 +4,10 @@ import { log } from '../logging/logger';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
 
+// Recordings smaller than this (after JSON serialization) aren't worth
+// the round trip — probably a FullSnapshot with no interesting deltas.
+const MIN_RECORDING_BYTES = 5_000;
+
 export async function handleBrowser(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
@@ -37,7 +41,12 @@ export async function handleBrowser(
     });
     const result = await dispatchSplit(ctx, preparedSteps, page);
     normalizeUploadedResults(result.steps);
-    return result;
+    const recordingUrl = await uploadRecording(ctx, result.events);
+    const { events: _, ...rest } = result;
+    return {
+      ...rest,
+      ...(recordingUrl ? { recordingUrl } : {}),
+    };
   }
 
   // Fast path: single dispatch, unchanged from before.
@@ -47,6 +56,8 @@ export async function handleBrowser(
   normalizeUploadedResults(resultSteps);
 
   const hasStepError = resultSteps.some((s) => s.error);
+  const events = Array.isArray(result.events) ? (result.events as unknown[]) : [];
+  const recordingUrl = await uploadRecording(ctx, events);
 
   return {
     success: !hasStepError,
@@ -55,6 +66,7 @@ export async function handleBrowser(
     snapshot: result.snapshot,
     logs: result.logs,
     duration: result.duration,
+    ...(recordingUrl ? { recordingUrl } : {}),
   };
 }
 
@@ -80,6 +92,7 @@ async function dispatchSplit(
   snapshot: string;
   logs: unknown[];
   duration: number;
+  events: unknown[];
 }> {
   if (!ctx.state.proxy) {
     throw new CommandError('No active proxy', 'NO_BROWSER');
@@ -90,6 +103,7 @@ async function dispatchSplit(
   let lastSnapshot = '';
   let lastLogs: unknown[] = [];
   let totalDuration = 0;
+  const allEvents: unknown[] = [];
 
   let buffer: Array<{ idx: number; step: Record<string, unknown> }> = [];
 
@@ -111,6 +125,7 @@ async function dispatchSplit(
     }
     if (Array.isArray(out.logs)) lastLogs = out.logs as unknown[];
     if (typeof out.duration === 'number') totalDuration += out.duration;
+    if (Array.isArray(out.events)) allEvents.push(...(out.events as unknown[]));
     buffer = [];
   };
 
@@ -160,7 +175,60 @@ async function dispatchSplit(
     snapshot: lastSnapshot,
     logs: lastLogs,
     duration: totalDuration,
+    events: allEvents,
   };
+}
+
+/**
+ * Upload an rrweb event array to S3 using the same presigned-URL flow
+ * screenshots use. Returns the public URL on success, null on any failure
+ * (including too-small recordings that aren't worth keeping).
+ */
+async function uploadRecording(
+  ctx: CommandContext,
+  events: unknown[] | undefined,
+): Promise<string | null> {
+  if (!Array.isArray(events) || events.length === 0) return null;
+  const session = ctx.state.runner?.getSession();
+  const appId = ctx.state.appConfig?.appId;
+  if (!session || !appId) return null;
+
+  const body = JSON.stringify(events);
+  if (body.length < MIN_RECORDING_BYTES) return null;
+
+  try {
+    const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
+      appId,
+      session.sessionId,
+      'json',
+      'application/json',
+    );
+    const form = new FormData();
+    for (const [k, v] of Object.entries(uploadFields)) form.append(k, v);
+    form.append(
+      'file',
+      new Blob([body], { type: 'application/json' }),
+      'recording.json',
+    );
+    const res = await fetch(uploadUrl, { method: 'POST', body: form });
+    if (!res.ok) {
+      log.warn('browser', 'Recording upload failed', {
+        status: res.status,
+        bytes: body.length,
+      });
+      return null;
+    }
+    log.info('browser', 'Recording uploaded', {
+      bytes: body.length,
+      events: events.length,
+    });
+    return publicUrl;
+  } catch (err) {
+    log.warn('browser', 'Recording upload errored', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }
 
 /**
