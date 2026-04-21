@@ -209,7 +209,9 @@ export class DevProxy {
 
     // Set up WebSocket server in noServer mode
     this.wss = new WebSocketServer({ noServer: true });
-    this.wss.on('connection', (ws) => this.handleWsConnection(ws));
+    this.wss.on('connection', (ws, req) =>
+      this.handleWsConnection(ws, req as http.IncomingMessage),
+    );
 
     // Route upgrade requests: our WS path vs upstream HMR
     server.on('upgrade', (req, socket, head) => {
@@ -313,8 +315,13 @@ export class DevProxy {
   // WebSocket connection handler
   // ---------------------------------------------------------------------------
 
-  private handleWsConnection(ws: WebSocket): void {
+  private handleWsConnection(ws: WebSocket, req: http.IncomingMessage): void {
     let clientId: string | null = null;
+    const remoteAddr = req.socket.remoteAddress ?? '';
+    const isLoopback =
+      remoteAddr === '127.0.0.1' ||
+      remoteAddr === '::1' ||
+      remoteAddr === '::ffff:127.0.0.1';
 
     // Require hello within 5s
     const helloTimeout = setTimeout(() => {
@@ -343,12 +350,17 @@ export class DevProxy {
         }
         clearTimeout(helloTimeout);
 
-        const mode =
-          msg.mode === 'iframe'
-            ? 'iframe'
-            : msg.mode === 'mirror'
-              ? 'mirror'
-              : 'standalone';
+        const helloUrl = String(msg.url || '');
+        const isSandboxBrowser =
+          isLoopback && helloUrl.includes('ms_sandbox=1');
+        const mode: 'iframe' | 'standalone' | 'mirror' | 'headless' =
+          isSandboxBrowser
+            ? 'headless'
+            : msg.mode === 'iframe'
+              ? 'iframe'
+              : msg.mode === 'mirror'
+                ? 'mirror'
+                : 'standalone';
         const viewport = (msg.viewport as { w: number; h: number }) || {
           w: 0,
           h: 0,
@@ -356,7 +368,7 @@ export class DevProxy {
 
         clientId = this.clients.add(ws, {
           mode,
-          url: String(msg.url || ''),
+          url: helloUrl,
           viewport,
           mirror: !!msg.mirror,
         });

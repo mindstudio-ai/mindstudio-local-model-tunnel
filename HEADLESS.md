@@ -29,6 +29,8 @@ mindstudio-local --headless [options]
 | `--port <n>` | from `web.json` | Dev server port to proxy to. If omitted, reads `devPort` from the web interface config. If neither exists, proxy is skipped (backend-only). |
 | `--proxy-port <n>` | auto (3100-3999) | Preferred port for the local proxy. Falls back to OS-assigned if taken. |
 | `--bind <addr>` | `127.0.0.1` | Bind address for the proxy. Use `0.0.0.0` in hosted sandboxes where the proxy needs to be accessible externally. |
+| `--sandbox-browser` | off | Launch a sandbox-side headless Chrome that connects to the proxy as a WS client with `mode=headless` and is preferred for automation commands. Requires `google-chrome-stable` (or equivalent) on the host; no-op if not found. See `SANDBOX_HEADLESS_BROWSER.md`. |
+| `--log-level <level>` | `info` | One of `error`, `warn`, `info`, `debug`. |
 
 ---
 

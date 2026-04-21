@@ -15,6 +15,7 @@ async function main() {
       proxyPort: getFlag('--proxy-port') ? Number(getFlag('--proxy-port')) : undefined,
       bindAddress: getFlag('--bind'),
       logLevel: (getFlag('--log-level') as 'error' | 'warn' | 'info' | 'debug') ?? undefined,
+      sandboxBrowser: process.argv.includes('--sandbox-browser'),
     });
   } else {
     const { startTUI } = await import('./tui/index.js');

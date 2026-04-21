@@ -4,11 +4,13 @@
 
 import type { DevRunner } from '../execution/runner';
 import type { DevProxy } from '../proxy/proxy';
+import type { BrowserSupervisor } from '../browser';
 import type { AppConfig } from '../config/types';
 
 export interface SessionState {
   runner: DevRunner | null;
   proxy: DevProxy | null;
+  browser: BrowserSupervisor | null;
   appConfig: AppConfig | null;
   proxyPort: number | null;
   unsubscribers: Array<() => void>;
