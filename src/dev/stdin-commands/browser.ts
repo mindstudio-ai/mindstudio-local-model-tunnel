@@ -3,6 +3,7 @@ import { captureViaCdp } from '../browser';
 import { log } from '../logging/logger';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
+import type { Page } from 'puppeteer-core';
 
 // Recordings smaller than this (after JSON serialization) aren't worth
 // the round trip — probably a FullSnapshot with no interesting deltas.
@@ -19,86 +20,16 @@ export async function handleBrowser(
     throw new CommandError('browser action requires a non-empty "steps" array', 'INVALID_INPUT');
   }
 
-  // Inject upload details into any screenshotViewport steps so the browser
-  // uploads directly to S3 instead of sending base64 over the WS connection.
-  const preparedSteps = await injectScreenshotUploads(ctx, steps);
-
-  // If the sandbox headless browser is alive AND the batch contains a step
-  // we can intercept (screenshot*), run a split-dispatch: non-screenshot
-  // sub-batches flow through WS in order; screenshot steps are captured via
-  // CDP inline. On any CDP-step failure, the step falls through into the
-  // next WS sub-batch so we never harden existing behavior.
   const page = ctx.state.browser?.getActivePage();
-  const hasInterceptable = preparedSteps.some(isInterceptableStep);
-  log.debug('browser', 'handleBrowser dispatch decision', {
-    hasActivePage: !!page,
-    hasInterceptable,
-    stepCommands: preparedSteps.map((s) => s.command),
-  });
-  if (page && hasInterceptable) {
-    log.info('browser', 'handleBrowser using split-dispatch (CDP + WS)', {
-      stepCount: preparedSteps.length,
-    });
-    const result = await dispatchSplit(ctx, preparedSteps, page);
-    normalizeUploadedResults(result.steps);
-    const recordingUrl = await uploadRecording(ctx, result.events);
-    const { events: _, ...rest } = result;
-    return {
-      ...rest,
-      ...(recordingUrl ? { recordingUrl } : {}),
-    };
+  if (!page) {
+    throw new CommandError(
+      'Sandbox browser unavailable — headless Chrome is required for automation',
+      'NO_BROWSER',
+    );
   }
 
-  // Fast path: single dispatch, unchanged from before.
-  const result = await ctx.state.proxy.dispatchBrowserCommand(preparedSteps);
-
-  const resultSteps = (result.steps as Array<Record<string, unknown>>) ?? [];
-  normalizeUploadedResults(resultSteps);
-
-  const hasStepError = resultSteps.some((s) => s.error);
-  const events = Array.isArray(result.events) ? (result.events as unknown[]) : [];
-  const recordingUrl = await uploadRecording(ctx, events);
-
-  return {
-    success: !hasStepError,
-    ...(hasStepError ? { errorCode: 'BROWSER_ERROR' } : {}),
-    steps: resultSteps,
-    snapshot: result.snapshot,
-    logs: result.logs,
-    duration: result.duration,
-    ...(recordingUrl ? { recordingUrl } : {}),
-  };
-}
-
-function isInterceptableStep(step: Record<string, unknown>): boolean {
-  const cmd = step.command;
-  if (cmd !== 'screenshotViewport' && cmd !== 'screenshotFullPage') return false;
-  return typeof step.uploadUrl === 'string';
-}
-
-/**
- * Run a batch where some steps go via WS and some (screenshots) via CDP.
- * Ordering is preserved by indexing results into a dense array. A failed
- * CDP capture falls through into the next WS sub-batch.
- */
-async function dispatchSplit(
-  ctx: CommandContext,
-  preparedSteps: Array<Record<string, unknown>>,
-  page: import('puppeteer-core').Page,
-): Promise<{
-  success: boolean;
-  errorCode?: string;
-  steps: Array<Record<string, unknown>>;
-  snapshot: string;
-  logs: unknown[];
-  duration: number;
-  events: unknown[];
-}> {
-  if (!ctx.state.proxy) {
-    throw new CommandError('No active proxy', 'NO_BROWSER');
-  }
   const resultsByIndex = new Array<Record<string, unknown> | undefined>(
-    preparedSteps.length,
+    steps.length,
   );
   let lastSnapshot = '';
   let lastLogs: unknown[] = [];
@@ -129,34 +60,15 @@ async function dispatchSplit(
     buffer = [];
   };
 
-  for (let i = 0; i < preparedSteps.length; i++) {
-    const step = preparedSteps[i];
-    if (isInterceptableStep(step)) {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const command = step.command;
+    if (command === 'screenshotFullPage' || command === 'screenshotViewport') {
       await flushBuffer();
-      const cdpStart = Date.now();
-      try {
-        const r = await captureViaCdp(page, {
-          fullPage: step.command === 'screenshotFullPage',
-          uploadUrl: step.uploadUrl as string,
-          uploadFields: step.uploadFields as Record<string, string>,
-        });
-        const stepResult: Record<string, unknown> = { ...r };
-        if (typeof step._publicUrl === 'string') {
-          stepResult._publicUrl = step._publicUrl;
-        }
-        resultsByIndex[i] = {
-          index: i,
-          command: step.command,
-          result: stepResult,
-        };
-        totalDuration += Date.now() - cdpStart;
-      } catch (err) {
-        log.warn('browser', 'CDP step capture failed — deferring to WS', {
-          error: err instanceof Error ? err.message : String(err),
-          stepCommand: step.command,
-        });
-        buffer.push({ idx: i, step });
-      }
+      const captured = await captureScreenshotStep(ctx, page, step as Record<string, unknown>, command);
+      resultsByIndex[i] = { index: i, command, result: captured };
+      totalDuration += captured._durationMs ?? 0;
+      delete captured._durationMs;
     } else {
       buffer.push({ idx: i, step });
     }
@@ -164,9 +76,10 @@ async function dispatchSplit(
   await flushBuffer();
 
   const densified = resultsByIndex.map((r, idx) =>
-    r ?? { index: idx, command: preparedSteps[idx].command, error: 'no result' },
+    r ?? { index: idx, command: steps[idx].command, error: 'no result' },
   );
-  const hasStepError = densified.some((s) => s.error);
+  const hasStepError = densified.some((s) => s?.error);
+  const recordingUrl = await uploadRecording(ctx, allEvents);
 
   return {
     success: !hasStepError,
@@ -175,7 +88,45 @@ async function dispatchSplit(
     snapshot: lastSnapshot,
     logs: lastLogs,
     duration: totalDuration,
-    events: allEvents,
+    ...(recordingUrl ? { recordingUrl } : {}),
+  };
+}
+
+/**
+ * Capture a screenshot step via CDP. Returns a result that matches the
+ * shape today's stdin callers expect: `{ url, width, height, styleMap? }`.
+ * Navigation before the capture is handled inside `captureViaCdp`.
+ */
+async function captureScreenshotStep(
+  ctx: CommandContext,
+  page: Page,
+  step: Record<string, unknown>,
+  command: string,
+): Promise<Record<string, unknown> & { _durationMs?: number }> {
+  const session = ctx.state.runner?.getSession();
+  const appId = ctx.state.appConfig?.appId;
+  if (!session || !appId) {
+    throw new CommandError('No active session', 'NO_SESSION');
+  }
+  const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
+    appId,
+    session.sessionId,
+    'jpg',
+    'image/jpeg',
+  );
+  const start = Date.now();
+  const r = await captureViaCdp(page, {
+    fullPage: command === 'screenshotFullPage',
+    path: typeof step.path === 'string' ? step.path : undefined,
+    uploadUrl,
+    uploadFields,
+  });
+  return {
+    url: publicUrl,
+    width: r.width,
+    height: r.height,
+    ...(r.styleMap ? { styleMap: r.styleMap } : {}),
+    _durationMs: Date.now() - start,
   };
 }
 
@@ -186,9 +137,9 @@ async function dispatchSplit(
  */
 async function uploadRecording(
   ctx: CommandContext,
-  events: unknown[] | undefined,
+  events: unknown[],
 ): Promise<string | null> {
-  if (!Array.isArray(events) || events.length === 0) return null;
+  if (events.length === 0) return null;
   const session = ctx.state.runner?.getSession();
   const appId = ctx.state.appConfig?.appId;
   if (!session || !appId) return null;
@@ -229,54 +180,4 @@ async function uploadRecording(
     });
     return null;
   }
-}
-
-/**
- * Replace uploaded screenshot step results with the public URL, matching
- * the contract the stdin caller expects.
- */
-function normalizeUploadedResults(resultSteps: Array<Record<string, unknown>>): void {
-  for (const step of resultSteps) {
-    const stepResult = step.result as Record<string, unknown> | undefined;
-    if (stepResult?.uploaded && stepResult?._publicUrl) {
-      stepResult.url = stepResult._publicUrl;
-      delete stepResult.uploaded;
-      delete stepResult._publicUrl;
-      delete stepResult.image;
-    }
-  }
-}
-
-/**
- * For each screenshotViewport step, get a presigned upload URL and attach it.
- * Non-screenshot steps are passed through unchanged.
- */
-async function injectScreenshotUploads(
-  ctx: CommandContext,
-  steps: Array<Record<string, unknown>>,
-): Promise<Array<Record<string, unknown>>> {
-  const session = ctx.state.runner?.getSession();
-  const appId = ctx.state.appConfig?.appId;
-  if (!session || !appId) return steps;
-
-  const prepared: Array<Record<string, unknown>> = [];
-  for (const step of steps) {
-    if (step.command === 'screenshotViewport') {
-      try {
-        const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
-          appId,
-          session.sessionId,
-          'jpg',
-          'image/jpeg',
-        );
-        prepared.push({ ...step, uploadUrl, uploadFields, _publicUrl: publicUrl });
-      } catch {
-        // If we can't get an upload URL, fall back to inline base64
-        prepared.push(step);
-      }
-    } else {
-      prepared.push(step);
-    }
-  }
-  return prepared;
 }

@@ -174,12 +174,6 @@ When a batch contains any interactive step (`click`, `type`, `select`), the brow
 Available commands:
 - `snapshot` -- returns a compact accessibility-tree-style representation of the page DOM, with stable `[ref=eN]` identifiers on interactive elements. Waits for network requests to settle before walking.
 
-**Check browser connection:**
-```json
-{"requestId": "r3b", "action": "browser-status"}
-```
-Returns `{"connected": true/false}`. Use before sending browser commands to avoid waiting for a timeout.
-
 **Set/clear role override:**
 ```json
 {"requestId": "r4", "action": "impersonate", "roles": ["admin"]}
@@ -190,7 +184,7 @@ Returns `{"connected": true/false}`. Use before sending browser commands to avoi
 ```json
 {"requestId": "r6", "action": "setup-browser", "auth": {"email": "user@example.com", "roles": ["admin"]}, "path": "/dashboard"}
 ```
-Mints an auth cookie, injects it into the browser, reloads, and optionally navigates to a path.
+Mints an auth cookie, sets it on the sandbox Chrome via CDP, and navigates to the target path. Automation always targets the sandbox-owned headless Chrome; returns `NO_BROWSER` if the supervisor isn't running.
 
 **Database query:**
 ```json

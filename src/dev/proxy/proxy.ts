@@ -185,15 +185,28 @@ export class DevProxy {
 
   /**
    * Send a broadcast message to all connected browser clients.
+   *
+   * Headless (sandbox-owned) clients are skipped by default — they're
+   * automation targets whose lifecycle is managed by `BrowserSupervisor`
+   * and they shouldn't be hit by reload-all signals meant for live-preview
+   * iframes. Pass `{ includeHeadless: true }` to override.
    */
-  broadcastToClients(action: string, payload?: Record<string, unknown>): void {
+  broadcastToClients(
+    action: string,
+    payload?: Record<string, unknown>,
+    opts: { includeHeadless?: boolean } = {},
+  ): void {
     const msg = JSON.stringify({ type: 'broadcast', action, payload });
     const clients = this.clients.getAll();
+    const targets = opts.includeHeadless
+      ? clients
+      : clients.filter((c) => c.mode !== 'headless');
     log.info('proxy', 'Broadcasting to browser clients', {
       action,
-      clientCount: clients.length,
+      clientCount: targets.length,
+      skippedHeadless: clients.length - targets.length,
     });
-    for (const client of clients) {
+    for (const client of targets) {
       try {
         client.ws.send(msg);
       } catch {
@@ -351,13 +364,9 @@ export class DevProxy {
         clearTimeout(helloTimeout);
 
         const helloUrl = String(msg.url || '');
-        // A client is the sandbox's headless Chrome when BOTH:
-        //   1. the hello comes from loopback (127.0.0.1 / ::1)
-        //   2. the agent flagged itself (sessionStorage-backed, survives
-        //      `location.href='/'` reloads) OR the URL still has the marker
-        const isSandboxBrowser =
-          isLoopback &&
-          (msg.sandbox === true || helloUrl.includes('ms_sandbox=1'));
+        // The sandbox-owned headless Chrome advertises `sandbox: true` and
+        // connects from loopback. Nothing else can look like it.
+        const isSandboxBrowser = isLoopback && msg.sandbox === true;
         const mode: 'iframe' | 'standalone' | 'mirror' | 'headless' =
           isSandboxBrowser
             ? 'headless'

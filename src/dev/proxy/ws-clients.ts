@@ -56,24 +56,16 @@ export class ClientRegistry {
   }
 
   /**
-   * Get the preferred client for C&C commands.
-   * Prefers sandbox-headless, then iframe, then any idle non-mirror client.
-   * Skips clients that are already executing a command.
+   * Get the client for automation commands. Only the sandbox-owned headless
+   * Chrome executes automation; iframe / standalone clients exist solely for
+   * live preview and never receive command dispatches.
    */
   getCommandTarget(): ConnectedClient | null {
-    let iframeFallback: ConnectedClient | null = null;
-    let otherFallback: ConnectedClient | null = null;
     for (const client of this.clients.values()) {
       if (client.activeCommandId) continue; // busy
-      if (client.mode === 'mirror') continue; // mirror clients don't execute commands
       if (client.mode === 'headless') return client;
-      if (client.mode === 'iframe') {
-        if (!iframeFallback) iframeFallback = client;
-        continue;
-      }
-      if (!otherFallback) otherFallback = client;
     }
-    return iframeFallback ?? otherFallback;
+    return null;
   }
 
   /** Get all connected mirror viewer clients (for relaying mirror events). */
