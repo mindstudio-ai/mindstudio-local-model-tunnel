@@ -96,7 +96,19 @@ export async function launchSandboxBrowser(opts: {
   const page = pages[0] ?? (await browser.newPage());
 
   const target = `http://127.0.0.1:${opts.proxyPort}/?ms_sandbox=1`;
-  await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+  // `networkidle0` waits for the injected `<script async>` browser-agent to
+  // finish loading AND its WebSocket to open (at which point the page is
+  // idle). That way `running` corresponds to "ready for both CDP *and* WS
+  // tool calls", closing the first-tool-call race where the WS client
+  // hadn't registered before the first command dispatched.
+  try {
+    await page.goto(target, { waitUntil: 'networkidle0', timeout: 15_000 });
+  } catch (err) {
+    // Leaked Chromium otherwise — if navigation fails, close the browser
+    // so the supervisor's restart loop can start clean.
+    await browser.close().catch(() => {});
+    throw err;
+  }
 
   const viewportStr = `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}x`;
 

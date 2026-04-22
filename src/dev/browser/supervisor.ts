@@ -51,6 +51,7 @@ export class BrowserSupervisor {
   }
 
   async stop(): Promise<void> {
+    if (this.stopping) return; // idempotent — double SIGTERM shouldn't double-fire events
     this.stopping = true;
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
@@ -114,6 +115,15 @@ export class BrowserSupervisor {
         });
         return;
       }
+
+      // If stop() landed while we were launching, the supervisor has already
+      // emitted `stopped` and cleared its state. Don't register the browser
+      // we just got — close it and bail, otherwise we'd leak Chromium.
+      if (this.stopping) {
+        await this.closeBrowser(launched.browser).catch(() => {});
+        return;
+      }
+
       this.browser = launched.browser;
       this.page = launched.page;
       this.consecutiveFailures = 0;
@@ -138,6 +148,9 @@ export class BrowserSupervisor {
         executablePath: launched.executablePath,
       });
     } catch (err) {
+      // Don't track failures or restart if we were torn down mid-launch.
+      if (this.stopping) return;
+
       this.consecutiveFailures++;
       const message = err instanceof Error ? err.message : String(err);
       log.warn('browser', 'Failed to launch sandbox browser', {
@@ -156,7 +169,7 @@ export class BrowserSupervisor {
     }
   }
 
-  private onDisconnect(): void {
+  private async onDisconnect(): Promise<void> {
     if (this.stopping) return;
     const hadBrowser = !!this.browser;
     this.browser = null;
@@ -169,6 +182,11 @@ export class BrowserSupervisor {
     log.warn('browser', 'Sandbox browser disconnected', {
       attempt: this.consecutiveFailures,
     });
+
+    // puppeteer's disconnect sometimes fires before the child's `exit` listener,
+    // leaving exit info unpopulated. Give that listener a short window.
+    await this.waitForExitInfo();
+
     emitEvent('sandbox-browser-state', {
       state: 'crashed',
       exitCode: this.lastExitInfo?.exitCode ?? null,
@@ -178,6 +196,14 @@ export class BrowserSupervisor {
     });
     this.lastExitInfo = null;
     this.scheduleRestart();
+  }
+
+  private async waitForExitInfo(timeoutMs = 200): Promise<void> {
+    if (this.lastExitInfo) return;
+    const deadline = Date.now() + timeoutMs;
+    while (!this.lastExitInfo && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
   }
 
   private scheduleRestart(): void {

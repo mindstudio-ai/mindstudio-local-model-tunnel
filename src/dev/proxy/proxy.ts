@@ -68,7 +68,9 @@ export class DevProxy {
     private clientContext: Record<string, unknown>,
     private readonly appId: string,
     private readonly bindAddress: string = '127.0.0.1',
-    // Dev override: 'https://seankoji-msba.ngrok.io/index.js'
+    // Optional override for the injected browser-agent script URL. Use for
+    // local iteration (e.g. a localhost:8787 serve or ngrok to the same).
+    // Defaults to the unpkg-hosted published build.
     private readonly browserAgentUrl?: string,
   ) {}
 
@@ -1176,7 +1178,7 @@ export class DevProxy {
     const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(context)};</script>`;
     const agentUrl =
       this.browserAgentUrl ||
-      'https://seankoji-msba.ngrok.io/index.js';
+      'https://unpkg.com/@mindstudio-ai/browser-agent/dist/index.js';
     const agentScript = `<script async src="${agentUrl}"></script>`;
     const injection = `${contextScript}\n${agentScript}`;
     if (html.includes('</head>')) {
