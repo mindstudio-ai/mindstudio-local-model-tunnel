@@ -1,4 +1,5 @@
 import { getUploadUrl } from '../api';
+import { captureViaCdp } from '../browser';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
 
@@ -6,17 +7,19 @@ export async function handleScreenshotFullPage(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!ctx.state.proxy) throw new CommandError('No active proxy', 'NO_BROWSER');
-  if (!ctx.state.proxy.isBrowserConnected()) {
-    throw new CommandError('No browser connected', 'NO_BROWSER');
-  }
   if (!ctx.state.runner?.getSession() || !ctx.state.appConfig?.appId) {
     throw new CommandError('No active session', 'NO_SESSION');
+  }
+  const page = ctx.state.browser?.getActivePage();
+  if (!page) {
+    throw new CommandError(
+      'Sandbox browser unavailable — headless Chrome is required for screenshots',
+      'NO_BROWSER',
+    );
   }
 
   const startTime = Date.now();
 
-  // 1. Get presigned upload URL before dispatching to browser
   const session = ctx.state.runner.getSession()!;
   const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
     ctx.state.appConfig.appId,
@@ -25,30 +28,19 @@ export async function handleScreenshotFullPage(
     'image/jpeg',
   );
 
-  // 2. Dispatch to browser — optionally navigate first, then full-page screenshot
-  const steps: Array<Record<string, unknown>> = [];
-  if (cmd.path) {
-    steps.push({ command: 'navigate', url: cmd.path as string });
-  }
-  steps.push({ command: 'screenshotFullPage', uploadUrl, uploadFields });
-
-  const result = await ctx.state.proxy.dispatchBrowserCommand(steps, 120_000);
-
-  // The screenshot result is the last step
-  const resultSteps = result.steps as Array<Record<string, unknown>>;
-  const stepResult = resultSteps?.[resultSteps.length - 1]
-    ?.result as { width: number; height: number; uploaded?: boolean; styleMap?: string } | undefined;
-
-  if (!stepResult?.uploaded) {
-    throw new CommandError('Screenshot capture or upload failed', 'UPLOAD_FAILED');
-  }
+  const r = await captureViaCdp(page, {
+    fullPage: true,
+    path: typeof cmd.path === 'string' ? cmd.path : undefined,
+    uploadUrl,
+    uploadFields,
+  });
 
   return {
     success: true,
     url: publicUrl,
-    width: stepResult.width,
-    height: stepResult.height,
-    ...(stepResult.styleMap ? { styleMap: stepResult.styleMap } : {}),
+    width: r.width,
+    height: r.height,
+    ...(r.styleMap ? { styleMap: r.styleMap } : {}),
     duration: Date.now() - startTime,
   };
 }

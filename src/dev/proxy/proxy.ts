@@ -68,7 +68,9 @@ export class DevProxy {
     private clientContext: Record<string, unknown>,
     private readonly appId: string,
     private readonly bindAddress: string = '127.0.0.1',
-    // Dev override: 'https://seankoji-msba.ngrok.io/index.js'
+    // Optional override for the injected browser-agent script URL. Use for
+    // local iteration (e.g. a localhost:8787 serve or ngrok to the same).
+    // Defaults to the unpkg-hosted published build.
     private readonly browserAgentUrl?: string,
   ) {}
 
@@ -185,15 +187,28 @@ export class DevProxy {
 
   /**
    * Send a broadcast message to all connected browser clients.
+   *
+   * Headless (sandbox-owned) clients are skipped by default — they're
+   * automation targets whose lifecycle is managed by `BrowserSupervisor`
+   * and they shouldn't be hit by reload-all signals meant for live-preview
+   * iframes. Pass `{ includeHeadless: true }` to override.
    */
-  broadcastToClients(action: string, payload?: Record<string, unknown>): void {
+  broadcastToClients(
+    action: string,
+    payload?: Record<string, unknown>,
+    opts: { includeHeadless?: boolean } = {},
+  ): void {
     const msg = JSON.stringify({ type: 'broadcast', action, payload });
     const clients = this.clients.getAll();
+    const targets = opts.includeHeadless
+      ? clients
+      : clients.filter((c) => c.mode !== 'headless');
     log.info('proxy', 'Broadcasting to browser clients', {
       action,
-      clientCount: clients.length,
+      clientCount: targets.length,
+      skippedHeadless: clients.length - targets.length,
     });
-    for (const client of clients) {
+    for (const client of targets) {
       try {
         client.ws.send(msg);
       } catch {
@@ -209,7 +224,9 @@ export class DevProxy {
 
     // Set up WebSocket server in noServer mode
     this.wss = new WebSocketServer({ noServer: true });
-    this.wss.on('connection', (ws) => this.handleWsConnection(ws));
+    this.wss.on('connection', (ws, req) =>
+      this.handleWsConnection(ws, req as http.IncomingMessage),
+    );
 
     // Route upgrade requests: our WS path vs upstream HMR
     server.on('upgrade', (req, socket, head) => {
@@ -313,8 +330,13 @@ export class DevProxy {
   // WebSocket connection handler
   // ---------------------------------------------------------------------------
 
-  private handleWsConnection(ws: WebSocket): void {
+  private handleWsConnection(ws: WebSocket, req: http.IncomingMessage): void {
     let clientId: string | null = null;
+    const remoteAddr = req.socket.remoteAddress ?? '';
+    const isLoopback =
+      remoteAddr === '127.0.0.1' ||
+      remoteAddr === '::1' ||
+      remoteAddr === '::ffff:127.0.0.1';
 
     // Require hello within 5s
     const helloTimeout = setTimeout(() => {
@@ -343,12 +365,27 @@ export class DevProxy {
         }
         clearTimeout(helloTimeout);
 
-        const mode =
-          msg.mode === 'iframe'
-            ? 'iframe'
-            : msg.mode === 'mirror'
-              ? 'mirror'
-              : 'standalone';
+        const helloUrl = String(msg.url || '');
+        // The sandbox-owned headless Chrome advertises `sandbox: true` and
+        // connects from loopback. Nothing else can look like it.
+        const isSandboxBrowser = isLoopback && msg.sandbox === true;
+        const mode: 'iframe' | 'standalone' | 'mirror' | 'headless' =
+          isSandboxBrowser
+            ? 'headless'
+            : msg.mode === 'iframe'
+              ? 'iframe'
+              : msg.mode === 'mirror'
+                ? 'mirror'
+                : 'standalone';
+
+        log.debug('proxy', 'WS hello received', {
+          remoteAddr,
+          isLoopback,
+          helloMode: msg.mode,
+          helloSandbox: msg.sandbox,
+          helloUrl,
+          resolvedMode: mode,
+        });
         const viewport = (msg.viewport as { w: number; h: number }) || {
           w: 0,
           h: 0,
@@ -356,7 +393,7 @@ export class DevProxy {
 
         clientId = this.clients.add(ws, {
           mode,
-          url: String(msg.url || ''),
+          url: helloUrl,
           viewport,
           mirror: !!msg.mirror,
         });

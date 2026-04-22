@@ -16,6 +16,7 @@
 
 import { DevRunner } from './dev/execution/runner';
 import { DevProxy } from './dev/proxy/proxy';
+import { BrowserSupervisor } from './dev/browser';
 import { syncSchema } from './dev/api';
 import {
   detectAppConfig,
@@ -55,6 +56,8 @@ export interface HeadlessOptions {
   logLevel?: LogLevel;
   /** URL for the browser agent script. Defaults to unpkg latest. Set to an ngrok URL for development. */
   browserAgentUrl?: string;
+  /** Launch a sandbox-side headless Chrome that participates as a WS client. */
+  sandboxBrowser?: boolean;
 }
 
 
@@ -149,6 +152,23 @@ async function startSession(
 
       runner.setProxyUrl(`http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${state.proxyPort}`);
       runner.setProxy(state.proxy);
+
+      // Optional sandbox-side headless Chrome. Connects back to the proxy
+      // as just another WS client; the proxy registers it with mode='headless'
+      // and getCommandTarget() prefers it for automation. Viewport follows
+      // the web interface's defaultPreviewMode so mobile-first apps render
+      // at mobile dimensions in the sandbox Chrome too.
+      if (opts.sandboxBrowser && state.proxyPort !== null && !state.browser) {
+        const webConfig = getWebInterfaceConfig(appConfig, cwd);
+        const previewMode = webConfig?.defaultPreviewMode ?? 'desktop';
+        const supervisor = new BrowserSupervisor(state.proxyPort, previewMode);
+        state.browser = supervisor;
+        supervisor.start().catch((err) => {
+          log.warn('browser', 'Sandbox browser failed to start', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
     }
 
     emitEvent('session-started', {
@@ -245,6 +265,11 @@ async function teardownRunner(state: SessionState): Promise<void> {
 async function teardownAll(state: SessionState): Promise<void> {
   await teardownRunner(state);
 
+  if (state.browser) {
+    await state.browser.stop().catch(() => {});
+    state.browser = null;
+  }
+
   state.proxy?.stop();
   state.proxy = null;
   state.proxyPort = null;
@@ -278,6 +303,7 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   const state: SessionState = {
     runner: null,
     proxy: null,
+    browser: null,
     appConfig: null,
     proxyPort: null,
     unsubscribers: [],

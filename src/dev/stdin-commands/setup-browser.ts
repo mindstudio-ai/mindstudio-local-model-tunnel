@@ -1,4 +1,5 @@
 import { createAuthSession } from '../api';
+import { clearAuthCookies, setAuthCookie } from '../browser';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
 
@@ -6,52 +7,41 @@ export async function handleSetupBrowser(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!ctx.state.proxy) throw new CommandError('No active proxy', 'NO_BROWSER');
-  if (!ctx.state.proxy.isBrowserConnected()) {
-    throw new CommandError('No browser connected', 'NO_BROWSER');
-  }
   if (!ctx.state.appConfig?.appId) throw new CommandError('No active session', 'NO_SESSION');
+
+  const page = ctx.state.browser?.getActivePage();
+  if (!page) {
+    throw new CommandError(
+      'Sandbox browser unavailable — headless Chrome is required for setup-browser',
+      'NO_BROWSER',
+    );
+  }
 
   const auth = cmd.auth as { email?: string; phone?: string; roles?: string[] } | undefined;
   const path = (cmd.path as string) || '/';
 
-  const steps: Array<Record<string, unknown>> = [];
+  // Fresh slate: clear any auth cookie the previous test left behind.
+  await clearAuthCookies(page);
 
-  // 1. Stash current browser state (cookie + URL) so reset-browser can restore it.
-  //    The browser agent only writes the stash if it's currently empty, so
-  //    multiple setup-browser calls preserve the user's original state.
-  steps.push({ command: 'stashState' });
-
-  // 2. Clear existing auth cookie (clean slate)
-  steps.push({
-    command: 'evaluate',
-    script: `document.cookie = '__ms_auth=; Max-Age=0; Path=/; Secure; SameSite=None'`,
-  });
-
-  // 3. Mint and set automation auth cookie if requested
+  // Mint + set the automation auth cookie if requested.
   if (auth) {
     const { cookie } = await createAuthSession(ctx.state.appConfig.appId, auth);
-    steps.push({
-      command: 'evaluate',
-      script: `document.cookie = '__ms_auth=${cookie}; Path=/; Secure; SameSite=None'`,
-    });
+    await setAuthCookie(page, cookie);
   }
 
-  // 4. Reload so the proxy resolves the new (or cleared) cookie via /auth/me
-  //    and injects the correct window.__MINDSTUDIO__
-  steps.push({ command: 'reload' });
-
-  // 5. Navigate to target path if not root
-  if (path !== '/') {
-    steps.push({ command: 'navigate', url: path });
+  // Navigate to the target path so the proxy resolves the cookie and the
+  // page injects the correct `window.__MINDSTUDIO__` context. puppeteer's
+  // goto requires an absolute URL — resolve `path` against the current
+  // origin (always the proxy when the sandbox browser is running).
+  const absolute = new URL(path, page.url()).toString();
+  try {
+    await page.goto(absolute, { waitUntil: 'networkidle0', timeout: 15_000 });
+  } catch (err) {
+    throw new CommandError(
+      `Navigation to ${path} failed: ${err instanceof Error ? err.message : String(err)}`,
+      'BROWSER_ERROR',
+    );
   }
-
-  // Trailing snapshot ensures the command completes through the
-  // stash/resume path after reload (reload kills the page; remaining
-  // steps are stashed in sessionStorage and resumed on reconnect).
-  steps.push({ command: 'snapshot' });
-
-  await ctx.state.proxy.dispatchBrowserCommand(steps);
 
   return { success: true, path, authenticated: !!auth };
 }

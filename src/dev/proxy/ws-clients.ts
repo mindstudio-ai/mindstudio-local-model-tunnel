@@ -5,7 +5,7 @@ import { log } from '../logging/logger';
 export interface ConnectedClient {
   id: string;
   ws: WebSocket;
-  mode: 'iframe' | 'standalone' | 'mirror';
+  mode: 'iframe' | 'standalone' | 'mirror' | 'headless';
   /** This client is a mirror recording source (phone with ?mirror=true). */
   mirrorSource: boolean;
   /** True once the first rrweb meta event has updated the viewport with accurate dimensions. */
@@ -23,7 +23,7 @@ export class ClientRegistry {
 
   add(
     ws: WebSocket,
-    hello: { mode: 'iframe' | 'standalone' | 'mirror'; url: string; viewport: { w: number; h: number }; mirror?: boolean },
+    hello: { mode: 'iframe' | 'standalone' | 'mirror' | 'headless'; url: string; viewport: { w: number; h: number }; mirror?: boolean },
   ): string {
     const id = randomBytes(4).toString('hex');
     this.clients.set(id, {
@@ -56,19 +56,16 @@ export class ClientRegistry {
   }
 
   /**
-   * Get the preferred client for C&C commands.
-   * Prefers idle iframe clients, falls back to any idle client.
-   * Skips clients that are already executing a command.
+   * Get the client for automation commands. Only the sandbox-owned headless
+   * Chrome executes automation; iframe / standalone clients exist solely for
+   * live preview and never receive command dispatches.
    */
   getCommandTarget(): ConnectedClient | null {
-    let fallback: ConnectedClient | null = null;
     for (const client of this.clients.values()) {
       if (client.activeCommandId) continue; // busy
-      if (client.mode === 'mirror') continue; // mirror clients don't execute commands
-      if (client.mode === 'iframe') return client;
-      if (!fallback) fallback = client;
+      if (client.mode === 'headless') return client;
     }
-    return fallback;
+    return null;
   }
 
   /** Get all connected mirror viewer clients (for relaying mirror events). */

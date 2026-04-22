@@ -1,6 +1,6 @@
 {
   "name": "@mindstudio-ai/local-model-tunnel",
-  "version": "0.5.54",
+  "version": "0.5.55",
   "description": "Run local AI models with MindStudio",
   "type": "module",
   "main": "dist/index.js",
@@ -46,6 +46,7 @@
     "marked-terminal": "^7.3.0",
     "ollama": "^0.6.3",
     "open": "^11.0.0",
+    "puppeteer-core": "^24.42.0",
     "react": "^19.2.5",
     "typescript": "^6.0.2",
     "ws": "^8.20.0"

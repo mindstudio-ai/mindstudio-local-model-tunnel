@@ -1,6 +1,13 @@
 import { getUploadUrl } from '../api';
+import { captureViaCdp } from '../browser';
+import { log } from '../logging/logger';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
+import type { Page } from 'puppeteer-core';
+
+// Recordings smaller than this (after JSON serialization) aren't worth
+// the round trip — probably a FullSnapshot with no interesting deltas.
+const MIN_RECORDING_BYTES = 5_000;
 
 export async function handleBrowser(
   ctx: CommandContext,
@@ -13,67 +20,164 @@ export async function handleBrowser(
     throw new CommandError('browser action requires a non-empty "steps" array', 'INVALID_INPUT');
   }
 
-  // Inject upload details into any screenshotViewport steps so the browser
-  // uploads directly to S3 instead of sending base64 over the WS connection.
-  const preparedSteps = await injectScreenshotUploads(ctx, steps);
-
-  const result = await ctx.state.proxy.dispatchBrowserCommand(preparedSteps);
-
-  // Replace uploaded screenshot results with the public URL
-  const resultSteps = (result.steps as Array<Record<string, unknown>>) ?? [];
-  for (const step of resultSteps) {
-    const stepResult = step.result as Record<string, unknown> | undefined;
-    if (stepResult?.uploaded && stepResult?._publicUrl) {
-      stepResult.url = stepResult._publicUrl;
-      delete stepResult.uploaded;
-      delete stepResult._publicUrl;
-      delete stepResult.image;
-    }
+  const page = ctx.state.browser?.getActivePage();
+  if (!page) {
+    throw new CommandError(
+      'Sandbox browser unavailable — headless Chrome is required for automation',
+      'NO_BROWSER',
+    );
   }
 
-  // Check for step-level errors from the browser agent
-  const hasStepError = resultSteps.some((s) => s.error);
+  const resultsByIndex = new Array<Record<string, unknown> | undefined>(
+    steps.length,
+  );
+  let lastSnapshot = '';
+  let lastLogs: unknown[] = [];
+  let totalDuration = 0;
+  const allEvents: unknown[] = [];
+
+  let buffer: Array<{ idx: number; step: Record<string, unknown> }> = [];
+
+  const flushBuffer = async () => {
+    if (buffer.length === 0) return;
+    const batch = buffer.map((b) => b.step);
+    const out = await ctx.state.proxy!.dispatchBrowserCommand(batch);
+    const outSteps = (out.steps as Array<Record<string, unknown>>) ?? [];
+    for (let i = 0; i < buffer.length; i++) {
+      const returned = outSteps[i] ?? {};
+      resultsByIndex[buffer[i].idx] = {
+        ...returned,
+        index: buffer[i].idx,
+        command: buffer[i].step.command,
+      };
+    }
+    if (typeof out.snapshot === 'string' && out.snapshot.length > 0) {
+      lastSnapshot = out.snapshot;
+    }
+    if (Array.isArray(out.logs)) lastLogs = out.logs as unknown[];
+    if (typeof out.duration === 'number') totalDuration += out.duration;
+    if (Array.isArray(out.events)) allEvents.push(...(out.events as unknown[]));
+    buffer = [];
+  };
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const command = step.command;
+    if (command === 'screenshotFullPage' || command === 'screenshotViewport') {
+      await flushBuffer();
+      const captured = await captureScreenshotStep(ctx, page, step as Record<string, unknown>, command);
+      resultsByIndex[i] = { index: i, command, result: captured };
+      totalDuration += captured._durationMs ?? 0;
+      delete captured._durationMs;
+    } else {
+      buffer.push({ idx: i, step });
+    }
+  }
+  await flushBuffer();
+
+  const densified = resultsByIndex.map((r, idx) =>
+    r ?? { index: idx, command: steps[idx].command, error: 'no result' },
+  );
+  const hasStepError = densified.some((s) => s?.error);
+  const recordingUrl = await uploadRecording(ctx, allEvents);
 
   return {
     success: !hasStepError,
     ...(hasStepError ? { errorCode: 'BROWSER_ERROR' } : {}),
-    steps: resultSteps,
-    snapshot: result.snapshot,
-    logs: result.logs,
-    duration: result.duration,
+    steps: densified,
+    snapshot: lastSnapshot,
+    logs: lastLogs,
+    duration: totalDuration,
+    ...(recordingUrl ? { recordingUrl } : {}),
   };
 }
 
 /**
- * For each screenshotViewport step, get a presigned upload URL and attach it.
- * Non-screenshot steps are passed through unchanged.
+ * Capture a screenshot step via CDP. Returns a result that matches the
+ * shape today's stdin callers expect: `{ url, width, height, styleMap? }`.
+ * Navigation before the capture is handled inside `captureViaCdp`.
  */
-async function injectScreenshotUploads(
+async function captureScreenshotStep(
   ctx: CommandContext,
-  steps: Array<Record<string, unknown>>,
-): Promise<Array<Record<string, unknown>>> {
+  page: Page,
+  step: Record<string, unknown>,
+  command: string,
+): Promise<Record<string, unknown> & { _durationMs?: number }> {
   const session = ctx.state.runner?.getSession();
   const appId = ctx.state.appConfig?.appId;
-  if (!session || !appId) return steps;
-
-  const prepared: Array<Record<string, unknown>> = [];
-  for (const step of steps) {
-    if (step.command === 'screenshotViewport') {
-      try {
-        const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
-          appId,
-          session.sessionId,
-          'jpg',
-          'image/jpeg',
-        );
-        prepared.push({ ...step, uploadUrl, uploadFields, _publicUrl: publicUrl });
-      } catch {
-        // If we can't get an upload URL, fall back to inline base64
-        prepared.push(step);
-      }
-    } else {
-      prepared.push(step);
-    }
+  if (!session || !appId) {
+    throw new CommandError('No active session', 'NO_SESSION');
   }
-  return prepared;
+  const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
+    appId,
+    session.sessionId,
+    'jpg',
+    'image/jpeg',
+  );
+  const start = Date.now();
+  const r = await captureViaCdp(page, {
+    fullPage: command === 'screenshotFullPage',
+    path: typeof step.path === 'string' ? step.path : undefined,
+    uploadUrl,
+    uploadFields,
+  });
+  return {
+    url: publicUrl,
+    width: r.width,
+    height: r.height,
+    ...(r.styleMap ? { styleMap: r.styleMap } : {}),
+    _durationMs: Date.now() - start,
+  };
+}
+
+/**
+ * Upload an rrweb event array to S3 using the same presigned-URL flow
+ * screenshots use. Returns the public URL on success, null on any failure
+ * (including too-small recordings that aren't worth keeping).
+ */
+async function uploadRecording(
+  ctx: CommandContext,
+  events: unknown[],
+): Promise<string | null> {
+  if (events.length === 0) return null;
+  const session = ctx.state.runner?.getSession();
+  const appId = ctx.state.appConfig?.appId;
+  if (!session || !appId) return null;
+
+  const body = JSON.stringify(events);
+  if (body.length < MIN_RECORDING_BYTES) return null;
+
+  try {
+    const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
+      appId,
+      session.sessionId,
+      'json',
+      'application/json',
+    );
+    const form = new FormData();
+    for (const [k, v] of Object.entries(uploadFields)) form.append(k, v);
+    form.append(
+      'file',
+      new Blob([body], { type: 'application/json' }),
+      'recording.json',
+    );
+    const res = await fetch(uploadUrl, { method: 'POST', body: form });
+    if (!res.ok) {
+      log.warn('browser', 'Recording upload failed', {
+        status: res.status,
+        bytes: body.length,
+      });
+      return null;
+    }
+    log.info('browser', 'Recording uploaded', {
+      bytes: body.length,
+      events: events.length,
+    });
+    return publicUrl;
+  } catch (err) {
+    log.warn('browser', 'Recording upload errored', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }
