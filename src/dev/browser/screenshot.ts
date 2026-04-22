@@ -40,7 +40,10 @@ export async function captureViaCdp(
   opts: CaptureOpts,
 ): Promise<CaptureResult> {
   if (opts.path) {
-    await page.goto(opts.path, {
+    // Puppeteer's page.goto requires an absolute URL — callers pass paths
+    // like "/welcome", so resolve against the current page origin.
+    const absolute = new URL(opts.path, page.url()).toString();
+    await page.goto(absolute, {
       waitUntil: 'networkidle0',
       timeout: GOTO_TIMEOUT_MS,
     });
