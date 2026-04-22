@@ -19,6 +19,9 @@ export interface LaunchedBrowser {
   browser: Browser;
   page: Page;
   executablePath: string;
+  pid: number | null;
+  previewMode: PreviewMode;
+  viewport: string;
 }
 
 export type PreviewMode = 'desktop' | 'mobile';
@@ -95,13 +98,22 @@ export async function launchSandboxBrowser(opts: {
   const target = `http://127.0.0.1:${opts.proxyPort}/?ms_sandbox=1`;
   await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 15_000 });
 
+  const viewportStr = `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}x`;
+
   log.info('browser', 'Sandbox browser launched', {
     executablePath,
     target,
     previewMode,
-    viewport: `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}x`,
+    viewport: viewportStr,
     pid: proc?.pid ?? null,
   });
 
-  return { browser, page, executablePath };
+  return {
+    browser,
+    page,
+    executablePath,
+    pid: proc?.pid ?? null,
+    previewMode,
+    viewport: viewportStr,
+  };
 }
