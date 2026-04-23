@@ -333,10 +333,13 @@ export class DevProxy {
   private handleWsConnection(ws: WebSocket, req: http.IncomingMessage): void {
     let clientId: string | null = null;
     const remoteAddr = req.socket.remoteAddress ?? '';
+    // Loopback covers the whole 127.0.0.0/8 range (IPv4) and ::1 /
+    // ::ffff:127.x.x.x (IPv6 + IPv4-mapped). In hosted sandbox containers
+    // the reported remoteAddress can be any variant — be permissive.
     const isLoopback =
-      remoteAddr === '127.0.0.1' ||
       remoteAddr === '::1' ||
-      remoteAddr === '::ffff:127.0.0.1';
+      /^127\./.test(remoteAddr) ||
+      /^::ffff:127\./i.test(remoteAddr);
 
     // Require hello within 5s
     const helloTimeout = setTimeout(() => {
@@ -378,7 +381,9 @@ export class DevProxy {
                 ? 'mirror'
                 : 'standalone';
 
-        log.debug('proxy', 'WS hello received', {
+        // Info-level so this shows up without --log-level debug. Small log,
+        // fires once per client connect.
+        log.info('proxy', 'WS hello received', {
           remoteAddr,
           isLoopback,
           helloMode: msg.mode,
@@ -386,6 +391,27 @@ export class DevProxy {
           helloUrl,
           resolvedMode: mode,
         });
+
+        // Loud warning when a client *looks* like the sandbox Chrome
+        // (carries the ms_sandbox marker) but didn't get routed there.
+        // Surfaces the exact field that failed so we can fix the check.
+        const looksLikeSandbox =
+          msg.sandbox === true || helloUrl.includes('ms_sandbox=1');
+        if (looksLikeSandbox && mode !== 'headless') {
+          log.warn(
+            'proxy',
+            'Client looks like the sandbox browser but did not register as headless',
+            {
+              remoteAddr,
+              isLoopback,
+              helloSandbox: msg.sandbox,
+              helloUrl,
+              resolvedMode: mode,
+              hint:
+                'The loopback check probably failed. See proxy.ts handleWsConnection isLoopback regex.',
+            },
+          );
+        }
         const viewport = (msg.viewport as { w: number; h: number }) || {
           w: 0,
           h: 0,
