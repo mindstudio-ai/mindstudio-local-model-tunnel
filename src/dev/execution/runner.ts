@@ -191,7 +191,7 @@ export class DevRunner {
     log.info('runner', 'Method received', { requestId, method: opts.methodExport, source: 'direct', sessionId: this.session.sessionId });
 
     try {
-      const authorizationToken = await fetchCallbackToken(this.appId, this.session.sessionId);
+      const { authorizationToken, secrets } = await fetchCallbackToken(this.appId, this.session.sessionId);
       const transpiledPath = await this.transpiler.transpile(opts.methodPath);
 
       // Per-request overrides > session impersonation > session default.
@@ -219,6 +219,7 @@ export class DevRunner {
         apiBaseUrl: getApiBaseUrl(),
         projectRoot: this.projectRoot,
         sessionId: this.session.sessionId,
+        secrets,
       });
 
       const duration = Date.now() - startTime;
@@ -305,9 +306,9 @@ export class DevRunner {
       log.debug('runner', 'Transpiling scenario', { path: scenario.path });
       const transpiledPath = await this.transpiler.transpile(scenario.path);
 
-      // Fetch a callback token for the seed execution — same scoping as
-      // poll-based tokens, but not tied to a poll request.
-      const authorizationToken = await fetchCallbackToken(this.appId, this.session.sessionId);
+      // Fetch a callback token + dev secrets for the seed execution —
+      // same scoping as poll-based tokens, but not tied to a poll request.
+      const { authorizationToken, secrets } = await fetchCallbackToken(this.appId, this.session.sessionId);
 
       log.debug('runner', 'Running scenario seed function', { export: scenario.export });
       const result = await executeMethod({
@@ -321,6 +322,7 @@ export class DevRunner {
         apiBaseUrl: getApiBaseUrl(),
         projectRoot: this.projectRoot,
         sessionId: this.session.sessionId,
+        secrets,
       });
 
       if (!result.success) {
