@@ -182,18 +182,24 @@ export async function refreshContext(
   return data.clientContext;
 }
 
-// Fetch a callback token for one-off executions (scenarios, etc.)
-// that don't come from the poll loop.
+// Fetch a callback token + the app's current dev secrets for one-off
+// executions (run-method, scenarios, etc.) that don't come from the poll
+// loop. The poll-loop path receives `secrets` directly on the DevRequest;
+// this endpoint mirrors that shape so out-of-band invocations can inject
+// the same env vars into the worker's process.env.
 export async function fetchCallbackToken(
   appId: string,
   sessionId: string,
-): Promise<string> {
-  const data = await apiRequest<{ authorizationToken: string }>(
+): Promise<{ authorizationToken: string; secrets?: Record<string, string> }> {
+  const data = await apiRequest<{
+    authorizationToken: string;
+    secrets?: Record<string, string>;
+  }>(
     'POST',
     `${basePath(appId)}/manage/token`,
     getHeaders(sessionId),
   );
-  return data.authorizationToken;
+  return { authorizationToken: data.authorizationToken, secrets: data.secrets };
 }
 
 export async function getUploadUrl(

@@ -27,7 +27,7 @@ export async function handleDbQuery(
 
   ctx.started({ databaseId, sql });
 
-  const token = await fetchCallbackToken(appId, session.sessionId);
+  const { authorizationToken: token } = await fetchCallbackToken(appId, session.sessionId);
   const url = `${getApiBaseUrl()}/_internal/v2/db/query`;
 
   const res = await fetch(url, {
