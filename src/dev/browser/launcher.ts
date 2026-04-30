@@ -57,8 +57,12 @@ const MOBILE_VIEWPORT: Viewport = {
   hasTouch: true,
 };
 
-function viewportFor(mode: PreviewMode): Viewport {
+export function viewportFor(mode: PreviewMode): Viewport {
   return mode === 'mobile' ? MOBILE_VIEWPORT : DESKTOP_VIEWPORT;
+}
+
+export function viewportToString(viewport: Viewport): string {
+  return `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}x`;
 }
 
 export async function launchSandboxBrowser(opts: {
@@ -110,7 +114,7 @@ export async function launchSandboxBrowser(opts: {
     throw err;
   }
 
-  const viewportStr = `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}x`;
+  const viewportStr = viewportToString(viewport);
 
   log.info('browser', 'Sandbox browser launched', {
     executablePath,

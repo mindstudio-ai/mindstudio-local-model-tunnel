@@ -1,4 +1,4 @@
-import { detectAppConfig } from '../config/app-config';
+import { detectAppConfigUntil } from '../config/app-config';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
 
@@ -8,9 +8,15 @@ export async function handleRunScenario(
 ): Promise<Record<string, unknown>> {
   if (!ctx.state.runner) throw new CommandError('No active session', 'NO_SESSION');
 
-  const freshConfig = detectAppConfig(ctx.cwd) ?? ctx.state.appConfig;
-  const scenario = freshConfig?.scenarios.find((s) => s.id === cmd.scenarioId);
-  if (!scenario) throw new CommandError(`Unknown scenario: ${cmd.scenarioId}`, 'INVALID_INPUT');
+  // Retry-aware manifest read — closes the same race window as run-method
+  // for scenarios added immediately before invocation.
+  const scenarioId = cmd.scenarioId;
+  const freshConfig =
+    (await detectAppConfigUntil(ctx.cwd, (c) =>
+      c.scenarios.some((s) => s.id === scenarioId),
+    )) ?? ctx.state.appConfig;
+  const scenario = freshConfig?.scenarios.find((s) => s.id === scenarioId);
+  if (!scenario) throw new CommandError(`Unknown scenario: ${scenarioId}`, 'INVALID_INPUT');
 
   const scenarioName = scenario.name ?? scenario.export;
   ctx.started({ scenarioId: scenario.id, name: scenarioName });
