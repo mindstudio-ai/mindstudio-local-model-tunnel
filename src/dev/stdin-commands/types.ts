@@ -5,13 +5,16 @@
 import type { DevRunner } from '../execution/runner';
 import type { DevProxy } from '../proxy/proxy';
 import type { BrowserSupervisor } from '../browser';
-import type { AppConfig } from '../config/types';
+import type { AppConfig, WebInterfaceConfig } from '../config/types';
 
 export interface SessionState {
   runner: DevRunner | null;
   proxy: DevProxy | null;
   browser: BrowserSupervisor | null;
   appConfig: AppConfig | null;
+  /** Cached web.json snapshot at session start; used to diff hot-applicable
+   *  changes (e.g. defaultPreviewMode) against the current state. */
+  lastWebConfig: WebInterfaceConfig | null;
   proxyPort: number | null;
   unsubscribers: Array<() => void>;
 }

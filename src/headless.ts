@@ -38,7 +38,8 @@ import {
 import { initLoggerHeadless, log, type LogLevel } from './dev/logging/logger';
 import { stablePort, detectGitBranch } from './dev/utils';
 import { watchTableFiles } from './dev/config/table-watcher';
-import { watchConfigFile } from './dev/config/config-watcher';
+import { watchManifestFiles } from './dev/config/config-watcher';
+import { join } from 'node:path';
 
 /**
  * Options for headless dev mode.
@@ -87,10 +88,11 @@ async function startSession(
 
   state.appConfig = appConfig;
 
-  // Resolve dev port
+  // Resolve dev port + cache the full web config snapshot for hot-apply diffing.
+  const webConfig = getWebInterfaceConfig(appConfig, cwd);
+  state.lastWebConfig = webConfig;
   let devPort = opts.devPort ?? null;
   if (devPort === null) {
-    const webConfig = getWebInterfaceConfig(appConfig, cwd);
     devPort = webConfig?.devPort ?? null;
   }
 
@@ -159,8 +161,7 @@ async function startSession(
       // the web interface's defaultPreviewMode so mobile-first apps render
       // at mobile dimensions in the sandbox Chrome too.
       if (opts.sandboxBrowser && state.proxyPort !== null && !state.browser) {
-        const webConfig = getWebInterfaceConfig(appConfig, cwd);
-        const previewMode = webConfig?.defaultPreviewMode ?? 'desktop';
+        const previewMode = state.lastWebConfig?.defaultPreviewMode ?? 'desktop';
         const supervisor = new BrowserSupervisor(state.proxyPort, previewMode);
         state.browser = supervisor;
         supervisor.start().catch((err) => {
@@ -247,6 +248,53 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
   state.unsubscribers.push(cleanup);
 }
 
+/**
+ * Hot-apply a web.json `defaultPreviewMode` change without a full session
+ * restart. Returns true if the change was hot-applied (and the caller should
+ * stop processing); false if the change requires a full restart and the
+ * caller should fall through to the existing restart path.
+ *
+ * Conditions for hot-apply:
+ *   - The changed file is the currently-active web.json (resolved via
+ *     interfaces[].path).
+ *   - A sandbox browser supervisor exists.
+ *   - The only field that differs from the cached snapshot is
+ *     `defaultPreviewMode`. devPort/devCommand changes still need a restart
+ *     because they affect proxy upstream + sandbox-manager-spawned dev server.
+ */
+async function tryHotApplyWebConfigChange(
+  state: SessionState,
+  cwd: string,
+  changedPath: string,
+): Promise<boolean> {
+  if (!state.appConfig || !state.browser || !state.lastWebConfig) return false;
+
+  const webIface = state.appConfig.interfaces.find(
+    (i) => i.type === 'web' && i.enabled !== false,
+  );
+  if (!webIface) return false;
+  const webPath = join(cwd, webIface.path);
+  if (changedPath !== webPath) return false;
+
+  const newWeb = getWebInterfaceConfig(state.appConfig, cwd);
+  if (!newWeb) return false;
+
+  const onlyPreviewModeChanged =
+    newWeb.devPort === state.lastWebConfig.devPort &&
+    newWeb.devCommand === state.lastWebConfig.devCommand &&
+    newWeb.defaultPreviewMode !== state.lastWebConfig.defaultPreviewMode;
+  if (!onlyPreviewModeChanged) return false;
+
+  const nextMode = newWeb.defaultPreviewMode ?? 'desktop';
+  log.info('session', 'web.json change is preview-mode-only, hot-applying', {
+    from: state.lastWebConfig.defaultPreviewMode,
+    to: nextMode,
+  });
+  state.lastWebConfig = newWeb;
+  await state.browser.setPreviewMode(nextMode);
+  return true;
+}
+
 /** Tear down the runner, logs, and watchers. Proxy stays alive for reuse. */
 async function teardownRunner(state: SessionState): Promise<void> {
   for (const unsub of state.unsubscribers) unsub();
@@ -305,6 +353,7 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     proxy: null,
     browser: null,
     appConfig: null,
+    lastWebConfig: null,
     proxyPort: null,
     unsubscribers: [],
   };
@@ -379,14 +428,24 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   // Stdin command loop
   setupStdinCommands(state, cwd);
 
-  // Watch mindstudio.json for changes — validate before teardown so corrupt
-  // writes don't kill a running session. In degraded state (no runner), a
-  // valid config triggers a fresh startSession.
-  cleanupConfigWatcher = watchConfigFile(cwd, async () => {
+  // Watch mindstudio.json + every interface JSON it references. Most changes
+  // trigger a full session restart (validate before teardown so corrupt writes
+  // don't kill the running session). The only exception is web.json's
+  // `defaultPreviewMode` — that hot-applies via the supervisor without a
+  // restart, so rrweb continuity and cookies survive the swap.
+  cleanupConfigWatcher = watchManifestFiles(cwd, async (changedPath) => {
     if (stopping || restarting) return;
+
+    // Try the hot-apply fast path first — only triggers when the changed
+    // file IS the active web.json AND the only field that differs is
+    // defaultPreviewMode. Anything else falls through to the restart path.
+    if (await tryHotApplyWebConfigChange(state, cwd, changedPath)) {
+      return;
+    }
+
     restarting = true;
     try {
-      emitEvent('config-changed');
+      emitEvent('config-changed', { path: changedPath });
 
       // Validate BEFORE tearing down the running session
       const newConfig = detectAppConfig(cwd);

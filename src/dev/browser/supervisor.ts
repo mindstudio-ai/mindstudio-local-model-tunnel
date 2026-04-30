@@ -19,7 +19,12 @@
  */
 
 import type { Browser, Page } from 'puppeteer-core';
-import { launchSandboxBrowser, type PreviewMode } from './launcher';
+import {
+  launchSandboxBrowser,
+  viewportFor,
+  viewportToString,
+  type PreviewMode,
+} from './launcher';
 import { log } from '../logging/logger';
 import { emitEvent } from '../ipc/ipc';
 
@@ -39,11 +44,16 @@ export class BrowserSupervisor {
     exitCode: number | null;
     signal: string | null;
   } | null = null;
+  private executablePath: string | null = null;
+  private previewMode: PreviewMode;
+  private viewportChange: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly proxyPort: number,
-    private readonly previewMode: PreviewMode = 'desktop',
-  ) {}
+    initialPreviewMode: PreviewMode = 'desktop',
+  ) {
+    this.previewMode = initialPreviewMode;
+  }
 
   async start(): Promise<void> {
     if (this.browser) return;
@@ -74,6 +84,60 @@ export class BrowserSupervisor {
 
   isDegraded(): boolean {
     return this.degraded;
+  }
+
+  getPreviewMode(): PreviewMode {
+    return this.previewMode;
+  }
+
+  /**
+   * Hot-apply a viewport change without restarting Chrome. Triggered by
+   * web.json edits where only `defaultPreviewMode` flipped — we re-emulate
+   * via CDP and reload so media queries and `window.matchMedia` listeners
+   * pick up the new dimensions. Cookies and sessionStorage survive the
+   * reload; rrweb / browser-agent reconnect normally.
+   *
+   * Calls are serialized so rapid back-to-back invocations apply in order
+   * rather than racing.
+   */
+  async setPreviewMode(mode: PreviewMode): Promise<void> {
+    if (this.stopping || this.degraded) return;
+    if (mode === this.previewMode) return;
+    const prev = this.viewportChange;
+    this.viewportChange = prev.then(() => this.applyPreviewMode(mode));
+    await this.viewportChange;
+  }
+
+  private async applyPreviewMode(mode: PreviewMode): Promise<void> {
+    if (this.stopping || this.degraded) return;
+    if (!this.browser || !this.page) return;
+    if (mode === this.previewMode) return;
+
+    const viewport = viewportFor(mode);
+    const viewportStr = viewportToString(viewport);
+    log.info('browser', 'Sandbox browser viewport changing', {
+      from: this.previewMode,
+      to: mode,
+      viewport: viewportStr,
+    });
+    try {
+      await this.page.setViewport(viewport);
+      await this.page.reload({ waitUntil: 'networkidle0', timeout: 15_000 });
+    } catch (err) {
+      log.warn('browser', 'Sandbox browser viewport change failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    this.previewMode = mode;
+
+    emitEvent('sandbox-browser-state', {
+      state: 'running',
+      pid: this.browser.process()?.pid ?? null,
+      previewMode: mode,
+      viewport: viewportStr,
+      executablePath: this.executablePath,
+    });
   }
 
   /**
@@ -126,6 +190,7 @@ export class BrowserSupervisor {
 
       this.browser = launched.browser;
       this.page = launched.page;
+      this.executablePath = launched.executablePath;
       this.consecutiveFailures = 0;
       this.degraded = false;
       this.runningSince = Date.now();

@@ -56,6 +56,36 @@ export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
 }
 
 /**
+ * Read the manifest, retrying until `predicate` is satisfied or attempts
+ * are exhausted. Closes the race where a stdin command fires immediately
+ * after a manifest edit — the disk write may be momentarily partial
+ * (atomic-rename in flight) or recently completed but read before the
+ * rename committed. Returns the last config seen (even if predicate
+ * never satisfied), so callers can produce accurate "not found" errors.
+ *
+ * Defaults: 5 attempts × 60ms = ~300ms ceiling for genuinely-absent items.
+ */
+export async function detectAppConfigUntil(
+  cwd: string,
+  predicate: (config: AppConfig) => boolean,
+  attempts = 5,
+  delayMs = 60,
+): Promise<AppConfig | null> {
+  let last: AppConfig | null = null;
+  for (let i = 0; i < attempts; i++) {
+    const config = detectAppConfig(cwd);
+    if (config) {
+      last = config;
+      if (predicate(config)) return config;
+    }
+    if (i < attempts - 1) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  return last;
+}
+
+/**
  * Find the web interface config from mindstudio.json and read its devPort/devCommand.
  * Returns null if no web interface is declared or config file doesn't exist.
  */

@@ -1,4 +1,4 @@
-import { detectAppConfig } from '../config/app-config';
+import { detectAppConfigUntil } from '../config/app-config';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
 
@@ -11,7 +11,13 @@ export async function handleRunMethod(
   const methodName = cmd.method as string;
   if (!methodName) throw new CommandError('run-method requires "method" (export name or ID)', 'INVALID_INPUT');
 
-  const freshConfig = detectAppConfig(ctx.cwd) ?? ctx.state.appConfig;
+  // Retry-aware manifest read so freshly-added methods are picked up even
+  // when the call lands inside the brief window between the user's
+  // mindstudio.json write and the file watcher's debounce firing.
+  const freshConfig =
+    (await detectAppConfigUntil(ctx.cwd, (c) =>
+      c.methods.some((m) => m.export === methodName || m.id === methodName),
+    )) ?? ctx.state.appConfig;
   const method =
     freshConfig?.methods.find((m) => m.export === methodName) ??
     freshConfig?.methods.find((m) => m.id === methodName);
