@@ -1,6 +1,6 @@
 {
   "name": "@mindstudio-ai/local-model-tunnel",
-  "version": "0.5.59",
+  "version": "0.5.60",
   "description": "Run local AI models with MindStudio",
   "type": "module",
   "main": "dist/index.js",
