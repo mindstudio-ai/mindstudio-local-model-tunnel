@@ -99,6 +99,17 @@ export async function launchSandboxBrowser(opts: {
   const pages = await browser.pages();
   const page = pages[0] ?? (await browser.newPage());
 
+  // Stamp the sandbox marker on every new document, before any page script
+  // runs. The browser-agent's `isSandboxBrowser()` reads this latch — keeping
+  // it alive ensures the proxy classifies us as `mode=headless` on every
+  // reconnect, even after nav cycles (cross-origin trips, new browsing
+  // contexts, etc.) that would otherwise wipe per-tab sessionStorage and
+  // demote us to `mode=standalone` (commands then queue with no eligible
+  // target and time out at 120s).
+  await page.evaluateOnNewDocument(() => {
+    try { sessionStorage.setItem('__ms_sandbox', '1'); } catch {}
+  });
+
   const target = `http://127.0.0.1:${opts.proxyPort}/?ms_sandbox=1`;
   // `networkidle0` waits for the injected `<script async>` browser-agent to
   // finish loading AND its WebSocket to open (at which point the page is
