@@ -15,6 +15,7 @@ import { handleBrowser } from './browser';
 import { handleScreenshotFullPage } from './screenshot-full-page';
 import { handleDevServerRestarting } from './dev-server-restarting';
 import { handleDbQuery } from './db-query';
+import { handleListDatabases } from './list-databases';
 import { handleSetupBrowser } from './setup-browser';
 import { CommandError } from './types';
 import type { SessionState, CommandContext, CommandHandler } from './types';
@@ -29,6 +30,7 @@ const handlers: Record<string, CommandHandler> = {
   'browser': handleBrowser,
   'screenshotFullPage': handleScreenshotFullPage,
   'db-query': handleDbQuery,
+  'list-databases': handleListDatabases,
   'setup-browser': handleSetupBrowser,
   'dev-server-restarting': handleDevServerRestarting,
 };
