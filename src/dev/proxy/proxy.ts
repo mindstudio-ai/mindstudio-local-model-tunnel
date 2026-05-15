@@ -22,6 +22,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { log } from '../logging/logger';
 import { appendBrowserLogEntries } from '../logging/browser-log';
 import { ClientRegistry } from './ws-clients';
+import { tryHandleTelemetry } from './telemetry-mock';
 import { CommandError } from '../stdin-commands/types';
 import { getApiBaseUrl } from '../../config';
 
@@ -51,6 +52,9 @@ export class DevProxy {
 
   /** Last mirror snapshot — sent to new mirror viewers so they don't wait for the next checkout. */
   private lastMirrorSnapshot: string | null = null;
+
+  /** Open /_/telemetry/presence SSE responses, drained on stop(). */
+  private sseConnections = new Set<http.ServerResponse>();
 
   /** Upstream dev server health tracking. */
   private upstreamUp = true;
@@ -300,6 +304,14 @@ export class DevProxy {
       this.wss.close();
       this.wss = null;
     }
+
+    // End telemetry SSE responses so server.close() doesn't wait on
+    // long-lived presence streams. Their cleanup handlers clear the
+    // keepalive interval and drop themselves from the set.
+    for (const sseRes of this.sseConnections) {
+      try { sseRes.end(); } catch {}
+    }
+    this.sseConnections.clear();
 
     if (this.server) {
       log.info('proxy', 'Dev proxy stopping');
@@ -728,6 +740,12 @@ export class DevProxy {
         'access-control-allow-headers': '*',
       });
       clientRes.end();
+      return;
+    }
+
+    // Telemetry trio mocked locally so the SDK doesn't flood the real backend
+    // with dev-noise events or hold open a real-backend presence SSE.
+    if (tryHandleTelemetry(clientReq, clientRes, this.sseConnections)) {
       return;
     }
 
