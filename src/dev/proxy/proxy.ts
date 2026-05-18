@@ -56,6 +56,15 @@ export class DevProxy {
   /** Open /_/telemetry/presence SSE responses, drained on stop(). */
   private sseConnections = new Set<http.ServerResponse>();
 
+  /** Waiters resolved when a headless (sandbox-owned) client registers via WS.
+   *  Lets the supervisor block on the real readiness signal instead of a
+   *  network-idle predicate that gets defeated by long-lived SSE responses. */
+  private headlessReadyWaiters = new Set<{
+    resolve: () => void;
+    reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+
   /** Upstream dev server health tracking. */
   private upstreamUp = true;
   private healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
@@ -87,6 +96,33 @@ export class DevProxy {
    */
   isBrowserConnected(): boolean {
     return this.clients.hasConnected();
+  }
+
+  /**
+   * Resolve when a sandbox-owned headless client has registered via WS hello.
+   * If one is already connected, resolves immediately. Otherwise queues a
+   * one-shot waiter with a timeout. Used by `BrowserSupervisor` so it doesn't
+   * declare `running` until the browser-agent is actually reachable for
+   * commands — replacing the prior `networkidle0`-based readiness check
+   * which is defeated by long-lived SSE responses (e.g. /_/telemetry/presence).
+   */
+  waitForHeadlessClient(timeoutMs = 15_000): Promise<void> {
+    if (this.clients.hasHeadless()) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const waiter = {
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          this.headlessReadyWaiters.delete(waiter);
+          reject(
+            new Error(
+              `Sandbox browser-agent did not connect within ${timeoutMs}ms`,
+            ),
+          );
+        }, timeoutMs),
+      };
+      this.headlessReadyWaiters.add(waiter);
+    });
   }
 
   /**
@@ -313,6 +349,14 @@ export class DevProxy {
     }
     this.sseConnections.clear();
 
+    // Reject any pending headless-client waiters so the supervisor's
+    // restart loop doesn't hang on a promise that will never resolve.
+    for (const w of this.headlessReadyWaiters) {
+      clearTimeout(w.timer);
+      w.reject(new Error('Proxy stopped'));
+    }
+    this.headlessReadyWaiters.clear();
+
     if (this.server) {
       log.info('proxy', 'Dev proxy stopping');
       this.server.close();
@@ -435,6 +479,16 @@ export class DevProxy {
           viewport,
           mirror: !!msg.mirror,
         });
+
+        // The sandbox-owned headless client just became reachable — release
+        // any supervisor waiting for the WS hello so it can declare `running`.
+        if (mode === 'headless' && this.headlessReadyWaiters.size > 0) {
+          for (const w of this.headlessReadyWaiters) {
+            clearTimeout(w.timer);
+            w.resolve();
+          }
+          this.headlessReadyWaiters.clear();
+        }
 
         ws.send(JSON.stringify({ type: 'ack', clientId }));
 

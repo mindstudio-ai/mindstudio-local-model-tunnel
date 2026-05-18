@@ -51,6 +51,10 @@ export class BrowserSupervisor {
   constructor(
     private readonly proxyPort: number,
     initialPreviewMode: PreviewMode = 'desktop',
+    /** Optional readiness gate passed through to `launchSandboxBrowser`.
+     *  Wired by `headless.ts` to `DevProxy.waitForHeadlessClient(...)` so
+     *  `running` is only emitted once the browser-agent WS hello arrives. */
+    private readonly waitForBrowserAgent?: () => Promise<void>,
   ) {
     this.previewMode = initialPreviewMode;
   }
@@ -169,6 +173,7 @@ export class BrowserSupervisor {
       const launched = await launchSandboxBrowser({
         proxyPort: this.proxyPort,
         previewMode: this.previewMode,
+        waitForBrowserAgent: this.waitForBrowserAgent,
       });
       if (!launched) {
         // No Chrome executable — enter degraded mode permanently for this session.
