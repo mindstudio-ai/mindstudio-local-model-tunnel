@@ -97,6 +97,13 @@ export class ClientRegistry {
     return this.clients.size > 0;
   }
 
+  hasHeadless(): boolean {
+    for (const client of this.clients.values()) {
+      if (client.mode === 'headless') return true;
+    }
+    return false;
+  }
+
   count(): number {
     return this.clients.size;
   }

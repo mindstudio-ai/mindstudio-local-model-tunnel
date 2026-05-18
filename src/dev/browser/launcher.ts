@@ -68,6 +68,11 @@ export function viewportToString(viewport: Viewport): string {
 export async function launchSandboxBrowser(opts: {
   proxyPort: number;
   previewMode?: PreviewMode;
+  /** Optional readiness gate awaited after `page.goto` resolves. Lets the
+   *  supervisor block on the browser-agent WS hello instead of relying on
+   *  `networkidle0`, which is defeated by long-lived SSE responses such as
+   *  the telemetry-presence mock. */
+  waitForBrowserAgent?: () => Promise<void>;
 }): Promise<LaunchedBrowser | null> {
   const executablePath = resolveChromePath();
   if (!executablePath) {
@@ -111,13 +116,17 @@ export async function launchSandboxBrowser(opts: {
   });
 
   const target = `http://127.0.0.1:${opts.proxyPort}/?ms_sandbox=1`;
-  // `networkidle0` waits for the injected `<script async>` browser-agent to
-  // finish loading AND its WebSocket to open (at which point the page is
-  // idle). That way `running` corresponds to "ready for both CDP *and* WS
-  // tool calls", closing the first-tool-call race where the WS client
-  // hadn't registered before the first command dispatched.
+  // `load` fires once HTML + non-async assets are parsed/loaded — long-lived
+  // requests (e.g. the telemetry-presence SSE the SDK opens on page load)
+  // don't block it. We then wait separately on `waitForBrowserAgent` for the
+  // browser-agent WS hello, so callers don't race the first command. That
+  // pair replaces the old `networkidle0` approach, which the SSE defeats by
+  // pinning the in-flight count at 1 forever.
   try {
-    await page.goto(target, { waitUntil: 'networkidle0', timeout: 15_000 });
+    await page.goto(target, { waitUntil: 'load', timeout: 15_000 });
+    if (opts.waitForBrowserAgent) {
+      await opts.waitForBrowserAgent();
+    }
   } catch (err) {
     // Leaked Chromium otherwise — if navigation fails, close the browser
     // so the supervisor's restart loop can start clean.

@@ -162,7 +162,15 @@ async function startSession(
       // at mobile dimensions in the sandbox Chrome too.
       if (opts.sandboxBrowser && state.proxyPort !== null && !state.browser) {
         const previewMode = state.lastWebConfig?.defaultPreviewMode ?? 'desktop';
-        const supervisor = new BrowserSupervisor(state.proxyPort, previewMode);
+        const proxy = state.proxy;
+        const supervisor = new BrowserSupervisor(
+          state.proxyPort,
+          previewMode,
+          // Block `running` until the browser-agent WS hello arrives —
+          // replaces the launcher's old `networkidle0` readiness check,
+          // which the telemetry-presence SSE defeats.
+          () => proxy?.waitForHeadlessClient(15_000) ?? Promise.resolve(),
+        );
         state.browser = supervisor;
         supervisor.start().catch((err) => {
           log.warn('browser', 'Sandbox browser failed to start', {
