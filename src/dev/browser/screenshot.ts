@@ -43,16 +43,27 @@ export async function captureViaCdp(
     // Puppeteer's page.goto requires an absolute URL — callers pass paths
     // like "/welcome", so resolve against the current page origin.
     const absolute = new URL(opts.path, page.url()).toString();
+    // `networkidle2` not `networkidle0`: the SDK's /_/telemetry/presence SSE
+    // stays open indefinitely, which would pin in-flight at 1 forever and
+    // defeat `networkidle0`. `networkidle2` lets us still wait for the
+    // page's other API calls / images to settle while ignoring the SSE.
     await page.goto(absolute, {
-      waitUntil: 'networkidle0',
+      waitUntil: 'networkidle2',
       timeout: GOTO_TIMEOUT_MS,
     });
   }
 
   // Match browser-agent's in-page network-idle settle so layout/fonts are
   // stable at capture time. Swallow timeout — best-effort.
+  // `concurrency: 1` accommodates the always-in-flight /_/telemetry/presence
+  // SSE so this resolves when other requests settle instead of always eating
+  // the full timeout.
   await page
-    .waitForNetworkIdle({ timeout: SETTLE_TIMEOUT_MS, idleTime: SETTLE_IDLE_MS })
+    .waitForNetworkIdle({
+      timeout: SETTLE_TIMEOUT_MS,
+      idleTime: SETTLE_IDLE_MS,
+      concurrency: 1,
+    })
     .catch(() => {});
 
   // Pre-roll for fullPage captures only. CDP's `fullPage: true` renders in a
@@ -140,10 +151,12 @@ async function preRollScroll(page: Page): Promise<void> {
     await new Promise((r) => setTimeout(r, PREROLL_BOTTOM_DWELL_MS));
 
     // If the observers kicked off image/data loads, wait for them briefly.
+    // `concurrency: 1` ignores the always-in-flight telemetry-presence SSE.
     await page
       .waitForNetworkIdle({
         timeout: PREROLL_NETWORK_IDLE_MS,
         idleTime: SETTLE_IDLE_MS,
+        concurrency: 1,
       })
       .catch(() => {});
 

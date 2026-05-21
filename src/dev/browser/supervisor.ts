@@ -126,7 +126,13 @@ export class BrowserSupervisor {
     });
     try {
       await this.page.setViewport(viewport);
-      await this.page.reload({ waitUntil: 'networkidle0', timeout: 15_000 });
+      // `load` not `networkidle0`: the SDK's /_/telemetry/presence SSE stays
+      // open indefinitely (telemetry-mock keepalive), which would pin the
+      // network-in-flight count at 1 forever and break this 15s timeout.
+      // A viewport change only needs media queries / matchMedia to re-evaluate;
+      // we don't need API calls to settle, and the browser-agent's WS
+      // reconnects on its own after the page reload.
+      await this.page.reload({ waitUntil: 'load', timeout: 15_000 });
     } catch (err) {
       log.warn('browser', 'Sandbox browser viewport change failed', {
         error: err instanceof Error ? err.message : String(err),
