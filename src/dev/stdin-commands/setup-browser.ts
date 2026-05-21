@@ -35,10 +35,7 @@ export async function handleSetupBrowser(
   // origin (always the proxy when the sandbox browser is running).
   const absolute = new URL(path, page.url()).toString();
   try {
-    // `networkidle2` not `networkidle0`: the SDK's /_/telemetry/presence SSE
-    // stays open indefinitely, which would pin in-flight at 1 forever and
-    // make `networkidle0` time out at 15s every time.
-    await page.goto(absolute, { waitUntil: 'networkidle2', timeout: 15_000 });
+    await page.goto(absolute, { waitUntil: 'networkidle0', timeout: 15_000 });
   } catch (err) {
     throw new CommandError(
       `Navigation to ${path} failed: ${err instanceof Error ? err.message : String(err)}`,
