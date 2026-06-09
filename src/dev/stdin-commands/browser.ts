@@ -118,6 +118,11 @@ async function captureScreenshotStep(
   const r = await captureViaCdp(page, {
     fullPage: command === 'screenshotFullPage',
     path: typeof step.path === 'string' ? step.path : undefined,
+    scrollToSelector:
+      typeof step.scrollToSelector === 'string'
+        ? step.scrollToSelector
+        : undefined,
+    scrollY: typeof step.scrollY === 'number' ? step.scrollY : undefined,
     uploadUrl,
     uploadFields,
   });

@@ -31,6 +31,9 @@ export async function handleScreenshotViewport(
   const r = await captureViaCdp(page, {
     fullPage: false,
     path: typeof cmd.path === 'string' ? cmd.path : undefined,
+    scrollToSelector:
+      typeof cmd.scrollToSelector === 'string' ? cmd.scrollToSelector : undefined,
+    scrollY: typeof cmd.scrollY === 'number' ? cmd.scrollY : undefined,
     uploadUrl,
     uploadFields,
   });
