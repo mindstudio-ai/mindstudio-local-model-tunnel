@@ -5,9 +5,34 @@ import { CommandError } from './types';
 import type { CommandContext } from './types';
 import type { Page } from 'puppeteer-core';
 
-// Recordings smaller than this (after JSON serialization) aren't worth
-// the round trip — probably a FullSnapshot with no interesting deltas.
-const MIN_RECORDING_BYTES = 5_000;
+/**
+ * Metadata attached to each uploaded recording chunk. The agent emits one
+ * continuous recording per document run: the seq-0 chunk carries the rrweb
+ * Meta + FullSnapshot, later chunks are incremental-only continuations of the
+ * same node-ID namespace. Consumers group by `sessionId`, order by `seq`, and
+ * concatenate into a single player — the only DOM rebuild is at a chunk where
+ * `containsSnapshot` is true (a new `runId` = a real page load).
+ */
+interface RecordingMeta {
+  url: string;
+  sessionId: string;
+  runId: string | null;
+  seq: number;
+  containsSnapshot: boolean;
+  startTs: number;
+  endTs: number;
+}
+
+// Monotonic chunk sequence per dev session. A counter only advances when a
+// chunk is actually uploaded, so the frontend never sees a gap. Keyed by
+// sessionId so a session restart (new sessionId) starts fresh at 0.
+const recordingSeqBySession = new Map<string, number>();
+
+function nextRecordingSeq(sessionId: string): number {
+  const cur = recordingSeqBySession.get(sessionId) ?? 0;
+  recordingSeqBySession.set(sessionId, cur + 1);
+  return cur;
+}
 
 export async function handleBrowser(
   ctx: CommandContext,
@@ -35,6 +60,7 @@ export async function handleBrowser(
   let lastLogs: unknown[] = [];
   let totalDuration = 0;
   const allEvents: unknown[] = [];
+  let lastRunId: string | undefined;
 
   let buffer: Array<{ idx: number; step: Record<string, unknown> }> = [];
 
@@ -57,6 +83,7 @@ export async function handleBrowser(
     if (Array.isArray(out.logs)) lastLogs = out.logs as unknown[];
     if (typeof out.duration === 'number') totalDuration += out.duration;
     if (Array.isArray(out.events)) allEvents.push(...(out.events as unknown[]));
+    if (typeof out.runId === 'string') lastRunId = out.runId;
     buffer = [];
   };
 
@@ -79,7 +106,7 @@ export async function handleBrowser(
     r ?? { index: idx, command: steps[idx].command, error: 'no result' },
   );
   const hasStepError = densified.some((s) => s?.error);
-  const recordingUrl = await uploadRecording(ctx, allEvents);
+  const recording = await uploadRecording(ctx, allEvents, lastRunId);
 
   return {
     success: !hasStepError,
@@ -88,7 +115,7 @@ export async function handleBrowser(
     snapshot: lastSnapshot,
     logs: lastLogs,
     duration: totalDuration,
-    ...(recordingUrl ? { recordingUrl } : {}),
+    ...(recording ? { recording } : {}),
   };
 }
 
@@ -136,21 +163,25 @@ async function captureScreenshotStep(
 }
 
 /**
- * Upload an rrweb event array to S3 using the same presigned-URL flow
- * screenshots use. Returns the public URL on success, null on any failure
- * (including too-small recordings that aren't worth keeping).
+ * Upload one continuous-recording chunk to S3 using the same presigned-URL
+ * flow screenshots use, and return its playback metadata (RecordingMeta).
+ * Returns null when there's nothing to upload or the upload fails.
  */
 async function uploadRecording(
   ctx: CommandContext,
   events: unknown[],
-): Promise<string | null> {
+  runId: string | undefined,
+): Promise<RecordingMeta | null> {
+  // Never drop a non-empty chunk: continuation chunks are incremental-only
+  // and may be small, but skipping one punches a hole in the continuous
+  // stream and desyncs playback. (The old size floor was for self-contained
+  // per-command recordings, which no longer exist.)
   if (events.length === 0) return null;
   const session = ctx.state.runner?.getSession();
   const appId = ctx.state.appConfig?.appId;
   if (!session || !appId) return null;
 
   const body = JSON.stringify(events);
-  if (body.length < MIN_RECORDING_BYTES) return null;
 
   try {
     const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
@@ -174,15 +205,57 @@ async function uploadRecording(
       });
       return null;
     }
-    log.info('browser', 'Recording uploaded', {
+
+    const { containsSnapshot, startTs, endTs } = summarizeEvents(events);
+    const seq = nextRecordingSeq(session.sessionId);
+    log.info('browser', 'Recording chunk uploaded', {
       bytes: body.length,
       events: events.length,
+      seq,
+      containsSnapshot,
     });
-    return publicUrl;
+    return {
+      url: publicUrl,
+      sessionId: session.sessionId,
+      runId: runId ?? null,
+      seq,
+      containsSnapshot,
+      startTs,
+      endTs,
+    };
   } catch (err) {
     log.warn('browser', 'Recording upload errored', {
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
   }
+}
+
+/**
+ * Derive playback metadata from a chunk's rrweb events. `containsSnapshot`
+ * (any type-2 FullSnapshot) marks a rebuild seam; startTs/endTs (absolute
+ * event timestamps, passed through unchanged from the agent) give the
+ * per-chunk window the frontend seeks to for per-tool replay.
+ */
+function summarizeEvents(events: unknown[]): {
+  containsSnapshot: boolean;
+  startTs: number;
+  endTs: number;
+} {
+  let containsSnapshot = false;
+  let startTs = Infinity;
+  let endTs = -Infinity;
+  for (const e of events) {
+    const ev = e as { type?: number; timestamp?: number };
+    if (ev.type === 2) containsSnapshot = true;
+    if (typeof ev.timestamp === 'number') {
+      if (ev.timestamp < startTs) startTs = ev.timestamp;
+      if (ev.timestamp > endTs) endTs = ev.timestamp;
+    }
+  }
+  return {
+    containsSnapshot,
+    startTs: Number.isFinite(startTs) ? startTs : 0,
+    endTs: Number.isFinite(endTs) ? endTs : 0,
+  };
 }
