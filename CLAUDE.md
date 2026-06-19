@@ -169,7 +169,16 @@ Sends commands to the browser agent via WebSocket. Commands execute sequentially
 ```
 Times out after 120s. If the browser disconnects mid-command, rejects after a 10s grace period (to allow for navigation reconnects).
 
-When a batch contains any interactive step (`click`, `type`, `select`), the browser agent records the session via rrweb and returns the events. The tunnel uploads them to S3 and adds a `recordingUrl` field to the response — UIs can load that URL in an rrweb player for per-tool-call replay. Screenshot-only and read-only batches don't produce recordings. Very short recordings (<5 KB JSON) are discarded as not worth keeping.
+When a batch contains any interactive step (`click`, `type`, `select`), the browser agent records the session via rrweb. The recorder is **continuous**: it starts on the first interactive command and stays alive for the document lifetime, so each command returns only the events buffered since the last one. The first chunk of a run carries the rrweb Meta + FullSnapshot; later chunks are incremental-only continuations sharing the same node-ID namespace. A hard navigation/reload starts a new run (new `runId` + fresh FullSnapshot).
+
+The tunnel uploads each non-empty chunk to S3 and adds a `recording` object to the response:
+
+```json
+{"event": "browser", "requestId": "r3", "status": "completed", "success": true, "steps": [...], "duration": 250,
+ "recording": {"url": "https://...", "sessionId": "...", "runId": "...", "seq": 0, "containsSnapshot": true, "startTs": 1718800000000, "endTs": 1718800000250}}
+```
+
+UIs group chunks by `sessionId`, order by `seq`, and concatenate them into a **single** rrweb player — no per-command FullSnapshot, so no DOM rebuild/flash at command boundaries. The only rebuild seams are chunks where `containsSnapshot` is true (a new `runId` = a real page load). Per-tool-call replay is a seek to that chunk's `[startTs, endTs]` window in the merged timeline. Screenshot-only and read-only batches don't start the recorder; once it's running they still flush continuation events to keep the stream contiguous. Chunks are never dropped for being small (a missing continuation chunk would desync playback).
 
 Available commands:
 - `snapshot` -- returns a compact accessibility-tree-style representation of the page DOM, with stable `[ref=eN]` identifiers on interactive elements. Waits for network requests to settle before walking.
