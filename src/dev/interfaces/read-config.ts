@@ -6,6 +6,7 @@
 
 import { readAgentConfig, type AgentConfigBundle } from './agent-config';
 import { readApiConfig, type ApiConfigBundle } from './api-config';
+import { readMcpConfig, type McpConfigBundle } from './mcp-config';
 import { log } from '../logging/logger';
 import type { AppConfig, AppAuthConfig } from '../config/types';
 
@@ -14,6 +15,7 @@ export interface ConfigBundle {
   auth: AppAuthConfig | null;
   agent: AgentConfigBundle | null;
   api: ApiConfigBundle | null;
+  mcp: McpConfigBundle | null;
 }
 
 /**
@@ -44,10 +46,20 @@ export function readConfig(
     });
   }
 
+  let mcp: McpConfigBundle | null = null;
+  try {
+    mcp = readMcpConfig(projectRoot, appConfig);
+  } catch (err) {
+    log.debug('config', 'MCP config not available', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   return {
     name: appConfig.name,
     auth: appConfig.auth ?? null,
     agent,
     api,
+    mcp,
   };
 }
