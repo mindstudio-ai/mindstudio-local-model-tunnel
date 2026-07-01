@@ -844,8 +844,17 @@ export class DevProxy {
     delete headers['accept-encoding'];
 
     // API routes need the dev release ID so the platform routes execution
-    // back through the tunnel's poll queue instead of the live release.
-    if (originalPath.startsWith('/_/api/') && this.clientContext.releaseId) {
+    // back through the tunnel's poll queue instead of the live release. The
+    // "Sign in with Remy" start redirect also needs it: it's a tokenless
+    // top-level navigation, so the platform can't identify the dev session
+    // from an ms_iface_ Bearer the way the other auth routes do. Without the
+    // header it can't allow-list this tunnel's origin as a valid redirect
+    // target, and the delegated handshake 400s in dev.
+    if (
+      this.clientContext.releaseId &&
+      (originalPath.startsWith('/_/api/') ||
+        originalPath.startsWith('/_/auth/remy/start'))
+    ) {
       headers['x-dev-session'] = this.clientContext.releaseId as string;
     }
 
