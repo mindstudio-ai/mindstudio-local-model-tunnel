@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { getUploadUrl } from '../api';
 import { captureViaCdp } from '../browser';
 import { log } from '../logging/logger';
@@ -23,15 +24,27 @@ interface RecordingMeta {
   endTs: number;
 }
 
-// Monotonic chunk sequence per dev session. A counter only advances when a
-// chunk is actually uploaded, so the frontend never sees a gap. Keyed by
-// sessionId so a session restart (new sessionId) starts fresh at 0.
-const recordingSeqBySession = new Map<string, number>();
+// Recording-session id for this tunnel process. The frontend groups recording
+// chunks by `sessionId` and concatenates them by `seq` into one player, so the
+// grouping key MUST share the seq counter's lifetime. The *dev* session's id is
+// durable — reused across process restarts, can span days — while the seq
+// counter below lives only in this process's memory. Keying chunks on the
+// dev-session id paired a stable id with a counter that resets to 0 on every
+// restart, so one `sessionId` accumulated many `seq:0` chunks; the stitcher
+// then merged unrelated recordings (different node-ID namespaces, timestamps
+// days apart) into one stream and rrweb rendered nothing. Minting the id here
+// binds it to the counter's lifetime: a restart yields a fresh id AND a fresh
+// seq together, so seqs never collide within a session. (No need to rotate on
+// browser relaunch — every recorder (re)injection emits a FullSnapshot, which
+// the player already treats as a rebuild seam via `containsSnapshot`.)
+const RECORDING_SESSION_ID = randomBytes(16).toString('hex');
 
-function nextRecordingSeq(sessionId: string): number {
-  const cur = recordingSeqBySession.get(sessionId) ?? 0;
-  recordingSeqBySession.set(sessionId, cur + 1);
-  return cur;
+// Monotonic chunk sequence within the recording session. Only advances when a
+// chunk is actually uploaded, so the frontend never sees a gap.
+let recordingSeq = 0;
+
+function nextRecordingSeq(): number {
+  return recordingSeq++;
 }
 
 export async function handleBrowser(
@@ -207,7 +220,7 @@ async function uploadRecording(
     }
 
     const { containsSnapshot, startTs, endTs } = summarizeEvents(events);
-    const seq = nextRecordingSeq(session.sessionId);
+    const seq = nextRecordingSeq();
     log.info('browser', 'Recording chunk uploaded', {
       bytes: body.length,
       events: events.length,
@@ -216,7 +229,7 @@ async function uploadRecording(
     });
     return {
       url: publicUrl,
-      sessionId: session.sessionId,
+      sessionId: RECORDING_SESSION_ID,
       runId: runId ?? null,
       seq,
       containsSnapshot,
