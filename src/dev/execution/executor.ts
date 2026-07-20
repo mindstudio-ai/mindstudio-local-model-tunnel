@@ -37,6 +37,7 @@ export interface ExecuteMethodOptions {
   databases: DevSession['databases'];
   authorizationToken: string;
   apiBaseUrl: string;
+  dbWsUrl?: string;
   projectRoot: string;
   sessionId?: string;
   streamId?: string;
@@ -177,7 +178,10 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 
 process.on('message', async (msg) => {
-  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, streamId, secrets } = msg;
+  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, dbWsUrl, streamId, secrets } = msg;
+
+  // DB-over-WS transport for the agent SDK's db (falls back to fetch if unset).
+  if (dbWsUrl) process.env.DB_WS_URL = dbWsUrl;
 
   // Apply per-request secrets to process.env (clean up previous first)
   for (const key of _activeSecretKeys) delete process.env[key];
@@ -257,11 +261,13 @@ const _origError = console.error;
 let _activeSecretKeys = [];
 
 process.on('message', async (msg) => {
-  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, streamId, secrets } = msg;
+  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, dbWsUrl, streamId, secrets } = msg;
 
   // Update per-request env vars
   process.env.CALLBACK_TOKEN = authorizationToken;
   process.env.REMOTE_HOSTNAME = apiBaseUrl;
+  // DB-over-WS transport for the agent SDK's db (falls back to fetch if unset).
+  if (dbWsUrl) process.env.DB_WS_URL = dbWsUrl;
   if (streamId) process.env.STREAM_ID = streamId;
   else delete process.env.STREAM_ID;
 
@@ -523,6 +529,7 @@ async function executeMethodInWorker(
       databases: opts.databases,
       authorizationToken: opts.authorizationToken,
       apiBaseUrl: opts.apiBaseUrl,
+      dbWsUrl: opts.dbWsUrl,
       streamId: opts.streamId,
       secrets: opts.secrets,
     });

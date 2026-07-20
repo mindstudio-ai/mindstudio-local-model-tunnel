@@ -8,6 +8,7 @@ interface EnvironmentConfig {
   apiKey?: string;
   userId?: string;
   apiBaseUrl: string;
+  dbWsUrl: string;
 }
 
 interface ConfigSchema {
@@ -33,9 +34,11 @@ export const config = new Conf<ConfigSchema>({
     environments: {
       prod: {
         apiBaseUrl: 'https://api.mindstudio.ai',
+        dbWsUrl: 'wss://api-socket.mindstudio.ai/db',
       },
       local: {
         apiBaseUrl: 'http://localhost:3129',
+        dbWsUrl: 'ws://localhost:8888/db',
       },
     },
   },
@@ -96,6 +99,16 @@ export function getApiBaseUrl(): string {
 
 export function setApiBaseUrl(url: string): void {
   setEnvConfig('apiBaseUrl', url);
+}
+
+// DB WebSocket URL (per environment). Falls back to the per-env default so
+// existing persisted configs (written before this key existed) still resolve.
+export function getDbWsUrl(): string {
+  return getEnvConfig().dbWsUrl;
+}
+
+export function setDbWsUrl(url: string): void {
+  setEnvConfig('dbWsUrl', url);
 }
 
 export function getConfigPath(): string {
