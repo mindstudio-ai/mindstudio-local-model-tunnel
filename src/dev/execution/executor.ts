@@ -224,7 +224,7 @@ process.on('message', async (msg) => {
 
     req.done = true;
     req.doneAt = Date.now();
-    process.send({ id, success: true, output: returnValue, stats });
+    process.send({ id, success: true, output: returnValue, stdout: req.stdout, stats });
   } catch (err) {
     const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
 
@@ -235,7 +235,7 @@ process.on('message', async (msg) => {
 
     req.done = true;
     req.doneAt = Date.now();
-    process.send({ id, success: false, error: serializeError(err), stats });
+    process.send({ id, success: false, error: serializeError(err), stdout: req.stdout, stats });
   }
 });
 
@@ -456,10 +456,19 @@ async function ensureWorker(projectRoot: string, scriptDir?: string): Promise<Ch
     worker = null;
   });
 
-  // Capture stderr for debugging
+  // Drain the worker's stdout/stderr. Per-request console output is captured
+  // with attribution in the ndjson request log (via the ALS interceptor); this
+  // is the raw process stream — surfaced for live visibility (shown on stderr
+  // in headless mode; interactive writes the logger to .logs/tunnel.ndjson) and,
+  // crucially, drained so a chatty method can't back-pressure the (previously
+  // unread) stdout pipe and stall the worker.
+  child.stdout?.on('data', (chunk: Buffer) => {
+    const text = chunk.toString().trim();
+    if (text) log.info('executor', 'Method process stdout', { text: text.slice(0, 2000) });
+  });
   child.stderr?.on('data', (chunk: Buffer) => {
     const text = chunk.toString().trim();
-    if (text) log.warn('executor', 'Method process stderr', { text: text.slice(0, 500) });
+    if (text) log.warn('executor', 'Method process stderr', { text: text.slice(0, 2000) });
   });
 
   worker = child;
