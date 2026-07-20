@@ -29,6 +29,8 @@ import {
 } from '../../../dev/config/app-config';
 import { syncSchema } from '../../../dev/api';
 import { initLoggerInteractive } from '../../../dev/logging/logger';
+import { initRequestLog, closeRequestLog } from '../../../dev/logging/request-log';
+import { initBrowserLog, closeBrowserLog } from '../../../dev/logging/browser-log';
 import { stablePort, detectGitBranch } from '../../../dev/utils';
 import { watchTableFiles } from '../../../dev/config/table-watcher';
 import { useDevServer } from './useDevServer';
@@ -176,8 +178,18 @@ export function useDevSession(appConfig: AppConfig) {
   // Cleanup on unmount
   useEffect(() => {
     mountedRef.current = true;
+    // Open the on-disk request + browser logs (.logs/*.ndjson). Headless does
+    // this in src/headless.ts; the TUI dev session must too, or every append
+    // silently no-ops (NdjsonLog drops writes until init opens the fd). These
+    // files are the primary window for external tooling — e.g. an AI agent
+    // editing the app in another terminal reading method results and browser
+    // console/errors to debug.
+    initRequestLog(process.cwd());
+    initBrowserLog(process.cwd());
     return () => {
       mountedRef.current = false;
+      closeRequestLog();
+      closeBrowserLog();
       cleanupTableWatchers();
       runnerRef.current?.stop().catch(() => {});
       proxyRef.current?.stop();

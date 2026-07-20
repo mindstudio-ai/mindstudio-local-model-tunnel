@@ -26,7 +26,7 @@ import {
 import { devRequestEvents } from '../ipc/events';
 import { Transpiler } from './transpiler';
 import { executeMethod, cleanupWorker } from './executor';
-import { getApiBaseUrl } from '../../config';
+import { getApiBaseUrl, getDbWsUrl } from '../../config';
 import { requestDeviceAuth, pollDeviceAuth } from '../../api';
 import { setApiKey, setUserId } from '../../config';
 import { randomBytes } from 'node:crypto';
@@ -217,6 +217,7 @@ export class DevRunner {
         databases: this.session.databases,
         authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
+        dbWsUrl: getDbWsUrl(),
         projectRoot: this.projectRoot,
         sessionId: this.session.sessionId,
         secrets,
@@ -320,6 +321,7 @@ export class DevRunner {
         databases: this.session.databases,
         authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
+        dbWsUrl: getDbWsUrl(),
         projectRoot: this.projectRoot,
         sessionId: this.session.sessionId,
         secrets,
@@ -495,6 +497,7 @@ export class DevRunner {
         databases: this.session!.databases,
         authorizationToken: request.authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
+        dbWsUrl: getDbWsUrl(),
         projectRoot: this.projectRoot,
         sessionId: this.session!.sessionId,
         streamId: request.streamId,
