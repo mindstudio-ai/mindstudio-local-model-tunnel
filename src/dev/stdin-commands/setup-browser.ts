@@ -33,9 +33,14 @@ export async function handleSetupBrowser(
   // page injects the correct `window.__MINDSTUDIO__` context. puppeteer's
   // goto requires an absolute URL — resolve `path` against the current
   // origin (always the proxy when the sandbox browser is running).
+  // `load`, not `networkidle0`: a plain path (no `?ms_sandbox=1`) reopens the
+  // SDK's /_/telemetry/presence SSE and instrumented pages stream analytics
+  // beacons, either of which pins the in-flight count so `networkidle0` never
+  // settles and this navigation always hits the 15s timeout. `load` only needs
+  // HTML + non-async assets. Mirrors launcher.ts / supervisor.ts / screenshot.ts.
   const absolute = new URL(path, page.url()).toString();
   try {
-    await page.goto(absolute, { waitUntil: 'networkidle0', timeout: 15_000 });
+    await page.goto(absolute, { waitUntil: 'load', timeout: 15_000 });
   } catch (err) {
     throw new CommandError(
       `Navigation to ${path} failed: ${err instanceof Error ? err.message : String(err)}`,
