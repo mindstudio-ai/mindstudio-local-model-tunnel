@@ -93,6 +93,29 @@ function handleBatchPost(
   });
 }
 
+/**
+ * True when the request's Referer origin is loopback — i.e. it came from the
+ * sandbox-owned headless Chrome (which always runs on `http://127.0.0.1:<port>`),
+ * not a user iframe (served from `sb-XXX.vercel.run`). Origin-based, so it holds
+ * across navigations, unlike the `?ms_sandbox=1` entry-URL query marker.
+ */
+function isLoopbackReferer(referer: string | undefined): boolean {
+  if (!referer) return false;
+  let host: string;
+  try {
+    // URL.hostname strips the port and returns IPv6 bracketed (e.g. "[::1]").
+    host = new URL(referer).hostname;
+  } catch {
+    return false;
+  }
+  return (
+    host === 'localhost' ||
+    host === '[::1]' ||
+    host === '::1' ||
+    /^127\./.test(host)
+  );
+}
+
 function handlePresence(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -111,13 +134,18 @@ function handlePresence(
   // HTTP forwarder, so they reach the proxy from loopback too — making *every*
   // presence request look local, which would 204 real user iframes.
   //
-  // Instead key off the same marker the launcher plants and the WS hello
-  // handler already trusts (see proxy.ts): the sandbox Chrome loads the app at
-  // `http://127.0.0.1:<proxyPort>/?ms_sandbox=1`, so its same-origin presence
-  // fetch carries `ms_sandbox=1` in the Referer. User iframes never do — their
-  // referer is `sb-XXX.vercel.run/?mode=iframe&…`.
-  const referer = req.headers.referer ?? '';
-  const isSandboxBrowser = referer.includes('ms_sandbox=1');
+  // Instead recognize the sandbox browser by its *origin*, taken from the
+  // Referer. The launcher always loads the app on `http://127.0.0.1:<port>`, so
+  // every same-origin request it makes carries a loopback Referer host — and
+  // critically that stays true after it navigates to a bare path like
+  // `/organizations-contact` during screenshot capture. User iframes are served
+  // from `sb-XXX.vercel.run`, so their Referer host is never loopback.
+  //
+  // (Keying off the `?ms_sandbox=1` query marker instead would lose the sandbox
+  // browser the instant a screenshot navigates away from the marked entry URL —
+  // dropping it back onto the SSE and re-pinning network-idle, which is exactly
+  // the settle step screenshot capture depends on.)
+  const isSandboxBrowser = isLoopbackReferer(req.headers.referer);
   if (isSandboxBrowser) {
     res.writeHead(204);
     res.end();
