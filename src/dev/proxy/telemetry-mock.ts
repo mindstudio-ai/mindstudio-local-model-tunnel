@@ -98,22 +98,27 @@ function handlePresence(
   res: http.ServerResponse,
   sseConnections: Set<http.ServerResponse>,
 ): void {
-  // For the sandbox-owned headless Chrome (recognized by loopback origin),
-  // return 204 instead of opening an SSE. The EventSource spec mandates that
-  // clients receiving 204 must abandon the connection AND not retry — so
-  // the SDK in the sandbox Chrome stops trying, leaving network-in-flight
-  // unpinned. That restores strict `networkidle0` semantics for goto /
-  // waitForNetworkIdle callers (screenshot capture, setup-browser nav), which
-  // otherwise can't distinguish the always-1-pinned SSE from real RPCs.
+  // For the sandbox-owned headless Chrome, return 204 instead of opening an
+  // SSE. The EventSource spec mandates that clients receiving 204 must abandon
+  // the connection AND not retry — so the SDK in the sandbox Chrome stops
+  // trying, leaving network-in-flight unpinned. That restores strict
+  // `networkidle0` semantics for goto / waitForNetworkIdle callers (screenshot
+  // capture, setup-browser nav), which otherwise can't distinguish the
+  // always-1-pinned SSE from real RPCs.
   //
-  // User-iframe traffic (non-loopback, e.g. sb-XXX.vercel.run) continues to
-  // get the keepalive SSE the backend mock spec asks for.
-  const remoteAddr = req.socket.remoteAddress ?? '';
-  const isLoopback =
-    remoteAddr === '::1' ||
-    /^127\./.test(remoteAddr) ||
-    /^::ffff:127\./i.test(remoteAddr);
-  if (isLoopback) {
+  // We CANNOT use req.socket.remoteAddress to recognize the sandbox browser:
+  // user-iframe requests (sb-XXX.vercel.run) arrive via the hosted sandbox's
+  // HTTP forwarder, so they reach the proxy from loopback too — making *every*
+  // presence request look local, which would 204 real user iframes.
+  //
+  // Instead key off the same marker the launcher plants and the WS hello
+  // handler already trusts (see proxy.ts): the sandbox Chrome loads the app at
+  // `http://127.0.0.1:<proxyPort>/?ms_sandbox=1`, so its same-origin presence
+  // fetch carries `ms_sandbox=1` in the Referer. User iframes never do — their
+  // referer is `sb-XXX.vercel.run/?mode=iframe&…`.
+  const referer = req.headers.referer ?? '';
+  const isSandboxBrowser = referer.includes('ms_sandbox=1');
+  if (isSandboxBrowser) {
     res.writeHead(204);
     res.end();
     return;
