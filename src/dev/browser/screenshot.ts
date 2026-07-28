@@ -53,8 +53,16 @@ export async function captureViaCdp(
     // Puppeteer's page.goto requires an absolute URL — callers pass paths
     // like "/welcome", so resolve against the current page origin.
     const absolute = new URL(opts.path, page.url()).toString();
+    // `load`, not `networkidle0`: long-lived connections keep the in-flight
+    // count pinned above 0 forever, so `networkidle0` never settles and this
+    // navigation always hits the 15s timeout. On a plain path (no
+    // `?ms_sandbox=1`) the SDK's /_/telemetry/presence SSE reopens (the
+    // telemetry-mock only 204s the sandbox marker), and instrumented pages add
+    // a steady stream of analytics beacons on top. `load` fires regardless;
+    // the bounded best-effort settle below still lets layout/fonts stabilize.
+    // Mirrors launcher.ts / supervisor.ts, which already made this switch.
     await page.goto(absolute, {
-      waitUntil: 'networkidle0',
+      waitUntil: 'load',
       timeout: GOTO_TIMEOUT_MS,
     });
   }
