@@ -45,7 +45,61 @@ const PREROLL_TOP_DWELL_MS = 100;
 // before the single-shot capture (closes the scroll→capture paint race).
 const VIEWPORT_PAINT_SETTLE_MS = 32;
 
+// Overall capture deadlines. The CDP steps (page.evaluate / page.screenshot) and
+// the S3 upload below have no internal timeout, so a wedged renderer — e.g. under
+// continuous HMR reloads or a busy animation/poll loop — makes them hang forever
+// and the sidecar command never completes (every later screenshot then times out
+// too). A single overall deadline turns a hang into a clean, fast failure. Kept
+// under the callers' client-side budgets (viewport 30s, full-page 120s) so the
+// tunnel fails first and the agent sees a real error, not an opaque client abort.
+const VIEWPORT_CAPTURE_TIMEOUT_MS = 20_000;
+const FULLPAGE_CAPTURE_TIMEOUT_MS = 90_000;
+// Upload of the captured JPEG to the presigned S3 URL.
+const UPLOAD_TIMEOUT_MS = 20_000;
+
+/**
+ * Reject if `p` doesn't settle within `ms`. The underlying work (a CDP call, a
+ * fetch) keeps running but is abandoned — acceptable here: the alternative is an
+ * unbounded hang. Rejections from `p` are always consumed, so a late failure
+ * after the timeout can't surface as an unhandledRejection. `label` names the
+ * operation in the timeout error.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms,
+    );
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
+/**
+ * Bounded entry point: caps the whole capture (navigation, settle, the CDP
+ * screenshot, and upload) at one deadline so a wedged renderer can't hang the
+ * sidecar command. The inner function is the actual capture.
+ */
 export async function captureViaCdp(
+  page: Page,
+  opts: CaptureOpts,
+): Promise<CaptureResult> {
+  return withTimeout(
+    captureViaCdpInner(page, opts),
+    opts.fullPage ? FULLPAGE_CAPTURE_TIMEOUT_MS : VIEWPORT_CAPTURE_TIMEOUT_MS,
+    `${opts.fullPage ? 'Full-page' : 'Viewport'} screenshot capture`,
+  );
+}
+
+async function captureViaCdpInner(
   page: Page,
   opts: CaptureOpts,
 ): Promise<CaptureResult> {
@@ -247,7 +301,11 @@ async function uploadToPresigned(
     new Blob([buf as unknown as BlobPart], { type: 'image/jpeg' }),
     'screenshot.jpg',
   );
-  const res = await fetch(uploadUrl, { method: 'POST', body: form });
+  const res = await fetch(uploadUrl, {
+    method: 'POST',
+    body: form,
+    signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+  });
   if (!res.ok) {
     throw new Error(`Screenshot upload failed: ${res.status}`);
   }
