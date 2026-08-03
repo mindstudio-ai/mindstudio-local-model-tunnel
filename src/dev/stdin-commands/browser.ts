@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { getUploadUrl } from '../api';
-import { captureViaCdp } from '../browser';
+import { captureViaCdp, viewportFor, viewportToString } from '../browser';
+import type { PreviewMode } from '../browser';
 import { log } from '../logging/logger';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
@@ -55,7 +56,10 @@ export async function handleBrowser(
 
   const steps = cmd.steps as Array<Record<string, unknown>>;
   if (!Array.isArray(steps) || steps.length === 0) {
-    throw new CommandError('browser action requires a non-empty "steps" array', 'INVALID_INPUT');
+    throw new CommandError(
+      'browser action requires a non-empty "steps" array',
+      'INVALID_INPUT',
+    );
   }
 
   const page = ctx.state.browser?.getActivePage();
@@ -105,18 +109,71 @@ export async function handleBrowser(
     const command = step.command;
     if (command === 'screenshotFullPage' || command === 'screenshotViewport') {
       await flushBuffer();
-      const captured = await captureScreenshotStep(ctx, page, step as Record<string, unknown>, command);
+      const captured = await captureScreenshotStep(
+        ctx,
+        page,
+        step as Record<string, unknown>,
+        command,
+      );
       resultsByIndex[i] = { index: i, command, result: captured };
       totalDuration += captured._durationMs ?? 0;
       delete captured._durationMs;
+    } else if (command === 'setViewport') {
+      // Hot-swap the headless browser's viewport (desktop ↔ mobile) via the
+      // supervisor's tested resize+reload path. Handled inline like screenshots
+      // — it acts on the puppeteer page / supervisor, not the browser-agent WS
+      // dispatch. Flush first so buffered steps run before the reload; any steps
+      // after this one flush post-reload (same as `navigate`'s page-load
+      // behavior — the browser-agent WS reconnects and dispatch waits for it).
+      await flushBuffer();
+      const requested = step.mode;
+      let mode: PreviewMode | null;
+      if (requested === 'desktop' || requested === 'mobile') {
+        mode = requested;
+      } else if (requested === 'default' || requested === undefined) {
+        // `default` (used by the per-run reset, not offered to the agent) maps
+        // to the app's configured preview mode, falling back to desktop.
+        mode = ctx.state.lastWebConfig?.defaultPreviewMode ?? 'desktop';
+      } else {
+        mode = null;
+      }
+      if (mode === null) {
+        resultsByIndex[i] = {
+          index: i,
+          command,
+          error: `Invalid viewport mode "${String(requested)}" — expected "desktop" or "mobile"`,
+        };
+      } else if (!ctx.state.browser) {
+        resultsByIndex[i] = {
+          index: i,
+          command,
+          error:
+            'Sandbox browser unavailable — headless Chrome is required to set the viewport',
+        };
+      } else {
+        const start = Date.now();
+        // No-ops when mode already matches (no reload); reloads otherwise.
+        await ctx.state.browser.setPreviewMode(mode);
+        const applied = ctx.state.browser.getPreviewMode();
+        resultsByIndex[i] = {
+          index: i,
+          command,
+          result: {
+            previewMode: applied,
+            viewport: viewportToString(viewportFor(applied)),
+          },
+        };
+        totalDuration += Date.now() - start;
+      }
     } else {
       buffer.push({ idx: i, step });
     }
   }
   await flushBuffer();
 
-  const densified = resultsByIndex.map((r, idx) =>
-    r ?? { index: idx, command: steps[idx].command, error: 'no result' },
+  const densified = resultsByIndex.map(
+    (r, idx) =>
+      r ?? { index: idx, command: steps[idx].command, error: 'no result' },
   );
   const hasStepError = densified.some((s) => s?.error);
   const recording = await uploadRecording(ctx, allEvents, lastRunId);
