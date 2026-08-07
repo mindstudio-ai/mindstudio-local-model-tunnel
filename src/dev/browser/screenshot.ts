@@ -8,7 +8,7 @@
  * path uses, so callers see an identical result shape.
  */
 
-import type { Page } from 'puppeteer-core';
+import type { Page, Viewport } from 'puppeteer-core';
 
 export interface CaptureOpts {
   fullPage: boolean;
@@ -22,6 +22,16 @@ export interface CaptureOpts {
   /** Viewport captures only: scroll to this absolute Y offset before shooting.
    * Used when no selector is available. */
   scrollY?: number;
+  /** Exact-size capture: size the viewport to these dimensions and clip to it
+   * (a fixed-size viewport shot, never a full-page stitch). Used for rendering
+   * fixed-dimension artifacts like a 1200×630 Open Graph share card. Both must
+   * be set together; the prior viewport is restored after the capture. */
+  width?: number;
+  height?: number;
+  /** Output image format. Defaults to 'jpeg' (existing QA behavior). Use 'png'
+   * for crisp flat graphics like share cards, where JPEG ringing shows on sharp
+   * type and edges. */
+  format?: 'png' | 'jpeg';
 }
 
 export interface CaptureResult {
@@ -92,17 +102,55 @@ export async function captureViaCdp(
   page: Page,
   opts: CaptureOpts,
 ): Promise<CaptureResult> {
-  return withTimeout(
-    captureViaCdpInner(page, opts),
-    opts.fullPage ? FULLPAGE_CAPTURE_TIMEOUT_MS : VIEWPORT_CAPTURE_TIMEOUT_MS,
-    `${opts.fullPage ? 'Full-page' : 'Viewport'} screenshot capture`,
-  );
+  // Exact-size capture (e.g. a 1200×630 Open Graph card): size the viewport to
+  // the requested dimensions for the duration of the shot, then restore the
+  // prior viewport so later QA screenshots keep the session's preset size. Set
+  // here — before the inner goto — so the page lays out at the target size from
+  // first paint. The supervisor's tracked previewMode is never touched, so its
+  // state stays consistent. An exact size always implies a viewport clip, never
+  // a full-page stitch.
+  const exactSize =
+    typeof opts.width === 'number' && typeof opts.height === 'number';
+  const effectiveFullPage = exactSize ? false : opts.fullPage;
+
+  let prevViewport: Viewport | null = null;
+  if (exactSize) {
+    prevViewport = page.viewport();
+    await page.setViewport({
+      width: opts.width!,
+      height: opts.height!,
+      deviceScaleFactor: 1,
+    });
+  }
+
+  try {
+    return await withTimeout(
+      captureViaCdpInner(page, opts),
+      effectiveFullPage
+        ? FULLPAGE_CAPTURE_TIMEOUT_MS
+        : VIEWPORT_CAPTURE_TIMEOUT_MS,
+      `${effectiveFullPage ? 'Full-page' : 'Viewport'} screenshot capture`,
+    );
+  } finally {
+    if (prevViewport) {
+      await page.setViewport(prevViewport).catch(() => {});
+    }
+  }
 }
 
 async function captureViaCdpInner(
   page: Page,
   opts: CaptureOpts,
 ): Promise<CaptureResult> {
+  // An exact width/height request is always a fixed-viewport clip, never a
+  // full-page stitch (the caller sized the viewport itself). Format defaults to
+  // jpeg to preserve existing QA-screenshot behavior byte-for-byte.
+  const effectiveFullPage =
+    typeof opts.width === 'number' && typeof opts.height === 'number'
+      ? false
+      : opts.fullPage;
+  const type: 'png' | 'jpeg' = opts.format === 'png' ? 'png' : 'jpeg';
+
   if (opts.path) {
     // Puppeteer's page.goto requires an absolute URL — callers pass paths
     // like "/welcome", so resolve against the current page origin.
@@ -124,7 +172,10 @@ async function captureViaCdpInner(
   // Match browser-agent's in-page network-idle settle so layout/fonts are
   // stable at capture time. Swallow timeout — best-effort.
   await page
-    .waitForNetworkIdle({ timeout: SETTLE_TIMEOUT_MS, idleTime: SETTLE_IDLE_MS })
+    .waitForNetworkIdle({
+      timeout: SETTLE_TIMEOUT_MS,
+      idleTime: SETTLE_IDLE_MS,
+    })
     .catch(() => {});
 
   // Pre-roll for fullPage captures only. CDP's `fullPage: true` renders in a
@@ -132,7 +183,7 @@ async function captureViaCdpInner(
   // callbacks, lazy-loaded images, and scroll-triggered animations never fire.
   // Scrolling to the bottom and back nudges them into their revealed state;
   // Chrome then captures the fully-revealed layout in one shot.
-  if (opts.fullPage) {
+  if (effectiveFullPage) {
     await preRollScroll(page);
   } else {
     await settleViewport(page, opts.scrollToSelector, opts.scrollY);
@@ -140,7 +191,7 @@ async function captureViaCdpInner(
 
   let width: number;
   let height: number;
-  if (opts.fullPage) {
+  if (effectiveFullPage) {
     const dims = await page.evaluate(() => ({
       width: document.documentElement.scrollWidth,
       height: document.documentElement.scrollHeight,
@@ -160,9 +211,11 @@ async function captureViaCdpInner(
   let styleMap: string | undefined;
   try {
     const result = await page.evaluate(() => {
-      const api = (window as unknown as {
-        __MINDSTUDIO_BROWSER_AGENT__?: { computeStyleMap?: () => string };
-      }).__MINDSTUDIO_BROWSER_AGENT__;
+      const api = (
+        window as unknown as {
+          __MINDSTUDIO_BROWSER_AGENT__?: { computeStyleMap?: () => string };
+        }
+      ).__MINDSTUDIO_BROWSER_AGENT__;
       return api?.computeStyleMap?.() ?? null;
     });
     if (typeof result === 'string' && result.length > 0) styleMap = result;
@@ -170,13 +223,13 @@ async function captureViaCdpInner(
     // Non-fatal — styleMap stays undefined.
   }
 
-  const buf = (await page.screenshot({
-    type: 'jpeg',
-    quality: JPEG_QUALITY,
-    fullPage: opts.fullPage,
-  })) as Buffer;
+  const buf = (await page.screenshot(
+    type === 'png'
+      ? { type: 'png', fullPage: effectiveFullPage }
+      : { type: 'jpeg', quality: JPEG_QUALITY, fullPage: effectiveFullPage },
+  )) as Buffer;
 
-  await uploadToPresigned(opts.uploadUrl, opts.uploadFields, buf);
+  await uploadToPresigned(opts.uploadUrl, opts.uploadFields, buf, type);
 
   return {
     uploaded: true,
@@ -265,7 +318,11 @@ async function settleViewport(
           }
           if (y !== null) {
             const el = document.scrollingElement || document.documentElement;
-            el.scrollTo({ top: y, left: 0, behavior: 'instant' as ScrollBehavior });
+            el.scrollTo({
+              top: y,
+              left: 0,
+              behavior: 'instant' as ScrollBehavior,
+            });
           }
         },
         scrollToSelector ?? null,
@@ -293,13 +350,16 @@ async function uploadToPresigned(
   uploadUrl: string,
   uploadFields: Record<string, string>,
   buf: Buffer,
+  type: 'png' | 'jpeg' = 'jpeg',
 ): Promise<void> {
+  const contentType = type === 'png' ? 'image/png' : 'image/jpeg';
+  const filename = type === 'png' ? 'screenshot.png' : 'screenshot.jpg';
   const form = new FormData();
   for (const [k, v] of Object.entries(uploadFields)) form.append(k, v);
   form.append(
     'file',
-    new Blob([buf as unknown as BlobPart], { type: 'image/jpeg' }),
-    'screenshot.jpg',
+    new Blob([buf as unknown as BlobPart], { type: contentType }),
+    filename,
   );
   const res = await fetch(uploadUrl, {
     method: 'POST',
