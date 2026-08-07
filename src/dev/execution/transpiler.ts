@@ -11,8 +11,26 @@
 import { unlink, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve, dirname, basename, join } from 'node:path';
-import { build } from 'esbuild';
+import { build, stop } from 'esbuild';
 import { log } from '../logging/logger';
+
+/**
+ * esbuild keeps a single long-lived service child process and caches it even
+ * after it dies — under sandbox memory pressure the OS OOM-killer can take that
+ * child, after which EVERY later build() throws "The service is no longer
+ * running" and esbuild never respawns it on its own. That wedges ALL method
+ * execution (transpile runs before the worker is even reached) until a human
+ * restarts the sandbox. This detects that specific failure so we can reset the
+ * cached service (stop()) and retry once. Ordinary transpile/syntax errors do
+ * not match and must surface unchanged.
+ */
+function isEsbuildServiceDead(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes('The service is no longer running') ||
+    message.includes('The service was stopped')
+  );
+}
 
 export class Transpiler {
   private projectRoot: string;
@@ -49,7 +67,10 @@ export class Transpiler {
     // Find nearest node_modules by walking up from the source file
     const nodeModulesDir = findNearestNodeModules(dirname(absolutePath));
     if (!nodeModulesDir) {
-      log.error('transpiler', 'Cannot find node_modules for method', { methodPath, searchStart: dirname(absolutePath) });
+      log.error('transpiler', 'Cannot find node_modules for method', {
+        methodPath,
+        searchStart: dirname(absolutePath),
+      });
       throw new Error(
         `No node_modules found near ${methodPath}. Run npm install first.`,
       );
@@ -60,20 +81,40 @@ export class Transpiler {
 
     const outfile = join(outDir, `${name}.__ms_dev__.mjs`);
 
-    await build({
+    const buildOptions = {
       entryPoints: [absolutePath],
       bundle: true,
-      format: 'esm',
-      platform: 'node',
+      format: 'esm' as const,
+      platform: 'node' as const,
       target: 'node22',
       outfile,
       external: ['@mindstudio-ai/agent'],
       absWorkingDir: this.projectRoot,
-      logLevel: 'silent',
-    });
+      logLevel: 'silent' as const,
+    };
+
+    try {
+      await build(buildOptions);
+    } catch (err) {
+      // If esbuild's cached service process has died, reset it and retry once so
+      // transpilation self-heals instead of failing every method forever.
+      if (!isEsbuildServiceDead(err)) {
+        throw err;
+      }
+      log.warn('transpiler', 'esbuild service died — restarting and retrying', {
+        methodPath,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await stop().catch(() => {});
+      await build(buildOptions);
+    }
 
     this.outputFiles.add(outfile);
-    log.info('transpiler', 'Method transpiled', { duration: Date.now() - start, methodPath, outfile });
+    log.info('transpiler', 'Method transpiled', {
+      duration: Date.now() - start,
+      methodPath,
+      outfile,
+    });
     return outfile;
   }
 
