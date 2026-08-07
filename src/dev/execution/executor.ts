@@ -23,10 +23,24 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { log } from '../logging/logger';
-import { logMethodStart, logMethodStdout, logBackgroundStdout } from '../logging/request-log';
+import {
+  logMethodStart,
+  logMethodStdout,
+  logBackgroundStdout,
+} from '../logging/request-log';
 import type { DevSession } from '../config/types';
 
 const EXECUTION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes — matches prod
+
+// V8 heap cap for the forked worker, set below the sandbox's memory headroom so
+// a heap-object runaway aborts the worker (which then respawns on the next call)
+// rather than growing unbounded. Defense-in-depth only: it does NOT bound
+// external/Buffer memory (how embedding vectors allocate), which is the usual OOM
+// cause — a runaway there OOM-kills the worker and it simply respawns.
+const WORKER_MAX_OLD_SPACE_MB = Math.max(
+  256,
+  Number(process.env.MS_DEV_WORKER_MAX_OLD_SPACE_MB) || 1024,
+);
 
 export interface ExecuteMethodOptions {
   requestId: string;
@@ -69,7 +83,10 @@ let workerSupportsAls = false;
 const pending = new Map<string, PendingRequest>();
 
 /** Metadata for requests, used for lifecycle log events. */
-const requestMeta = new Map<string, { sessionId: string; method: string; input: unknown }>();
+const requestMeta = new Map<
+  string,
+  { sessionId: string; method: string; input: unknown }
+>();
 
 // ---------------------------------------------------------------------------
 // Shared error serializer (used by both worker scripts)
@@ -328,7 +345,13 @@ function detectAlsSupport(scriptDir: string): boolean {
   // to find @mindstudio-ai/agent/package.json via normal node_modules resolution.
   let dir = scriptDir;
   while (true) {
-    const candidate = join(dir, 'node_modules', '@mindstudio-ai', 'agent', 'package.json');
+    const candidate = join(
+      dir,
+      'node_modules',
+      '@mindstudio-ai',
+      'agent',
+      'package.json',
+    );
     try {
       const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
       const parts = (pkg.version || '').split('.').map(Number);
@@ -350,7 +373,10 @@ function detectAlsSupport(scriptDir: string): boolean {
 // ---------------------------------------------------------------------------
 
 /** Ensure a live worker process exists; spawn one if needed. */
-async function ensureWorker(projectRoot: string, scriptDir?: string): Promise<ChildProcess> {
+async function ensureWorker(
+  projectRoot: string,
+  scriptDir?: string,
+): Promise<ChildProcess> {
   // Respawn if worker died or project root changed
   if (worker?.connected && workerProjectRoot === projectRoot) {
     return worker;
@@ -358,7 +384,10 @@ async function ensureWorker(projectRoot: string, scriptDir?: string): Promise<Ch
 
   // Log respawn reason (skip for first spawn)
   if (worker || workerProjectRoot) {
-    const reason = workerProjectRoot !== projectRoot ? 'project-root-changed' : 'disconnected';
+    const reason =
+      workerProjectRoot !== projectRoot
+        ? 'project-root-changed'
+        : 'disconnected';
     log.info('executor', 'Respawning worker process', { reason });
   }
 
@@ -378,7 +407,10 @@ async function ensureWorker(projectRoot: string, scriptDir?: string): Promise<Ch
   // Detect execution mode — use the transpiler's output directory for
   // module resolution (the agent package is findable from there).
   workerSupportsAls = scriptDir ? detectAlsSupport(scriptDir) : false;
-  log.info('executor', 'SDK context support', { als: workerSupportsAls, scriptDir: scriptDir ?? null });
+  log.info('executor', 'SDK context support', {
+    als: workerSupportsAls,
+    scriptDir: scriptDir ?? null,
+  });
 
   // Write worker script in the same directory as transpiled methods so
   // the ALS worker's `import '@mindstudio-ai/agent'` resolves correctly.
@@ -391,17 +423,27 @@ async function ensureWorker(projectRoot: string, scriptDir?: string): Promise<Ch
     workerDir,
     `ms-dev-worker-${randomBytes(4).toString('hex')}.mjs`,
   );
-  const script = workerSupportsAls ? buildAlsWorkerScript() : buildLegacyWorkerScript();
+  const script = workerSupportsAls
+    ? buildAlsWorkerScript()
+    : buildLegacyWorkerScript();
   await writeFile(scriptPath, script, 'utf-8');
   workerScriptPath = scriptPath;
   workerProjectRoot = projectRoot;
 
-  log.debug('executor', 'Spawning method execution process', { cwd: projectRoot, scriptPath, als: workerSupportsAls });
+  log.debug('executor', 'Spawning method execution process', {
+    cwd: projectRoot,
+    scriptPath,
+    als: workerSupportsAls,
+  });
 
   const child = fork(scriptPath, [], {
     cwd: projectRoot,
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     env: { ...process.env },
+    // Cap the worker heap below the sandbox's memory headroom (see
+    // WORKER_MAX_OLD_SPACE_MB) so an OOM surfaces as a catchable per-request
+    // heap error rather than an OS SIGKILL of the whole worker process.
+    execArgv: [`--max-old-space-size=${WORKER_MAX_OLD_SPACE_MB}`],
   });
 
   // Wait for ready signal
@@ -414,7 +456,9 @@ async function ensureWorker(projectRoot: string, scriptDir?: string): Promise<Ch
     };
     child.on('message', onMessage);
     child.on('error', reject);
-    child.on('exit', (code) => reject(new Error(`Worker exited during startup with code ${code}`)));
+    child.on('exit', (code) =>
+      reject(new Error(`Worker exited during startup with code ${code}`)),
+    );
   });
 
   // Route lifecycle events and results from the worker
@@ -424,13 +468,16 @@ async function ensureWorker(projectRoot: string, scriptDir?: string): Promise<Ch
 
     switch (msg.type) {
       case 'start':
-        if (meta) logMethodStart(msg.id, meta.sessionId, meta.method, meta.input);
+        if (meta)
+          logMethodStart(msg.id, meta.sessionId, meta.method, meta.input);
         return;
       case 'stdout':
-        if (meta && msg.lines?.length) logMethodStdout(msg.id, meta.sessionId, meta.method, msg.lines);
+        if (meta && msg.lines?.length)
+          logMethodStdout(msg.id, meta.sessionId, meta.method, msg.lines);
         return;
       case 'background-stdout':
-        if (meta && msg.lines?.length) logBackgroundStdout(msg.id, meta.sessionId, meta.method, msg.lines);
+        if (meta && msg.lines?.length)
+          logBackgroundStdout(msg.id, meta.sessionId, meta.method, msg.lines);
         return;
       case 'stdout-end':
         requestMeta.delete(msg.id);
@@ -447,10 +494,15 @@ async function ensureWorker(projectRoot: string, scriptDir?: string): Promise<Ch
 
   // If worker dies unexpectedly, reject all pending requests
   child.on('exit', (code) => {
-    log.warn('executor', 'Method execution process exited unexpectedly', { code });
+    log.warn('executor', 'Method execution process exited unexpectedly', {
+      code,
+    });
     for (const [id, req] of pending) {
       clearTimeout(req.timer);
-      req.resolve({ success: false, error: { message: `Worker process exited with code ${code}` } });
+      req.resolve({
+        success: false,
+        error: { message: `Worker process exited with code ${code}` },
+      });
     }
     pending.clear();
     worker = null;
@@ -464,11 +516,17 @@ async function ensureWorker(projectRoot: string, scriptDir?: string): Promise<Ch
   // unread) stdout pipe and stall the worker.
   child.stdout?.on('data', (chunk: Buffer) => {
     const text = chunk.toString().trim();
-    if (text) log.info('executor', 'Method process stdout', { text: text.slice(0, 2000) });
+    if (text)
+      log.info('executor', 'Method process stdout', {
+        text: text.slice(0, 2000),
+      });
   });
   child.stderr?.on('data', (chunk: Buffer) => {
     const text = chunk.toString().trim();
-    if (text) log.warn('executor', 'Method process stderr', { text: text.slice(0, 2000) });
+    if (text)
+      log.warn('executor', 'Method process stderr', {
+        text: text.slice(0, 2000),
+      });
   });
 
   worker = child;
@@ -512,12 +570,18 @@ async function executeMethodInWorker(
 
   const id = opts.requestId;
 
-  log.debug('executor', 'Sending method to execution process', { id, methodExport: opts.methodExport });
+  log.debug('executor', 'Sending method to execution process', {
+    id,
+    methodExport: opts.methodExport,
+  });
 
   return new Promise<ExecuteMethodResult>((resolve) => {
     const timer = setTimeout(() => {
       pending.delete(id);
-      log.warn('executor', 'Method execution timed out', { id, methodExport: opts.methodExport });
+      log.warn('executor', 'Method execution timed out', {
+        id,
+        methodExport: opts.methodExport,
+      });
       resolve({
         success: false,
         error: { message: 'Method execution timed out after 30m' },
@@ -526,7 +590,11 @@ async function executeMethodInWorker(
 
     pending.set(id, { resolve, timer });
     if (opts.sessionId) {
-      requestMeta.set(id, { sessionId: opts.sessionId, method: opts.methodExport, input: opts.input });
+      requestMeta.set(id, {
+        sessionId: opts.sessionId,
+        method: opts.methodExport,
+        input: opts.input,
+      });
     }
 
     w.send({
