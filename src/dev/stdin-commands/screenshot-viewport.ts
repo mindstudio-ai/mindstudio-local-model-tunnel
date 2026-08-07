@@ -20,20 +20,32 @@ export async function handleScreenshotViewport(
 
   const startTime = Date.now();
 
+  // Optional exact-size + format (e.g. a 1200×630 PNG Open Graph card). The S3
+  // object key — and therefore the returned public URL — is keyed off the
+  // extension, so it must match the captured format.
+  const format: 'png' | 'jpeg' = cmd.format === 'png' ? 'png' : 'jpeg';
+  const extension = format === 'png' ? 'png' : 'jpg';
+  const contentType = format === 'png' ? 'image/png' : 'image/jpeg';
+
   const session = ctx.state.runner.getSession()!;
   const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
     ctx.state.appConfig.appId,
     session.sessionId,
-    'jpg',
-    'image/jpeg',
+    extension,
+    contentType,
   );
 
   const r = await captureViaCdp(page, {
     fullPage: false,
     path: typeof cmd.path === 'string' ? cmd.path : undefined,
     scrollToSelector:
-      typeof cmd.scrollToSelector === 'string' ? cmd.scrollToSelector : undefined,
+      typeof cmd.scrollToSelector === 'string'
+        ? cmd.scrollToSelector
+        : undefined,
     scrollY: typeof cmd.scrollY === 'number' ? cmd.scrollY : undefined,
+    width: typeof cmd.width === 'number' ? cmd.width : undefined,
+    height: typeof cmd.height === 'number' ? cmd.height : undefined,
+    format,
     uploadUrl,
     uploadFields,
   });
