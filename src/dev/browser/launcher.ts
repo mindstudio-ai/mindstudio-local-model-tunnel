@@ -89,7 +89,12 @@ export async function launchSandboxBrowser(opts: {
   const browser = await puppeteer.launch({
     executablePath,
     headless: true,
-    args: LAUNCH_ARGS,
+    // Explicitly allow the loopback proxy port. Chrome refuses to load its
+    // ~80 kRestrictedPorts (e.g. 3659) with net::ERR_UNSAFE_PORT; stablePort()
+    // already avoids them, but a --proxy-port override or the OS-assigned
+    // fallback could still land on one. We only ever load a loopback port we
+    // control, so allowing it is safe and makes the automation browser immune.
+    args: [...LAUNCH_ARGS, `--explicitly-allowed-ports=${opts.proxyPort}`],
     defaultViewport: viewport,
   });
 
