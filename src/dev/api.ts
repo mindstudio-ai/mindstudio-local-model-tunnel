@@ -218,7 +218,16 @@ export async function getUploadUrl(
 
 export async function createAuthSession(
   appId: string,
-  opts: { email?: string; phone?: string; roles?: string[] },
+  opts: {
+    email?: string;
+    phone?: string;
+    roles?: string[];
+    // Mint a delegated "Sign in with Remy" (provider='remy') test user instead
+    // of an email/phone one. Used for apps whose only human auth method is
+    // `remy`; the platform resolves the authenticated developer's own delegated
+    // identity, so no email/phone is needed.
+    delegated?: boolean;
+  },
 ): Promise<{ cookie: string; user: Record<string, unknown> }> {
   return apiRequest(
     'POST',

@@ -25,7 +25,23 @@ export async function handleSetupBrowser(
 
   // Mint + set the automation auth cookie if requested.
   if (auth) {
-    const { cookie } = await createAuthSession(ctx.state.appConfig.appId, auth);
+    // Remy-only apps ("Sign in with Remy") have no email/phone identity to
+    // seed, so mint a delegated session (resolved to the developer's own
+    // identity by the platform) instead. Code-verify methods win when present,
+    // matching resolveTestUserId's precedence — so any email/phone passed for a
+    // mixed app is still honored.
+    const methods = ctx.state.appConfig.auth?.methods ?? [];
+    const useDelegated =
+      !methods.includes('email-code') &&
+      !methods.includes('sms-code') &&
+      methods.includes('remy');
+    const sessionOpts = useDelegated
+      ? { delegated: true, roles: auth.roles }
+      : auth;
+    const { cookie } = await createAuthSession(
+      ctx.state.appConfig.appId,
+      sessionOpts,
+    );
     await setAuthCookie(page, cookie);
   }
 
