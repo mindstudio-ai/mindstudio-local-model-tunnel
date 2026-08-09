@@ -715,20 +715,26 @@ export class DevRunner {
           `Add an "auth" block with enabled: true and a users table.`,
       );
     }
-    // auth.methods is a strict enum: "email-code" and/or "sms-code".
-    // Prefer email when both are configured — it's the more common dev setup.
+    // auth.methods is a strict enum: "email-code", "sms-code", and/or "remy".
+    // Prefer a code-verify identity when configured (email first — the more
+    // common dev setup); fall back to a delegated "Sign in with Remy" test user
+    // for apps whose only human method is `remy` (no email/phone to seed — the
+    // platform resolves the developer's own delegated identity).
     const methods = auth.methods ?? [];
     const hasEmail = methods.includes('email-code');
     const hasSms = methods.includes('sms-code');
-    let opts: { email?: string; phone?: string };
+    const hasRemy = methods.includes('remy');
+    let opts: { email?: string; phone?: string; delegated?: boolean };
     if (hasEmail) {
       opts = { email: TEST_USER_EMAIL };
     } else if (hasSms) {
       opts = { phone: TEST_USER_PHONE };
+    } else if (hasRemy) {
+      opts = { delegated: true };
     } else {
       throw new Error(
         `Cannot resolve userId="${TEST_USER_SENTINEL}": auth.methods in mindstudio.json ` +
-          `must include "email-code" or "sms-code" (got ${JSON.stringify(methods)}).`,
+          `must include "email-code", "sms-code", or "remy" (got ${JSON.stringify(methods)}).`,
       );
     }
     const { user } = await createAuthSession(this.appId, opts);
