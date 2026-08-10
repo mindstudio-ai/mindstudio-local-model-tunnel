@@ -10,16 +10,16 @@ import type { Page } from 'puppeteer-core';
 
 const AUTH_COOKIE_NAME = '__ms_auth';
 
-function cookieHost(page: Page): string {
-  try {
-    return new URL(page.url()).hostname || '127.0.0.1';
-  } catch {
-    return '127.0.0.1';
-  }
-}
+// The sandbox-owned Chrome always loads the app from http://127.0.0.1:<proxyPort>
+// (see browser/launcher.ts), and cookie domains are host-only (port-independent),
+// so the auth cookie's domain is always 127.0.0.1. Deriving it from page.url()
+// was a latent bug: `setAuthCookie` runs before the post-auth navigation, so if
+// the page is transiently on chrome-error:// or a cross-origin sign-in page the
+// cookie would land on the wrong domain (or fail to clear) and auth wouldn't apply.
+const SANDBOX_COOKIE_HOST = '127.0.0.1';
 
 export async function clearAuthCookies(page: Page): Promise<void> {
-  const domain = cookieHost(page);
+  const domain = SANDBOX_COOKIE_HOST;
   try {
     await page.deleteCookie({ name: AUTH_COOKIE_NAME, domain });
   } catch {
@@ -34,7 +34,7 @@ export async function clearAuthCookies(page: Page): Promise<void> {
 }
 
 export async function setAuthCookie(page: Page, value: string): Promise<void> {
-  const domain = cookieHost(page);
+  const domain = SANDBOX_COOKIE_HOST;
   await page.setCookie({
     name: AUTH_COOKIE_NAME,
     value,

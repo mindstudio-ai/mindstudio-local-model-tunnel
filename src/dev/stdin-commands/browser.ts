@@ -215,6 +215,7 @@ async function captureScreenshotStep(
   const r = await captureViaCdp(page, {
     fullPage: command === 'screenshotFullPage',
     path: typeof step.path === 'string' ? step.path : undefined,
+    proxyPort: ctx.state.proxyPort ?? undefined,
     scrollToSelector:
       typeof step.scrollToSelector === 'string'
         ? step.scrollToSelector
