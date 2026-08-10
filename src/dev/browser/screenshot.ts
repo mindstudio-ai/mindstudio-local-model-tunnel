@@ -13,6 +13,10 @@ import type { Page, Viewport } from 'puppeteer-core';
 export interface CaptureOpts {
   fullPage: boolean;
   path?: string;
+  /** Proxy port for resolving `path` against the sandbox origin
+   * (http://127.0.0.1:<proxyPort>) instead of the page's current URL — which may
+   * be chrome-error:// or cross-origin. See the goto in captureViaCdpInner. */
+  proxyPort?: number;
   uploadUrl: string;
   uploadFields: Record<string, string>;
   /** Viewport captures only: scroll this element into view (via CDP, in the
@@ -152,9 +156,17 @@ async function captureViaCdpInner(
   const type: 'png' | 'jpeg' = opts.format === 'png' ? 'png' : 'jpeg';
 
   if (opts.path) {
-    // Puppeteer's page.goto requires an absolute URL — callers pass paths
-    // like "/welcome", so resolve against the current page origin.
-    const absolute = new URL(opts.path, page.url()).toString();
+    // Puppeteer's page.goto requires an absolute URL — callers pass paths like
+    // "/welcome". Resolve against the known proxy origin
+    // (http://127.0.0.1:<proxyPort>), NOT page.url(): if the page is parked on
+    // chrome-error://chromewebdata/ (after an aborted nav) resolving against it
+    // yields chrome-error://.../<path> → net::ERR_ABORTED, wedging every later
+    // path capture. Basing on the proxy origin self-heals (the next goto lands
+    // on a real URL). Falls back to page.url() only if the port is unknown.
+    const base = opts.proxyPort
+      ? `http://127.0.0.1:${opts.proxyPort}`
+      : page.url();
+    const absolute = new URL(opts.path, base).toString();
     // `load`, not `networkidle0`: long-lived connections keep the in-flight
     // count pinned above 0 forever, so `networkidle0` never settles and this
     // navigation always hits the 15s timeout. On a plain path (no

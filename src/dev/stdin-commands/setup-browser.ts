@@ -54,7 +54,17 @@ export async function handleSetupBrowser(
   // beacons, either of which pins the in-flight count so `networkidle0` never
   // settles and this navigation always hits the 15s timeout. `load` only needs
   // HTML + non-async assets. Mirrors launcher.ts / supervisor.ts / screenshot.ts.
-  const absolute = new URL(path, page.url()).toString();
+  // Resolve app-relative paths against the known proxy origin, NOT page.url():
+  // the sandbox app is always served from http://127.0.0.1:<proxyPort>, and if
+  // the page is parked on chrome-error://chromewebdata/ (e.g. after an aborted
+  // navigation) `new URL(path, page.url())` yields chrome-error://.../<path>,
+  // which Chrome refuses → net::ERR_ABORTED, permanently wedging every later
+  // setup-browser. Basing on the proxy origin makes the next goto target a real
+  // URL, which also moves the page off the error page (self-heals the wedge).
+  const base = ctx.state.proxyPort
+    ? `http://127.0.0.1:${ctx.state.proxyPort}`
+    : page.url();
+  const absolute = new URL(path, base).toString();
   try {
     await page.goto(absolute, { waitUntil: 'load', timeout: 15_000 });
   } catch (err) {
