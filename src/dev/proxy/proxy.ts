@@ -42,6 +42,14 @@ interface QueuedCommand {
   queuedAt: number;
 }
 
+// How long a browser command waits for the sandbox-owned headless client to be
+// (re)connected before giving up. The headless client drops on every navigation
+// and reconnects when the new page loads; on a heavy app that gap can be several
+// seconds. Generous enough to cover that, but well under the 120s per-command
+// budget so a truly-down browser still surfaces a clean NO_BROWSER (never an
+// empty result or a 120s hang).
+const HEADLESS_READY_TIMEOUT_MS = 30_000;
+
 export class DevProxy {
   private server: http.Server | null = null;
   private proxyPort: number | null = null;
@@ -129,14 +137,25 @@ export class DevProxy {
    * Dispatch a command to the preferred browser client and wait for the result.
    * Commands are queued and executed one at a time per client (FIFO).
    */
-  dispatchBrowserCommand(
+  async dispatchBrowserCommand(
     steps: Array<Record<string, unknown>>,
     timeoutMs = 120_000,
   ): Promise<Record<string, unknown>> {
-    if (!this.clients.hasConnected()) {
-      return Promise.reject(
-        new CommandError('No browser connected', 'NO_BROWSER'),
-      );
+    // Automation runs only on the sandbox-owned headless client, which drops on
+    // every navigation and reconnects when the new page loads. Wait for it to be
+    // present rather than checking "any client connected" (hasConnected) — that
+    // includes the IDE iframe, so during the reconnect gap a command would pass
+    // the check with no valid target and return an empty/ambiguous result. If a
+    // headless client never (re)connects, fail loudly with NO_BROWSER.
+    if (!this.clients.hasHeadless()) {
+      try {
+        await this.waitForHeadlessClient(HEADLESS_READY_TIMEOUT_MS);
+      } catch {
+        throw new CommandError(
+          'Sandbox headless browser is not connected',
+          'NO_BROWSER',
+        );
+      }
     }
 
     const id = randomBytes(4).toString('hex');
@@ -163,7 +182,11 @@ export class DevProxy {
    * Try to send the next queued command to an available client.
    */
   private drainCommandQueue(): void {
-    // Reject all queued commands if no clients are connected at all
+    // Reject queued commands only when NOTHING is connected. Intentionally
+    // `hasConnected` (any client), NOT `hasHeadless`: during a normal navigation
+    // the headless client is briefly gone while the iframe remains, and those
+    // queued commands should wait for the reconnect (the drain fires again on
+    // headless connect), not be rejected mid-navigation.
     if (!this.clients.hasConnected() && this.commandQueue.length > 0) {
       const orphaned = this.commandQueue.splice(0);
       for (const cmd of orphaned) {
@@ -488,6 +511,14 @@ export class DevProxy {
             w.resolve();
           }
           this.headlessReadyWaiters.clear();
+        }
+
+        // A headless client just (re)connected — dispatch anything that queued
+        // while it was gone (e.g. commands issued during a navigation reconnect
+        // gap). Without this, a queued command waits for the next unrelated drain
+        // trigger (result/disconnect) or the full command timeout.
+        if (mode === 'headless') {
+          this.drainCommandQueue();
         }
 
         ws.send(JSON.stringify({ type: 'ack', clientId }));
