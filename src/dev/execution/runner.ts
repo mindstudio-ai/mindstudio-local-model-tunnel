@@ -375,9 +375,13 @@ export class DevRunner {
   private async pollLoop(): Promise<void> {
     while (this.isRunning) {
       try {
+        // The session can be nulled mid-loop when a mindstudio.json change
+        // restarts the session (stop() clears it). Snapshot it and exit if gone.
+        const session = this.session;
+        if (!session) break;
         const request = await pollDevRequest(
           this.appId,
-          this.session!.sessionId,
+          session.sessionId,
           this.proxyUrl,
         );
 
@@ -387,9 +391,16 @@ export class DevRunner {
           devRequestEvents.emitConnectionRestored();
         }
 
-        if (request) {
-          // Process in background — don't block the poll loop
-          this.handleRequest(request);
+        if (request && this.isRunning) {
+          // Process in background — don't block the poll loop. Fire-and-forget,
+          // so guard against an unhandled rejection here taking down the whole
+          // process (e.g. the session gets torn down while this is in flight).
+          this.handleRequest(request).catch((err) =>
+            log.error('runner', 'Unhandled request error', {
+              requestId: request.requestId,
+              error: err instanceof Error ? err.message : String(err),
+            }),
+          );
         }
 
         this.backoffMs = 1000;
@@ -436,10 +447,21 @@ export class DevRunner {
   }
 
   private async handleRequest(request: DevRequest): Promise<void> {
+    // A polled request can still be in flight when the session is torn down (a
+    // mindstudio.json change restarts the session, and stop() nulls
+    // this.session). This runs un-awaited from pollLoop, so dereferencing a null
+    // session here would surface as an unhandled rejection and crash the
+    // process. Snapshot the session and bail if it's gone.
+    const session = this.session;
+    if (!session) return;
+
     if (request.type === 'get-config') {
       await this.handleGetConfig(request);
       return;
     }
+
+    const transpiler = this.transpiler;
+    if (!transpiler) return;
 
     const startTime = Date.now();
 
@@ -448,9 +470,9 @@ export class DevRunner {
     const method = this.appConfig?.methods.find((m) => m.id === request.methodId);
     if (!method) {
       const message = `Unknown method ID: ${request.methodId}`;
-      log.error('runner', message, { requestId: request.requestId, sessionId: this.session!.sessionId });
+      log.error('runner', message, { requestId: request.requestId, sessionId: session.sessionId });
       try {
-        await submitDevResult(this.appId, this.session!.sessionId, request.requestId, {
+        await submitDevResult(this.appId, session.sessionId, request.requestId, {
           type: 'execute',
           success: false,
           error: { message },
@@ -467,11 +489,11 @@ export class DevRunner {
       timestamp: startTime,
     });
 
-    log.info('runner', 'Method received', { requestId: request.requestId, method: method.export, source: 'poll', sessionId: this.session!.sessionId });
+    log.info('runner', 'Method received', { requestId: request.requestId, method: method.export, source: 'poll', sessionId: session.sessionId });
 
     try {
       const t0 = Date.now();
-      const transpiledPath = await this.transpiler!.transpile(method.path);
+      const transpiledPath = await transpiler.transpile(method.path);
       const t1 = Date.now();
 
       // userId from the resolved ms_iface_ token — fresh on every request,
@@ -494,12 +516,12 @@ export class DevRunner {
         methodExport: method.export,
         input: request.input,
         auth,
-        databases: this.session!.databases,
+        databases: session.databases,
         authorizationToken: request.authorizationToken,
         apiBaseUrl: getApiBaseUrl(),
         dbWsUrl: getDbWsUrl(),
         projectRoot: this.projectRoot,
-        sessionId: this.session!.sessionId,
+        sessionId: session.sessionId,
         streamId: request.streamId,
         secrets: request.secrets,
       });
@@ -516,7 +538,7 @@ export class DevRunner {
 
       await submitDevResult(
         this.appId,
-        this.session!.sessionId,
+        session.sessionId,
         request.requestId,
         devResult,
       );
@@ -530,27 +552,27 @@ export class DevRunner {
         totalMs: duration,
       };
       if (result.success) {
-        log.info('runner', 'Method complete', { requestId: request.requestId, method: method.export, timing, sessionId: this.session!.sessionId });
+        log.info('runner', 'Method complete', { requestId: request.requestId, method: method.export, timing, sessionId: session.sessionId });
       } else {
         log.warn('runner', 'Method failed', {
           requestId: request.requestId,
           method: method.export,
           timing,
           error: result.error ? formatErrorForDisplay(result.error) : undefined,
-          sessionId: this.session!.sessionId,
+          sessionId: session.sessionId,
         });
       }
 
       logMethodExecution({
         requestId: request.requestId,
-        sessionId: this.session!.sessionId,
+        sessionId: session.sessionId,
         methodExport: method.export,
         methodPath: method.path,
         input: request.input,
         roleOverride: request.roleOverride,
         authorizationToken: request.authorizationToken,
-        context: { auth, databases: this.session!.databases },
-        databases: this.session!.databases,
+        context: { auth, databases: session.databases },
+        databases: session.databases,
         result,
         duration,
         timing,
@@ -566,12 +588,12 @@ export class DevRunner {
       const message =
         error instanceof Error ? error.message : 'Unknown error';
       const duration = Date.now() - startTime;
-      log.error('runner', 'Method execution error', { requestId: request.requestId, method: method.export, duration, error: message, sessionId: this.session!.sessionId });
+      log.error('runner', 'Method execution error', { requestId: request.requestId, method: method.export, duration, error: message, sessionId: session.sessionId });
 
       try {
         await submitDevResult(
           this.appId,
-          this.session!.sessionId,
+          session.sessionId,
           request.requestId,
           {
             type: 'execute',
@@ -585,13 +607,13 @@ export class DevRunner {
 
       logMethodExecution({
         requestId: request.requestId,
-        sessionId: this.session!.sessionId,
+        sessionId: session.sessionId,
         methodExport: method.export,
         methodPath: method.path,
         input: request.input,
         roleOverride: request.roleOverride,
         authorizationToken: request.authorizationToken,
-        databases: this.session!.databases,
+        databases: session.databases,
         result: { success: false, error: { message } },
         duration: Date.now() - startTime,
       });
@@ -606,7 +628,9 @@ export class DevRunner {
   }
 
   private async handleGetConfig(request: DevRequest): Promise<void> {
-    log.info('runner', 'Config requested', { requestId: request.requestId, sessionId: this.session!.sessionId });
+    const session = this.session;
+    if (!session) return;
+    log.info('runner', 'Config requested', { requestId: request.requestId, sessionId: session.sessionId });
 
     try {
       if (!this.appConfig) {
@@ -617,7 +641,7 @@ export class DevRunner {
 
       await submitDevResult(
         this.appId,
-        this.session!.sessionId,
+        session.sessionId,
         request.requestId,
         {
           type: 'get-config',
@@ -634,7 +658,7 @@ export class DevRunner {
       try {
         await submitDevResult(
           this.appId,
-          this.session!.sessionId,
+          session.sessionId,
           request.requestId,
           {
             type: 'get-config',
