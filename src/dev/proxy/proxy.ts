@@ -114,7 +114,7 @@ export class DevProxy {
    * commands — replacing the prior `networkidle0`-based readiness check
    * which is defeated by long-lived SSE responses (e.g. /_/telemetry/presence).
    */
-  waitForHeadlessClient(timeoutMs = 15_000): Promise<void> {
+  waitForHeadlessClient(timeoutMs: number): Promise<void> {
     if (this.clients.hasHeadless()) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const waiter = {
@@ -213,16 +213,21 @@ export class DevProxy {
 
       const timeout = setTimeout(() => {
         this.pendingResults.delete(id);
+        // Give up on this command, but keep the client. A command that ran long
+        // is a slow page, not a dead one, and the two used to be conflated here:
+        // the client was evicted and its socket terminated, so the next command
+        // found no headless client and reported NO_BROWSER — a heavy page
+        // presenting as a missing browser. Liveness is the ping/pong sweep's job
+        // (`startPingTimer`), and it is the right signal precisely because pongs
+        // are answered by the browser's network stack rather than page
+        // JavaScript, so a page whose main thread is saturated still answers.
         const client = this.clients.findByCommandId(id);
         if (client) {
-          // Client didn't respond — treat it as dead so subsequent
-          // commands don't get dispatched to the same zombie.
-          log.warn('proxy', 'Removing unresponsive browser client', { clientId: client.id });
-          this.clients.remove(client.id);
-          try { client.ws.terminate(); } catch {}
+          client.activeCommandId = null; // free the slot for the next command
         }
         log.warn('proxy', 'Browser command timed out', {
           id,
+          clientId: client?.id ?? null,
           pendingCount: this.pendingResults.size,
         });
         reject(new CommandError('Browser command timed out', 'BROWSER_TIMEOUT'));
