@@ -13,6 +13,7 @@
 
 import puppeteer, { type Browser, type Page, type Viewport } from 'puppeteer-core';
 import { resolveChromePath } from './chrome-path';
+import { FULLPAGE_CAPTURE_TIMEOUT_MS } from './screenshot';
 import { log } from '../logging/logger';
 
 export interface LaunchedBrowser {
@@ -36,6 +37,16 @@ const LAUNCH_ARGS = [
   '--disable-blink-features=AutomationControlled',
   '--lang=en-US',
 ];
+
+// Backstop on every CDP command. Puppeteer's default is 180s, which is longer
+// than any deadline we enforce, so a command issued by a capture we already gave
+// up on could stay live in Chrome for minutes and pile onto the next attempt.
+// The capture itself passes a tighter per-command timeout (see screenshot.ts);
+// this covers the steps that can't — the page.evaluate settles, which also
+// stretch to a frame each on a slowly-rendering page. Derived from the longest
+// deadline we enforce so the two can't drift apart, with headroom so a full-page
+// capture still fails on its own deadline and reports its own message.
+const PROTOCOL_TIMEOUT_MS = FULLPAGE_CAPTURE_TIMEOUT_MS + 5_000;
 
 // Modern laptop — fits most desktop-first app layouts without extra gutters.
 const DESKTOP_VIEWPORT: Viewport = {
@@ -96,6 +107,7 @@ export async function launchSandboxBrowser(opts: {
     // control, so allowing it is safe and makes the automation browser immune.
     args: [...LAUNCH_ARGS, `--explicitly-allowed-ports=${opts.proxyPort}`],
     defaultViewport: viewport,
+    protocolTimeout: PROTOCOL_TIMEOUT_MS,
   });
 
   // Pipe Chrome stderr through the debug logger. Chrome is chatty on startup

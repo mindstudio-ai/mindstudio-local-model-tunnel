@@ -5,9 +5,13 @@
  * Responsibilities:
  * - Launch Chrome once at session start.
  * - Watch for unexpected disconnect (Chrome crash, killed process).
- * - Restart with exponential backoff; enter degraded mode after repeated
- *   failures so automation falls through to user-browser clients.
+ * - Restart with exponential backoff; after repeated failures report the browser
+ *   as degraded and keep retrying on a slow cadence.
  * - Clean teardown on session stop so no orphan Chrome processes linger.
+ *
+ * Degraded means automation is unavailable, not that it goes somewhere else:
+ * only the sandbox-owned headless client ever executes commands (see
+ * `ClientRegistry.getCommandTarget`), so there is no user-browser fallback.
  *
  * Emits structured `sandbox-browser-state` events on stdout at every state
  * transition so the sandbox manager can track Chrome in its /status surface
@@ -31,6 +35,10 @@ import { emitEvent } from '../ipc/ipc';
 const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 const MAX_FAILURES = 5;
 const CLOSE_TIMEOUT_MS = 5_000;
+// Retry cadence once degraded. Long enough not to thrash on a genuinely broken
+// environment, short enough that a session outliving a transient failure gets
+// its browser back rather than losing automation for hours.
+const DEGRADED_RETRY_MS = 60_000;
 
 export class BrowserSupervisor {
   private browser: Browser | null = null;
@@ -285,18 +293,32 @@ export class BrowserSupervisor {
   private scheduleRestart(): void {
     if (this.stopping) return;
 
+    // Past MAX_FAILURES we stop reporting the browser as usable, but we keep
+    // trying on a slow cadence. This used to `return` here, which made degraded
+    // terminal: no further launch was scheduled and `degraded` is only cleared
+    // inside launchOnce, so a session that lost Chrome had no automation for the
+    // rest of its life — sessions run for hours, and whatever killed Chrome
+    // (an OOM spike, a wedged renderer) is usually long gone by the next
+    // attempt.
     if (this.consecutiveFailures >= MAX_FAILURES) {
+      const wasDegraded = this.degraded;
       this.degraded = true;
-      log.warn(
-        'browser',
-        'Sandbox browser entering degraded mode after repeated failures — automation will fall back to user browsers',
-        { failures: this.consecutiveFailures },
-      );
-      emitEvent('sandbox-browser-state', {
-        state: 'degraded',
-        reason: 'repeated-crashes',
-        consecutiveFailures: this.consecutiveFailures,
-      });
+      if (!wasDegraded) {
+        log.warn(
+          'browser',
+          'Sandbox browser entering degraded mode after repeated failures — automation is unavailable until a retry succeeds',
+          { failures: this.consecutiveFailures },
+        );
+        emitEvent('sandbox-browser-state', {
+          state: 'degraded',
+          reason: 'repeated-crashes',
+          consecutiveFailures: this.consecutiveFailures,
+        });
+      }
+      this.restartTimer = setTimeout(() => {
+        this.restartTimer = null;
+        void this.launchOnce();
+      }, DEGRADED_RETRY_MS);
       return;
     }
 

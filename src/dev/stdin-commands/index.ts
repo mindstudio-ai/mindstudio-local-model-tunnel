@@ -18,7 +18,7 @@ import { handleDevServerRestarting } from './dev-server-restarting';
 import { handleDbQuery } from './db-query';
 import { handleListDatabases } from './list-databases';
 import { handleSetupBrowser } from './setup-browser';
-import { CommandError } from './types';
+import { errorCodeOf } from './types';
 import type { SessionState, CommandContext, CommandHandler } from './types';
 
 export type { SessionState } from './types';
@@ -102,7 +102,7 @@ async function handleStdinCommand(
     log.info('stdin', 'Command complete', { requestId, action, success: result.success !== false });
     emitResponse(action, requestId, 'completed', result);
   } catch (err) {
-    const code = err instanceof CommandError ? err.code : 'INFRASTRUCTURE';
+    const code = errorCodeOf(err) ?? 'INFRASTRUCTURE';
     const message = err instanceof Error ? err.message : String(err);
     log.warn('stdin', 'Command failed', { requestId, action, error: message, errorCode: code });
     emitResponse(action, requestId, 'completed', {

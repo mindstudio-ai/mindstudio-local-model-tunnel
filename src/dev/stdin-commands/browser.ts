@@ -40,6 +40,13 @@ interface RecordingMeta {
 // the player already treats as a rebuild seam via `containsSnapshot`.)
 const RECORDING_SESSION_ID = randomBytes(16).toString('hex');
 
+// Budget for one whole `browser` command, however many steps it has. Must stay
+// under the sandbox's `sendTunnelCommand('browser', …)` timeout so this layer —
+// which knows which step was slow — is the one that reports the failure, rather
+// than the caller giving up first and returning a bare "timeout (Ns)" with no
+// error code and none of the step results.
+const COMMAND_BUDGET_MS = 100_000;
+
 // Monotonic chunk sequence within the recording session. Only advances when a
 // chunk is actually uploaded, so the frontend never sees a gap.
 let recordingSeq = 0;
@@ -62,13 +69,30 @@ export async function handleBrowser(
     );
   }
 
-  const page = ctx.state.browser?.getActivePage();
-  if (!page) {
-    throw new CommandError(
-      'Sandbox browser unavailable — headless Chrome is required for automation',
-      'NO_BROWSER',
-    );
-  }
+  // One budget for the whole command, shared by every step. Each step used to
+  // carry its own independent timeout — 120s per browser-agent batch plus 20s or
+  // 90s per capture — so a four-step command could legitimately run for 350s
+  // while the caller gave up at 120s and dropped the result. Now the steps draw
+  // down a single envelope that fits inside the caller's.
+  const deadline = Date.now() + COMMAND_BUDGET_MS;
+  const remaining = () => Math.max(1_000, deadline - Date.now());
+
+  // A CDP Page is only needed by steps that drive Chrome directly (captures,
+  // setViewport); the rest run in the page over the browser-agent WS. Requiring
+  // one up front failed the whole command the moment Chrome was between
+  // launches, and did so *ahead of* `dispatchBrowserCommand`'s own wait for the
+  // client to reconnect — so a snapshot gave up instantly on a browser that was
+  // seconds from being back.
+  const requirePage = (): Page => {
+    const page = ctx.state.browser?.getActivePage();
+    if (!page) {
+      throw new CommandError(
+        'Sandbox browser unavailable — headless Chrome is required for automation',
+        'NO_BROWSER',
+      );
+    }
+    return page;
+  };
 
   const resultsByIndex = new Array<Record<string, unknown> | undefined>(
     steps.length,
@@ -84,7 +108,10 @@ export async function handleBrowser(
   const flushBuffer = async () => {
     if (buffer.length === 0) return;
     const batch = buffer.map((b) => b.step);
-    const out = await ctx.state.proxy!.dispatchBrowserCommand(batch);
+    const out = await ctx.state.proxy!.dispatchBrowserCommand(
+      batch,
+      remaining(),
+    );
     const outSteps = (out.steps as Array<Record<string, unknown>>) ?? [];
     for (let i = 0; i < buffer.length; i++) {
       const returned = outSteps[i] ?? {};
@@ -109,15 +136,32 @@ export async function handleBrowser(
     const command = step.command;
     if (command === 'screenshotFullPage' || command === 'screenshotViewport') {
       await flushBuffer();
-      const captured = await captureScreenshotStep(
-        ctx,
-        page,
-        step as Record<string, unknown>,
-        command,
-      );
-      resultsByIndex[i] = { index: i, command, result: captured };
-      totalDuration += captured._durationMs ?? 0;
-      delete captured._durationMs;
+      // Record a capture failure as this step's error rather than throwing out
+      // of the whole command. A capture is the step most likely to fail (a page
+      // that renders continuously can miss its deadline while everything else
+      // about it works), and throwing here discarded every result already
+      // collected — a `[snapshot, screenshotViewport]` batch came back as
+      // nothing but the timeout, so the caller re-ran the snapshot it had
+      // already been given. Every other step type reports its own error and
+      // lets the batch finish; the aggregation below marks the command failed.
+      try {
+        const captured = await captureScreenshotStep(
+          ctx,
+          requirePage(),
+          step as Record<string, unknown>,
+          command,
+          remaining(),
+        );
+        resultsByIndex[i] = { index: i, command, result: captured };
+        totalDuration += captured._durationMs ?? 0;
+        delete captured._durationMs;
+      } catch (err) {
+        resultsByIndex[i] = {
+          index: i,
+          command,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
     } else if (command === 'setViewport') {
       // Hot-swap the headless browser's viewport (desktop ↔ mobile) via the
       // supervisor's tested resize+reload path. Handled inline like screenshots
@@ -199,6 +243,7 @@ async function captureScreenshotStep(
   page: Page,
   step: Record<string, unknown>,
   command: string,
+  budgetMs: number,
 ): Promise<Record<string, unknown> & { _durationMs?: number }> {
   const session = ctx.state.runner?.getSession();
   const appId = ctx.state.appConfig?.appId;
@@ -214,6 +259,7 @@ async function captureScreenshotStep(
   const start = Date.now();
   const r = await captureViaCdp(page, {
     fullPage: command === 'screenshotFullPage',
+    budgetMs,
     path: typeof step.path === 'string' ? step.path : undefined,
     proxyPort: ctx.state.proxyPort ?? undefined,
     scrollToSelector:

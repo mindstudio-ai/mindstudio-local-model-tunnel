@@ -36,18 +36,21 @@ export type CommandHandler = (
 // Error codes
 // ---------------------------------------------------------------------------
 
-export type ErrorCode =
-  | 'NO_SESSION'
-  | 'NO_BROWSER'
-  | 'BROWSER_TIMEOUT'
-  | 'BROWSER_DISCONNECTED'
-  | 'BROWSER_SEND_FAILED'
-  | 'BROWSER_ERROR'
-  | 'INVALID_INPUT'
-  | 'EXECUTION_ERROR'
-  | 'UNKNOWN_ACTION'
-  | 'UPLOAD_FAILED'
-  | 'INFRASTRUCTURE';
+export const ERROR_CODES = [
+  'NO_SESSION',
+  'NO_BROWSER',
+  'BROWSER_TIMEOUT',
+  'BROWSER_DISCONNECTED',
+  'BROWSER_SEND_FAILED',
+  'BROWSER_ERROR',
+  'INVALID_INPUT',
+  'EXECUTION_ERROR',
+  'UNKNOWN_ACTION',
+  'UPLOAD_FAILED',
+  'INFRASTRUCTURE',
+] as const;
+
+export type ErrorCode = (typeof ERROR_CODES)[number];
 
 /**
  * Typed error with a machine-readable error code.
@@ -60,4 +63,21 @@ export class CommandError extends Error {
   ) {
     super(message);
   }
+}
+
+/**
+ * The code a thrown value declares for itself, if it's one we report.
+ *
+ * Lets any error carry its own code — `CommandError` and the browser module's
+ * `ScreenshotTimeoutError` both do — rather than the router growing an
+ * `instanceof` branch per error type and falling back to `INFRASTRUCTURE` for
+ * everything else, which labels ordinary slowness as broken plumbing and sends
+ * the agent looking in the wrong place.
+ */
+export function errorCodeOf(err: unknown): ErrorCode | null {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' &&
+    (ERROR_CODES as readonly string[]).includes(code)
+    ? (code as ErrorCode)
+    : null;
 }
