@@ -6,7 +6,12 @@
 
 import { getApiKey, getApiBaseUrl } from '../config';
 import { log } from './logging/logger';
-import type { DevSession, DevRequest, DevResult, SyncSchemaResponse } from './config/types';
+import type {
+  DevSession,
+  DevRequest,
+  DevResult,
+  SyncSchemaResponse,
+} from './config/types';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -44,7 +49,9 @@ async function apiRequest<T>(
 ): Promise<T> {
   const start = Date.now();
   const httpMethod = method;
-  const path = url.replace(getApiBaseUrl(), '').replace(/^\/_internal\/v2\/apps\/[^/]+\/dev/, '');
+  const path = url
+    .replace(getApiBaseUrl(), '')
+    .replace(/^\/_internal\/v2\/apps\/[^/]+\/dev/, '');
 
   const response = await fetch(url, {
     method,
@@ -55,18 +62,37 @@ async function apiRequest<T>(
   const duration = Date.now() - start;
 
   if (response.status === 204) {
-    log.debug('api', 'Request complete', { method: httpMethod, path, status: 204, duration });
+    log.debug('api', 'Request complete', {
+      method: httpMethod,
+      path,
+      status: 204,
+      duration,
+    });
     return null as T;
   }
 
   if (!response.ok) {
     const error = await response.text();
-    log.error('api', 'Request failed', { method: httpMethod, path, status: response.status, duration, error });
-    throw new ApiError(`${httpMethod} ${path} failed: ${response.status} ${error}`, response.status);
+    log.error('api', 'Request failed', {
+      method: httpMethod,
+      path,
+      status: response.status,
+      duration,
+      error,
+    });
+    throw new ApiError(
+      `${httpMethod} ${path} failed: ${response.status} ${error}`,
+      response.status,
+    );
   }
 
   const data = (await response.json()) as T;
-  log.info('api', 'Request complete', { method: httpMethod, path, status: response.status, duration });
+  log.info('api', 'Request complete', {
+    method: httpMethod,
+    path,
+    status: response.status,
+    duration,
+  });
   return data;
 }
 
@@ -87,14 +113,23 @@ export async function startDevSession(
   if (opts?.proxyUrl) body.proxyUrl = opts.proxyUrl;
   if (opts?.methods) body.methods = opts.methods;
 
-  return apiRequest<DevSession>('POST', `${basePath(appId)}/manage/start`, getHeaders(), body);
+  return apiRequest<DevSession>(
+    'POST',
+    `${basePath(appId)}/manage/start`,
+    getHeaders(),
+    body,
+  );
 }
 
 export async function stopDevSession(
   appId: string,
   sessionId: string,
 ): Promise<void> {
-  await apiRequest<void>('POST', `${basePath(appId)}/manage/stop`, getHeaders(sessionId));
+  await apiRequest<void>(
+    'POST',
+    `${basePath(appId)}/manage/stop`,
+    getHeaders(sessionId),
+  );
 }
 
 export async function pollDevRequest(
@@ -107,7 +142,11 @@ export async function pollDevRequest(
     : `${basePath(appId)}/poll`;
 
   try {
-    return await apiRequest<DevRequest | null>('GET', url, getHeaders(sessionId));
+    return await apiRequest<DevRequest | null>(
+      'GET',
+      url,
+      getHeaders(sessionId),
+    );
   } catch (err) {
     // Re-throw as DevPollError so the runner can detect session expiry (404)
     if (err instanceof ApiError) {
@@ -194,11 +233,7 @@ export async function fetchCallbackToken(
   const data = await apiRequest<{
     authorizationToken: string;
     secrets?: Record<string, string>;
-  }>(
-    'POST',
-    `${basePath(appId)}/manage/token`,
-    getHeaders(sessionId),
-  );
+  }>('POST', `${basePath(appId)}/manage/token`, getHeaders(sessionId));
   return { authorizationToken: data.authorizationToken, secrets: data.secrets };
 }
 
@@ -207,12 +242,22 @@ export async function getUploadUrl(
   sessionId: string,
   extension: string,
   contentType: string,
-): Promise<{ uploadUrl: string; uploadFields: Record<string, string>; publicUrl: string }> {
+  // 'private' stores in the private bucket and returns `path` (an s3:// ref
+  // the editor resolves to a presigned URL) instead of `publicUrl`. Used for
+  // rrweb recording chunks; screenshots stay public (vision models fetch the
+  // URL directly).
+  access?: 'private',
+): Promise<{
+  uploadUrl: string;
+  uploadFields: Record<string, string>;
+  publicUrl?: string;
+  path?: string;
+}> {
   return apiRequest(
     'POST',
     `${basePath(appId)}/manage/upload`,
     getHeaders(sessionId),
-    { extension, contentType },
+    { extension, contentType, ...(access ? { access } : {}) },
   );
 }
 
