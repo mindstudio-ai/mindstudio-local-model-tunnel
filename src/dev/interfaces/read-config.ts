@@ -5,6 +5,7 @@
 // failing the whole response.
 
 import { readAgentConfig, type AgentConfigBundle } from './agent-config';
+import { readVoiceConfig, type VoiceConfigBundle } from './voice-config';
 import { readApiConfig, type ApiConfigBundle } from './api-config';
 import { readMcpConfig, type McpConfigBundle } from './mcp-config';
 import { log } from '../logging/logger';
@@ -14,6 +15,7 @@ export interface ConfigBundle {
   name: string;
   auth: AppAuthConfig | null;
   agent: AgentConfigBundle | null;
+  voice: VoiceConfigBundle | null;
   api: ApiConfigBundle | null;
   mcp: McpConfigBundle | null;
 }
@@ -33,6 +35,15 @@ export function readConfig(
     agent = readAgentConfig(projectRoot, appConfig);
   } catch (err) {
     log.debug('config', 'Agent config not available', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  let voice: VoiceConfigBundle | null = null;
+  try {
+    voice = readVoiceConfig(projectRoot, appConfig);
+  } catch (err) {
+    log.debug('config', 'Voice config not available', {
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -59,6 +70,7 @@ export function readConfig(
     name: appConfig.name,
     auth: appConfig.auth ?? null,
     agent,
+    voice,
     api,
     mcp,
   };
