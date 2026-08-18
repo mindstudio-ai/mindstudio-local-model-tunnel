@@ -16,7 +16,15 @@ import type { Page } from 'puppeteer-core';
  * `containsSnapshot` is true (a new `runId` = a real page load).
  */
 interface RecordingMeta {
-  url: string;
+  /**
+   * Private-bucket storage ref (`s3://bucket/key`). Replays can contain
+   * whatever the previewed app rendered, so chunks are stored privately and
+   * the editor resolves this to a presigned URL via the app's
+   * `attachment-url` endpoint before fetching.
+   */
+  path?: string;
+  /** Legacy public CDN URL — only set when the API predates private chunks. */
+  url?: string;
   sessionId: string;
   runId: string | null;
   seq: number;
@@ -301,11 +309,12 @@ async function uploadRecording(
   const body = JSON.stringify(events);
 
   try {
-    const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
+    const { uploadUrl, uploadFields, publicUrl, path } = await getUploadUrl(
       appId,
       session.sessionId,
       'json',
       'application/json',
+      'private',
     );
     const form = new FormData();
     for (const [k, v] of Object.entries(uploadFields)) form.append(k, v);
@@ -330,9 +339,12 @@ async function uploadRecording(
       events: events.length,
       seq,
       containsSnapshot,
+      private: Boolean(path),
     });
     return {
-      url: publicUrl,
+      // An API that predates private chunks ignores `access` and returns a
+      // public URL — carry whichever locator it gave us.
+      ...(path ? { path } : { url: publicUrl }),
       sessionId: RECORDING_SESSION_ID,
       runId: runId ?? null,
       seq,
