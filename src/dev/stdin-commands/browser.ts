@@ -251,8 +251,19 @@ export async function handleBrowser(
         };
       } else {
         const start = Date.now();
-        // No-ops when mode already matches (no reload); reloads otherwise.
-        await ctx.state.browser.setPreviewMode(mode);
+        // Explicit desktop/mobile: no-ops when the mode already matches
+        // (no reload); reloads otherwise. The per-run reset (`default`,
+        // sent at the start of every QA run, never by the agent) always
+        // reloads even when the viewport matches: a fresh document is the
+        // reset's real job. The headless page has no other guaranteed
+        // refresh path — failed hot-updates leave it on a stale bundle
+        // (still running deleted code), and the proxy's reload broadcasts
+        // deliberately skip headless — so QA must never start on the
+        // previous run's document.
+        const isRunReset = requested === 'default' || requested === undefined;
+        await ctx.state.browser.setPreviewMode(mode, {
+          forceReload: isRunReset,
+        });
         const applied = ctx.state.browser.getPreviewMode();
         resultsByIndex[i] = {
           index: i,

@@ -109,21 +109,36 @@ export class BrowserSupervisor {
    * pick up the new dimensions. Cookies and sessionStorage survive the
    * reload; rrweb / browser-agent reconnect normally.
    *
+   * `forceReload` reloads the page even when the mode already matches —
+   * the per-run QA reset uses it to guarantee a fresh document (a failed
+   * hot-update can leave the page on a stale bundle with no other recovery
+   * path; see the setViewport handler in stdin-commands/browser.ts).
+   *
    * Calls are serialized so rapid back-to-back invocations apply in order
    * rather than racing.
    */
-  async setPreviewMode(mode: PreviewMode): Promise<void> {
+  async setPreviewMode(
+    mode: PreviewMode,
+    opts: { forceReload?: boolean } = {},
+  ): Promise<void> {
     if (this.stopping || this.degraded) return;
-    if (mode === this.previewMode) return;
+    const forceReload = opts.forceReload === true;
+    if (mode === this.previewMode && !forceReload) return;
     const prev = this.viewportChange;
-    this.viewportChange = prev.then(() => this.applyPreviewMode(mode));
+    this.viewportChange = prev.then(() =>
+      this.applyPreviewMode(mode, forceReload),
+    );
     await this.viewportChange;
   }
 
-  private async applyPreviewMode(mode: PreviewMode): Promise<void> {
+  private async applyPreviewMode(
+    mode: PreviewMode,
+    forceReload: boolean,
+  ): Promise<void> {
     if (this.stopping || this.degraded) return;
     if (!this.browser || !this.page) return;
-    if (mode === this.previewMode) return;
+    const viewportChanging = mode !== this.previewMode;
+    if (!viewportChanging && !forceReload) return;
 
     const viewport = viewportFor(mode);
     const viewportStr = viewportToString(viewport);
@@ -131,9 +146,12 @@ export class BrowserSupervisor {
       from: this.previewMode,
       to: mode,
       viewport: viewportStr,
+      forceReload,
     });
     try {
-      await this.page.setViewport(viewport);
+      if (viewportChanging) {
+        await this.page.setViewport(viewport);
+      }
       // `load` not `networkidle0`: the SDK's /_/telemetry/presence SSE stays
       // open indefinitely (telemetry-mock keepalive), which would pin the
       // network-in-flight count at 1 forever and break this 15s timeout.
