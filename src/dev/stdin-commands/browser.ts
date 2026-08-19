@@ -1,6 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { getUploadUrl } from '../api';
-import { captureViaCdp, viewportFor, viewportToString } from '../browser';
+import {
+  captureViaCdp,
+  navigateTunnelSide,
+  viewportFor,
+  viewportToString,
+} from '../browser';
 import type { PreviewMode } from '../browser';
 import { log } from '../logging/logger';
 import { CommandError } from './types';
@@ -169,6 +174,48 @@ export async function handleBrowser(
           command,
           error: err instanceof Error ? err.message : String(err),
         };
+      }
+    } else if (command === 'navigate') {
+      // Navigation executes tunnel-side via CDP, never inside the in-page WS
+      // batch: a hard load tears down the browser-agent mid-batch (the WS
+      // client and all state die with the document), which is what the whole
+      // stash/resume + disconnect-reconcile machinery existed to survive.
+      // Splitting here means in-page batches never span a page boundary we
+      // created — dispatch already waits for the agent's reconnect before the
+      // next flush. The result carries the URL actually landed on, so
+      // app-side redirects are visible to the caller (the in-page path's
+      // blind 'ok' hid them). Same-origin stays a soft route change;
+      // `fresh: true` or cross-origin forces a real load.
+      await flushBuffer();
+      try {
+        if (typeof step.url !== 'string' || step.url.length === 0) {
+          throw new CommandError(
+            'navigate command requires a "url" field',
+            'INVALID_INPUT',
+          );
+        }
+        const page = requirePage();
+        const start = Date.now();
+        const nav = await navigateTunnelSide(
+          page,
+          {
+            url: step.url,
+            fresh: step.fresh === true,
+            proxyPort: ctx.state.proxyPort,
+          },
+          remaining(),
+        );
+        resultsByIndex[i] = { index: i, command, result: nav };
+        totalDuration += Date.now() - start;
+      } catch (err) {
+        resultsByIndex[i] = {
+          index: i,
+          command,
+          error: err instanceof Error ? err.message : String(err),
+        };
+        // Later steps would run against whatever page we're stranded on —
+        // stop, matching the in-page executor's stop-on-first-error.
+        break;
       }
     } else if (command === 'setViewport') {
       // Hot-swap the headless browser's viewport (desktop ↔ mobile) via the

@@ -12,9 +12,9 @@ import type { AppConfig } from '../config/types';
 
 export interface VoiceToolBundle {
   method: string;
+  /** 'client' = executed by the session's browser (no backend method). */
+  target?: 'client';
   latency?: string;
-  /** Forward the tool's return value to the session's browser (author opt-in). */
-  forwardResult?: boolean;
   description: string;
   inputSchema: Record<string, unknown>;
 }
@@ -88,9 +88,10 @@ export function readVoiceConfig(
   // Read and inline each tool description + extract inputSchema from source
   const tools: VoiceToolBundle[] = (config.tools ?? []).map(
     (tool: {
-      method: string;
+      method?: string;
+      name?: string;
+      target?: string;
       latency?: string;
-      forwardResult?: boolean;
       description: string;
       inputSchema?: Record<string, unknown>;
     }) => {
@@ -116,9 +117,9 @@ export function readVoiceConfig(
       }
 
       return {
-        method: tool.method,
+        method: (tool.method ?? tool.name) as string,
+        ...(tool.target === 'client' ? { target: 'client' as const } : {}),
         latency: tool.latency,
-        forwardResult: tool.forwardResult,
         description,
         inputSchema,
       };

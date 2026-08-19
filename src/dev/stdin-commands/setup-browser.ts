@@ -1,5 +1,5 @@
 import { createAuthSession } from '../api';
-import { clearAuthCookies, setAuthCookie } from '../browser';
+import { clearAuthCookies, setAuthCookie, resolveAppUrl } from '../browser';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
 
@@ -7,7 +7,8 @@ export async function handleSetupBrowser(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!ctx.state.appConfig?.appId) throw new CommandError('No active session', 'NO_SESSION');
+  if (!ctx.state.appConfig?.appId)
+    throw new CommandError('No active session', 'NO_SESSION');
 
   const page = ctx.state.browser?.getActivePage();
   if (!page) {
@@ -17,7 +18,9 @@ export async function handleSetupBrowser(
     );
   }
 
-  const auth = cmd.auth as { email?: string; phone?: string; roles?: string[] } | undefined;
+  const auth = cmd.auth as
+    | { email?: string; phone?: string; roles?: string[] }
+    | undefined;
   const path = (cmd.path as string) || '/';
 
   // Fresh slate: clear any auth cookie the previous test left behind.
@@ -46,25 +49,14 @@ export async function handleSetupBrowser(
   }
 
   // Navigate to the target path so the proxy resolves the cookie and the
-  // page injects the correct `window.__MINDSTUDIO__` context. puppeteer's
-  // goto requires an absolute URL — resolve `path` against the current
-  // origin (always the proxy when the sandbox browser is running).
+  // page injects the correct `window.__MINDSTUDIO__` context.
   // `load`, not `networkidle0`: a plain path (no `?ms_sandbox=1`) reopens the
   // SDK's /_/telemetry/presence SSE and instrumented pages stream analytics
   // beacons, either of which pins the in-flight count so `networkidle0` never
   // settles and this navigation always hits the 15s timeout. `load` only needs
   // HTML + non-async assets. Mirrors launcher.ts / supervisor.ts / screenshot.ts.
-  // Resolve app-relative paths against the known proxy origin, NOT page.url():
-  // the sandbox app is always served from http://127.0.0.1:<proxyPort>, and if
-  // the page is parked on chrome-error://chromewebdata/ (e.g. after an aborted
-  // navigation) `new URL(path, page.url())` yields chrome-error://.../<path>,
-  // which Chrome refuses → net::ERR_ABORTED, permanently wedging every later
-  // setup-browser. Basing on the proxy origin makes the next goto target a real
-  // URL, which also moves the page off the error page (self-heals the wedge).
-  const base = ctx.state.proxyPort
-    ? `http://127.0.0.1:${ctx.state.proxyPort}`
-    : page.url();
-  const absolute = new URL(path, base).toString();
+  // Proxy-origin resolution with the chrome-error self-heal — see resolveAppUrl.
+  const absolute = resolveAppUrl(page, ctx.state.proxyPort, path);
   try {
     await page.goto(absolute, { waitUntil: 'load', timeout: 15_000 });
   } catch (err) {

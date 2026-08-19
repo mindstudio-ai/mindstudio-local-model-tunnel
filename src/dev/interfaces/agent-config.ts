@@ -17,6 +17,8 @@ export interface AgentConfigBundle {
   systemPrompt: string;
   tools: Array<{
     name: string;
+    /** 'client' = executed by the session's browser (no backend method). */
+    target?: 'client';
     description: string;
     inputSchema: Record<string, unknown>;
   }>;
@@ -68,7 +70,13 @@ export function readAgentConfig(
 
   // Read and inline each tool description + extract inputSchema from source
   const tools = (config.tools ?? []).map(
-    (tool: { method: string; description: string; inputSchema?: Record<string, unknown> }) => {
+    (tool: {
+      method?: string;
+      name?: string;
+      target?: string;
+      description: string;
+      inputSchema?: Record<string, unknown>;
+    }) => {
       const descPath = join(agentDir, tool.description);
       let description: string;
       try {
@@ -90,7 +98,12 @@ export function readAgentConfig(
           : EMPTY_OBJECT_SCHEMA;
       }
 
-      return { name: tool.method, description, inputSchema };
+      return {
+        name: (tool.method ?? tool.name) as string,
+        ...(tool.target === 'client' ? { target: 'client' as const } : {}),
+        description,
+        inputSchema,
+      };
     },
   );
 
