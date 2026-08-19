@@ -55,6 +55,8 @@ export interface ExecuteMethodOptions {
   projectRoot: string;
   sessionId?: string;
   streamId?: string;
+  /** Originating-session identity (voice/agent tool calls) — rides into the SDK ctx. */
+  session?: Record<string, unknown>;
   secrets?: Record<string, string>;
 }
 
@@ -195,7 +197,7 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 
 process.on('message', async (msg) => {
-  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, dbWsUrl, streamId, secrets } = msg;
+  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, dbWsUrl, streamId, session, secrets } = msg;
 
   // DB-over-WS transport for the agent SDK's db (falls back to fetch if unset).
   if (dbWsUrl) process.env.DB_WS_URL = dbWsUrl;
@@ -211,6 +213,7 @@ process.on('message', async (msg) => {
     auth: auth ?? { userId: null, roleAssignments: [] },
     databases: databases ?? [],
     streamId: streamId ?? undefined,
+    session: session ?? undefined,
   };
 
   const req = { stdout: [], flushed: 0, done: false, doneAt: 0 };
@@ -608,6 +611,7 @@ async function executeMethodInWorker(
       apiBaseUrl: opts.apiBaseUrl,
       dbWsUrl: opts.dbWsUrl,
       streamId: opts.streamId,
+      session: opts.session,
       secrets: opts.secrets,
     });
   });

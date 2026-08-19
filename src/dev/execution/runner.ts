@@ -523,6 +523,7 @@ export class DevRunner {
         projectRoot: this.projectRoot,
         sessionId: session.sessionId,
         streamId: request.streamId,
+        session: request.session,
         secrets: request.secrets,
       });
       const t2 = Date.now();
