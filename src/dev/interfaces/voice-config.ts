@@ -13,6 +13,8 @@ import type { AppConfig } from '../config/types';
 export interface VoiceToolBundle {
   method: string;
   latency?: string;
+  /** Forward the tool's return value to the session's browser (author opt-in). */
+  forwardResult?: boolean;
   description: string;
   inputSchema: Record<string, unknown>;
 }
@@ -88,6 +90,7 @@ export function readVoiceConfig(
     (tool: {
       method: string;
       latency?: string;
+      forwardResult?: boolean;
       description: string;
       inputSchema?: Record<string, unknown>;
     }) => {
@@ -115,6 +118,7 @@ export function readVoiceConfig(
       return {
         method: tool.method,
         latency: tool.latency,
+        forwardResult: tool.forwardResult,
         description,
         inputSchema,
       };

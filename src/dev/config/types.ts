@@ -111,6 +111,13 @@ export interface DevRequest {
   roleAssignments?: Array<{ userId: string | null; roleName: string }>;
   roleOverride?: string[];
   streamId?: string;
+  /** Originating-session identity (voice/agent tool calls) — exposed by the SDK as `session`. */
+  session?: {
+    channel: 'voice' | 'agent';
+    voiceSessionId?: string;
+    threadId?: string;
+    visitorId?: string;
+  };
   secrets?: Record<string, string>;
 }
 
