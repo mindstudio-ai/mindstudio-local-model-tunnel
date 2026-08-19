@@ -11,7 +11,11 @@
  * dispatch path — those stay untouched. It only spawns Chrome and navigates.
  */
 
-import puppeteer, { type Browser, type Page, type Viewport } from 'puppeteer-core';
+import puppeteer, {
+  type Browser,
+  type Page,
+  type Viewport,
+} from 'puppeteer-core';
 import { resolveChromePath } from './chrome-path';
 import { FULLPAGE_CAPTURE_TIMEOUT_MS } from './screenshot';
 import { log } from '../logging/logger';
@@ -36,6 +40,15 @@ const LAUNCH_ARGS = [
   '--font-render-hinting=none',
   '--disable-blink-features=AutomationControlled',
   '--lang=en-US',
+  // Voice-interface QA: the SDK's startSession() unconditionally acquires the
+  // microphone, so grant it a silent fake device instead of failing with
+  // microphone_denied in headless. Silence never trips turn detection — the
+  // QA agent converses via sendText, which commits turns explicitly. Autoplay
+  // is allowed so the SDK's hidden agent-audio element can't wedge session
+  // state waiting on a user gesture that headless will never produce.
+  '--use-fake-ui-for-media-stream',
+  '--use-fake-device-for-media-stream',
+  '--autoplay-policy=no-user-gesture-required',
 ];
 
 // Backstop on every CDP command. Puppeteer's default is 180s, which is longer
@@ -94,7 +107,8 @@ export async function launchSandboxBrowser(opts: {
     return null;
   }
 
-  const previewMode: PreviewMode = opts.previewMode === 'mobile' ? 'mobile' : 'desktop';
+  const previewMode: PreviewMode =
+    opts.previewMode === 'mobile' ? 'mobile' : 'desktop';
   const viewport = viewportFor(previewMode);
 
   const browser = await puppeteer.launch({
@@ -129,7 +143,9 @@ export async function launchSandboxBrowser(opts: {
   // demote us to `mode=standalone` (commands then queue with no eligible
   // target and time out at 120s).
   await page.evaluateOnNewDocument(() => {
-    try { sessionStorage.setItem('__ms_sandbox', '1'); } catch {}
+    try {
+      sessionStorage.setItem('__ms_sandbox', '1');
+    } catch {}
   });
 
   const target = `http://127.0.0.1:${opts.proxyPort}/?ms_sandbox=1`;

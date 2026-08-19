@@ -21,6 +21,7 @@
 
 import { ProtocolError } from 'puppeteer-core';
 import type { Page, Viewport } from 'puppeteer-core';
+import { resolveAppUrl } from './navigation';
 
 export interface CaptureOpts {
   fullPage: boolean;
@@ -251,17 +252,9 @@ async function captureViaCdpInner(
   const type: 'png' | 'jpeg' = opts.format === 'png' ? 'png' : 'jpeg';
 
   if (opts.path) {
-    // Puppeteer's page.goto requires an absolute URL — callers pass paths like
-    // "/welcome". Resolve against the known proxy origin
-    // (http://127.0.0.1:<proxyPort>), NOT page.url(): if the page is parked on
-    // chrome-error://chromewebdata/ (after an aborted nav) resolving against it
-    // yields chrome-error://.../<path> → net::ERR_ABORTED, wedging every later
-    // path capture. Basing on the proxy origin self-heals (the next goto lands
-    // on a real URL). Falls back to page.url() only if the port is unknown.
-    const base = opts.proxyPort
-      ? `http://127.0.0.1:${opts.proxyPort}`
-      : page.url();
-    const absolute = new URL(opts.path, base).toString();
+    // Proxy-origin resolution with the chrome-error self-heal — see
+    // resolveAppUrl for the rationale.
+    const absolute = resolveAppUrl(page, opts.proxyPort, opts.path);
     // `load`, not `networkidle0`: long-lived connections keep the in-flight
     // count pinned above 0 forever, so `networkidle0` never settles and this
     // navigation always hits the 15s timeout. On a plain path (no

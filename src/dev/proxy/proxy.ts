@@ -508,6 +508,13 @@ export class DevProxy {
           mirror: !!msg.mirror,
         });
 
+        // Re-own or fail any command orphaned by a mid-command navigation,
+        // BEFORE draining the queue — adoption marks this client busy so a
+        // queued command isn't dispatched into a page that is still resuming.
+        if (mode === 'headless') {
+          this.reconcileOrphanedCommands(clientId, msg);
+        }
+
         // The sandbox-owned headless client just became reachable — release
         // any supervisor waiting for the WS hello so it can declare `running`.
         if (mode === 'headless' && this.headlessReadyWaiters.size > 0) {
@@ -599,9 +606,14 @@ export class DevProxy {
       if (clientId) {
         const client = this.clients.remove(clientId);
         // Browser may reconnect after a navigation and deliver the result
-        // (stash/resume pattern). Give a short grace period, then reject
-        // if no client reconnects — avoids waiting the full command timeout
-        // when the browser is truly gone.
+        // (stash/resume pattern) — `reconcileOrphanedCommands` re-owns the
+        // command on the reconnected client (or fails it fast when nothing
+        // will resume it). This timer is only the backstop for a browser
+        // that never reconnects at all. It must match the pre-dispatch
+        // reconnect tolerance (HEADLESS_READY_TIMEOUT_MS): it used to fire
+        // at 10s, which killed commands whose page legitimately took longer
+        // to come back (dev server mid-restart), reporting a live resume as
+        // "Browser disconnected".
         if (client?.activeCommandId) {
           const commandId = client.activeCommandId;
           log.debug('proxy', 'Browser disconnected with active command', { commandId });
@@ -611,7 +623,7 @@ export class DevProxy {
               this.rejectPendingCommand(commandId, new CommandError('Browser disconnected', 'BROWSER_DISCONNECTED'));
               this.drainCommandQueue();
             }
-          }, 10_000);
+          }, HEADLESS_READY_TIMEOUT_MS);
         }
       }
     });
@@ -652,6 +664,65 @@ export class DevProxy {
         'Browser command result received but no pending command found',
         { id, pendingIds: [...this.pendingResults.keys()] },
       );
+    }
+  }
+
+  /**
+   * Reconcile in-flight commands with a (re)connecting headless client.
+   *
+   * Every hard navigation closes the headless client's WS mid-command, and
+   * ownership (`activeCommandId`) is only assigned at dispatch — so after the
+   * reconnect, a pending command looks unowned even while the new page is
+   * actively resuming it (browser-agent stash/resume). The disconnect grace
+   * timer keys on that ownership and used to reject resumed commands at
+   * exactly grace-expiry while they were mid-flight — the QA agent's
+   * recurring false "Browser disconnected" on pages that take >10s to settle.
+   *
+   * The hello's `resumingCommandId` (peeked from the stash by the
+   * browser-agent) disambiguates:
+   * - matches a pending command → re-own it on this client. The resumed
+   *   result arrives normally; the command's dispatch timeout is the
+   *   backstop. Ownership also keeps `getCommandTarget` from dispatching a
+   *   queued command into the still-busy page.
+   * - explicit `null` (agent checked, no stash) → an orphaned command can
+   *   never complete: its in-flight steps died with the previous page (e.g.
+   *   a click triggered the navigation, which never stashes). Fail it now
+   *   with an accurate message instead of a misleading "Browser
+   *   disconnected" after the grace period.
+   * - key absent (older browser-agent that doesn't report) → adopt
+   *   optimistically; a never-resumed command falls to its dispatch timeout.
+   */
+  private reconcileOrphanedCommands(
+    clientId: string,
+    hello: Record<string, unknown>,
+  ): void {
+    const client = this.clients.get(clientId);
+    if (!client) return;
+    const reported = 'resumingCommandId' in hello;
+    const resumingId =
+      typeof hello.resumingCommandId === 'string'
+        ? hello.resumingCommandId
+        : null;
+
+    for (const [id, pending] of [...this.pendingResults]) {
+      if (this.clients.findByCommandId(id)) continue; // still owned
+      if (id === resumingId || (!reported && !client.activeCommandId)) {
+        client.activeCommandId = id;
+        pending.clientId = clientId;
+        log.info('proxy', 'Orphaned command re-owned by reconnected client', {
+          id,
+          clientId,
+          resuming: id === resumingId,
+        });
+      } else if (reported) {
+        this.rejectPendingCommand(
+          id,
+          new CommandError(
+            'The page navigated away mid-command and the remaining steps were lost. The action that triggered the navigation likely succeeded — take a fresh snapshot and re-issue only the steps you still need.',
+            'COMMAND_LOST_ON_NAVIGATION',
+          ),
+        );
+      }
     }
   }
 
