@@ -259,8 +259,11 @@ export async function handleBrowser(
         // refresh path — failed hot-updates leave it on a stale bundle
         // (still running deleted code), and the proxy's reload broadcasts
         // deliberately skip headless — so QA must never start on the
-        // previous run's document.
-        const isRunReset = requested === 'default' || requested === undefined;
+        // previous run's document. Only the literal 'default' counts as the
+        // reset — the sidecar always sends it explicitly, while an agent
+        // step that omitted `mode` (the schema doesn't require it) still
+        // maps to the app default WITHOUT forcing a mid-run reload.
+        const isRunReset = requested === 'default';
         await ctx.state.browser.setPreviewMode(mode, {
           forceReload: isRunReset,
         });
