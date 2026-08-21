@@ -14,6 +14,7 @@ import { handleImpersonate, handleClearImpersonation } from './impersonate';
 import { handleBrowser } from './browser';
 import { handleScreenshotFullPage } from './screenshot-full-page';
 import { handleScreenshotViewport } from './screenshot-viewport';
+import { handleRenderHtml } from './render-html';
 import { handleDevServerRestarting } from './dev-server-restarting';
 import { handleDbQuery } from './db-query';
 import { handleListDatabases } from './list-databases';
@@ -31,6 +32,7 @@ const handlers: Record<string, CommandHandler> = {
   'browser': handleBrowser,
   'screenshotFullPage': handleScreenshotFullPage,
   'screenshotViewport': handleScreenshotViewport,
+  'renderHtml': handleRenderHtml,
   'db-query': handleDbQuery,
   'list-databases': handleListDatabases,
   'setup-browser': handleSetupBrowser,

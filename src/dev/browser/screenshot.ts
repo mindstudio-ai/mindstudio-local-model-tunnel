@@ -389,6 +389,138 @@ async function captureViaCdpInner(
  * Best-effort — all timeouts swallowed. If the page can't be scrolled
  * (short content, scroll-locked body) the function is effectively a no-op.
  */
+export interface RenderHtmlOpts {
+  /** Complete, self-contained HTML document to render. */
+  html: string;
+  /** Viewport dimensions in CSS pixels. */
+  width: number;
+  height: number;
+  /** Render with a transparent default background (true-alpha PNG). Only
+   * meaningful when the document itself leaves its background transparent. */
+  transparent?: boolean;
+  /** Device scale factor — output pixels are css × scale. Clamped to 1–3. */
+  scale?: number;
+  uploadUrl: string;
+  uploadFields: Record<string, string>;
+}
+
+/** How long to wait for `document.fonts.ready` before capturing anyway.
+ * Webfonts from CDNs are the norm for rendered brand graphics; a font that
+ * hasn't arrived by now isn't coming inside the budget. */
+const FONT_READY_TIMEOUT_MS = 3_000;
+
+/**
+ * Render an agent-authored HTML document and capture it as a PNG.
+ *
+ * Unlike `captureViaCdp`, which photographs the app in the supervisor's page,
+ * this renders in a fresh tab of the same browser (`page.browser().newPage()`)
+ * and closes it afterwards — the app page, its viewport, its document, and its
+ * in-flight capture guard are never touched, so renders can't interfere with
+ * QA screenshots or browser automation. The document is injected with
+ * `setContent`, never served through the dev proxy, so no browser-agent script
+ * is present and no styleMap is produced — intentional: the output is a
+ * fixed-size graphic, not an app page.
+ */
+export async function renderHtmlCapture(
+  appPage: Page,
+  opts: RenderHtmlOpts,
+): Promise<{ uploaded: true; width: number; height: number }> {
+  const inner = renderHtmlInner(appPage, opts, VIEWPORT_CAPTURE_TIMEOUT_MS);
+  return withTimeout(inner, VIEWPORT_CAPTURE_TIMEOUT_MS, 'HTML render');
+}
+
+async function renderHtmlInner(
+  appPage: Page,
+  opts: RenderHtmlOpts,
+  budgetMs: number,
+): Promise<{ uploaded: true; width: number; height: number }> {
+  const deadline = Date.now() + budgetMs;
+  const remaining = () => Math.max(1_000, deadline - Date.now());
+  const scale = Math.min(Math.max(opts.scale ?? 1, 1), 3);
+
+  const page = await appPage.browser().newPage();
+  try {
+    await page.setViewport({
+      width: opts.width,
+      height: opts.height,
+      deviceScaleFactor: scale,
+    });
+    await page.setContent(opts.html, {
+      waitUntil: 'load',
+      timeout: Math.min(GOTO_TIMEOUT_MS, remaining()),
+    });
+
+    // Let stylesheet/font/image fetches finish. A static document has no
+    // polling, so full idle (concurrency 0) is reachable here, unlike app
+    // captures.
+    await page
+      .waitForNetworkIdle({
+        timeout: Math.min(SETTLE_TIMEOUT_MS, remaining()),
+        idleTime: SETTLE_IDLE_MS,
+        concurrency: 0,
+      })
+      .catch(() => {});
+
+    // Webfonts decide whether the render is on-brand — wait for them
+    // explicitly (network idle can fire before late-chained font fetches).
+    await Promise.race([
+      page
+        .evaluate(() => document.fonts.ready.then(() => undefined))
+        .catch(() => {}),
+      new Promise<void>((r) => setTimeout(r, FONT_READY_TIMEOUT_MS)),
+    ]);
+
+    // One painted frame so the loaded fonts/images are composited.
+    await page
+      .evaluate(
+        (delayMs: number) =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => setTimeout(resolve, delayMs)),
+            ),
+          ),
+        VIEWPORT_PAINT_SETTLE_MS,
+      )
+      .catch(() => {});
+
+    const client = await page.createCDPSession();
+    let buf: Buffer;
+    try {
+      if (opts.transparent) {
+        // Our capture path bypasses page.screenshot(), so issue the override
+        // puppeteer's omitBackground would have sent. No reset needed — the
+        // tab closes below.
+        await client.send('Emulation.setDefaultBackgroundColorOverride', {
+          color: { r: 0, g: 0, b: 0, a: 0 },
+        });
+      }
+      const { data } = await client.send(
+        'Page.captureScreenshot',
+        { format: 'png', captureBeyondViewport: false },
+        { timeout: remaining() },
+      );
+      buf = Buffer.from(data, 'base64');
+    } catch (err) {
+      if (err instanceof ProtocolError && /timed out/i.test(err.message)) {
+        throw new ScreenshotTimeoutError(
+          timedOutMessage('HTML render', budgetMs),
+        );
+      }
+      throw err;
+    } finally {
+      await client.detach().catch(() => {});
+    }
+
+    await uploadToPresigned(opts.uploadUrl, opts.uploadFields, buf, 'png');
+
+    return { uploaded: true, width: opts.width * scale, height: opts.height * scale };
+  } finally {
+    // Runs when the work truly finishes — even if withTimeout already gave up
+    // on it — so an abandoned render can't leak its tab.
+    await page.close().catch(() => {});
+  }
+}
+
 async function preRollScroll(page: Page): Promise<void> {
   try {
     const origin = await page.evaluate(() => {
