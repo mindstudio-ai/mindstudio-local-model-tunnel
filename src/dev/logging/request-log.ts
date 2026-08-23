@@ -77,6 +77,37 @@ export function logMethodExecution(entry: MethodLogEntry): void {
   });
 }
 
+export interface JewelLogEntry {
+  sessionId: string;
+  methodId: string;
+  jewelPath: string;
+  jewelRequestId: string;
+  /** The JewelPairRecord (or the infra-marker record on failure). */
+  pair: Record<string, unknown>;
+  stdout?: string[];
+  duration: number;
+}
+
+export function logJewelExecution(entry: JewelLogEntry): void {
+  const verdict = entry.pair.verdict ?? null;
+  const error = entry.pair.error ?? null;
+  ndjsonLog.append({
+    ts: Date.now(),
+    level: error ? 'warn' : 'info',
+    module: 'execution',
+    msg: error ? 'Jewel test failed' : 'Jewel test complete',
+    type: 'jewel',
+    sessionId: entry.sessionId,
+    method: entry.methodId,
+    path: entry.jewelPath,
+    jewelRequestId: entry.jewelRequestId,
+    verdict,
+    pair: entry.pair,
+    stdout: entry.stdout ?? [],
+    duration: entry.duration,
+  });
+}
+
 export function logScenarioExecution(entry: ScenarioLogEntry): void {
   ndjsonLog.append({
     ts: Date.now(),

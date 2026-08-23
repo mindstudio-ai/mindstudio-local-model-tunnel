@@ -34,6 +34,16 @@ export interface AppMethod {
   description?: string;
   path: string;
   export: string;
+  /** Autonomy ladder for the method's jewel. Anything past 'manual' means the
+   *  jewel shadow-runs after successful human invocations. */
+  autonomy?: 'manual' | 'shadow' | 'approve' | 'auto';
+  /** The method's jewel: a sibling .jewel.ts file whose export (default:
+   *  'default') is a defineJewel executor. */
+  jewel?: {
+    path: string;
+    export?: string;
+    roles?: string[];
+  };
 }
 
 export interface AppTable {

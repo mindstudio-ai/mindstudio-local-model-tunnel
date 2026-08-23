@@ -30,12 +30,13 @@ import { getApiBaseUrl, getDbWsUrl } from '../../config';
 import { requestDeviceAuth, pollDeviceAuth } from '../../api';
 import { setApiKey, setUserId } from '../../config';
 import { randomBytes } from 'node:crypto';
+import { runJewelTest, JewelTestResult } from './jewel';
 import { log } from '../logging/logger';
 import { logMethodExecution, logScenarioExecution } from '../logging/request-log';
 import { formatErrorForDisplay } from './format-error';
 import { readConfig } from '../interfaces/read-config';
 import type { DevProxy } from '../proxy/proxy';
-import type { DevSession, DevRequest, DevResult, AppScenario, AppConfig } from '../config/types';
+import type { DevSession, DevRequest, DevResult, AppScenario, AppConfig, AppMethod } from '../config/types';
 
 // Reserved sentinel on run-method's userId: resolves to the dev-bypass user
 // (find-or-create via platform), so agents can invoke auth-gated methods
@@ -276,6 +277,31 @@ export class DevRunner {
 
       return { success: false, error: { message }, duration };
     }
+  }
+
+  // Run a method's jewel directly against a test input and return the pair
+  // record. Called via the test-jewel stdin command — the jewel authoring
+  // loop. Never executes the method itself and never writes to the platform
+  // pair ledger; the record comes back inline (and lands in requests.ndjson).
+  async testJewel(opts: {
+    method: AppMethod;
+    humanInput?: unknown;
+    subject?: unknown;
+  }): Promise<JewelTestResult | { success: false; error: string }> {
+    if (!this.session || !this.transpiler) {
+      return { success: false, error: 'Session not started' };
+    }
+
+    return runJewelTest({
+      appId: this.appId,
+      sessionId: this.session.sessionId,
+      databases: this.session.databases,
+      transpiler: this.transpiler,
+      projectRoot: this.projectRoot,
+      method: opts.method,
+      humanInput: opts.humanInput,
+      subject: opts.subject,
+    });
   }
 
   // Run a scenario: truncate tables → execute seed → impersonate roles.
