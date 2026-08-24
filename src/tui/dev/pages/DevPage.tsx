@@ -231,7 +231,7 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
         <Box gap={2}>
           <Text bold color="white">{appConfig.name}</Text>
           <Text color="green">● {session?.branch ?? 'main'}</Text>
-          <Text color="cyan">{session?.previewUrl ?? session?.webInterfaceUrl ?? ''}</Text>
+          <Text color="cyan">{session?.previewUrl ?? ''}</Text>
         </Box>
       </Box>
 
@@ -400,7 +400,7 @@ function InfoTab({
 
       <Box marginTop={1}><Text bold color="white" underline>App URL</Text></Box>
       <Text color="cyan" bold>
-        {session?.previewUrl ?? session?.webInterfaceUrl ?? '...'}
+        {session?.previewUrl ?? '...'}
       </Text>
 
       <Box marginTop={1}><Text bold color="white" underline>Dev Server</Text></Box>

@@ -101,7 +101,6 @@ export interface DevSession {
     }>;
   }>;
   methods: Record<string, string>;
-  webInterfaceUrl: string;
   previewUrl?: string;
   /** The window.__MINDSTUDIO__ context object to inject into HTML. */
   clientContext: Record<string, unknown>;
