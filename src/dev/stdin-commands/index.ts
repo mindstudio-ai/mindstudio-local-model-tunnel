@@ -17,6 +17,7 @@ import { handleScreenshotFullPage } from './screenshot-full-page';
 import { handleScreenshotViewport } from './screenshot-viewport';
 import { handleRenderHtml } from './render-html';
 import { handleDevServerRestarting } from './dev-server-restarting';
+import { handleRestartWorker } from './restart-worker';
 import { handleDbQuery } from './db-query';
 import { handleListDatabases } from './list-databases';
 import { handleSetupBrowser } from './setup-browser';
@@ -39,6 +40,7 @@ const handlers: Record<string, CommandHandler> = {
   'list-databases': handleListDatabases,
   'setup-browser': handleSetupBrowser,
   'dev-server-restarting': handleDevServerRestarting,
+  'restart-worker': handleRestartWorker,
 };
 
 export function setupStdinCommands(

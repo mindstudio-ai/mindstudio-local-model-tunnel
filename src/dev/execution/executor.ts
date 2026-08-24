@@ -460,12 +460,17 @@ async function executeMethodInWorker(
 }
 
 /**
- * Kill the persistent worker. Called on session stop / cleanup.
+ * Kill the persistent worker. Called on session stop / cleanup, and by the
+ * `restart-worker` stdin command (agent-requested, e.g. after an SDK upgrade —
+ * the esbuild-`external` `@mindstudio-ai/agent` module is cached for the
+ * worker's lifetime). The next executeMethod lazily respawns it.
  */
-export async function cleanupWorker(): Promise<void> {
+export async function cleanupWorker(
+  reason = 'dev session restart',
+): Promise<void> {
   // Annotate interrupted background work BEFORE killing the worker — the
   // parent-side pendingBackground counts are the only record once it's dead.
-  annotateInterruptedBackground('dev session restart');
+  annotateInterruptedBackground(reason);
 
   if (worker) {
     worker.removeAllListeners();
