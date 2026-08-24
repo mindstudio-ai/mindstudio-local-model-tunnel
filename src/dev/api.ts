@@ -196,31 +196,6 @@ export async function resetDevDatabase(
   return data.databases;
 }
 
-export async function impersonate(
-  appId: string,
-  sessionId: string,
-  roles: string[] | null,
-): Promise<{ roles: string[] | null }> {
-  return apiRequest<{ roles: string[] | null }>(
-    'POST',
-    `${basePath(appId)}/manage/impersonate`,
-    getHeaders(sessionId),
-    { roles: roles && roles.length > 0 ? roles : null },
-  );
-}
-
-export async function refreshContext(
-  appId: string,
-  sessionId: string,
-): Promise<Record<string, unknown>> {
-  const data = await apiRequest<{ clientContext: Record<string, unknown> }>(
-    'POST',
-    `${basePath(appId)}/manage/refresh-context`,
-    getHeaders(sessionId),
-  );
-  return data.clientContext;
-}
-
 // Fetch a callback token + the app's current dev secrets for one-off
 // executions (run-method, scenarios, etc.) that don't come from the poll
 // loop. The poll-loop path receives `secrets` directly on the DevRequest;

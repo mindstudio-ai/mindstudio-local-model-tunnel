@@ -11,7 +11,7 @@ import { log } from '../logging/logger';
 import { handleRunScenario } from './run-scenario';
 import { handleRunMethod } from './run-method';
 import { handleTestJewel } from './test-jewel';
-import { handleImpersonate, handleClearImpersonation } from './impersonate';
+import { handleSetTestUserRoles, handleGetTestUser } from './test-user-roles';
 import { handleBrowser } from './browser';
 import { handleScreenshotFullPage } from './screenshot-full-page';
 import { handleScreenshotViewport } from './screenshot-viewport';
@@ -30,8 +30,8 @@ const handlers: Record<string, CommandHandler> = {
   'run-method': handleRunMethod,
   'test-jewel': handleTestJewel,
   'run-scenario': handleRunScenario,
-  'impersonate': handleImpersonate,
-  'clear-impersonation': handleClearImpersonation,
+  'set-test-user-roles': handleSetTestUserRoles,
+  'get-test-user': handleGetTestUser,
   'browser': handleBrowser,
   'screenshotFullPage': handleScreenshotFullPage,
   'screenshotViewport': handleScreenshotViewport,

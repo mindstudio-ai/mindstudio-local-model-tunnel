@@ -79,7 +79,7 @@ export function useDevSession(appConfig: AppConfig) {
   const [webConfig, setWebConfig] = useState<WebInterfaceConfig | null>(null);
   const [syncResult, setSyncResult] = useState<SyncSchemaResponse | null>(null);
   const [scenarioResult, setScenarioResult] = useState<{ id: string; name?: string; success: boolean; duration: number; roles: string[]; error?: string } | null>(null);
-  const [roleOverride, setRoleOverride] = useState<string[] | null>(null);
+  const [testUserRoles, setTestUserRolesState] = useState<string[] | null>(null);
   const [installStatus, setInstallStatus] = useState<string | null>(null);
   const [authRefreshUrl, setAuthRefreshUrl] = useState<string | null>(null);
   const runnerRef = useRef<DevRunner | null>(null);
@@ -365,16 +365,11 @@ export function useDevSession(appConfig: AppConfig) {
   }, [appConfig, session]);
   resyncRef.current = resync;
 
-  const setImpersonation = useCallback(async (roles: string[]) => {
+  // Set the dev test user's roles — a real write to the user's row.
+  const setTestUserRoles = useCallback(async (roles: string[]) => {
     if (!runnerRef.current) return;
-    await runnerRef.current.setImpersonation(roles);
-    setRoleOverride(roles);
-  }, []);
-
-  const clearImpersonation = useCallback(async () => {
-    if (!runnerRef.current) return;
-    await runnerRef.current.clearImpersonation();
-    setRoleOverride(null);
+    await runnerRef.current.setTestUserRoles(roles);
+    setTestUserRolesState(roles.length > 0 ? roles : null);
   }, []);
 
   const runScenario = useCallback(async (scenarioId: string) => {
@@ -388,6 +383,9 @@ export function useDevSession(appConfig: AppConfig) {
       setSession((prev) =>
         prev ? { ...prev, databases: result.databases } : prev,
       );
+      if (result.success && scenario.roles.length > 0) {
+        setTestUserRolesState(scenario.roles);
+      }
       setScenarioResult({
         id: scenario.id,
         name: scenario.name,
@@ -422,15 +420,14 @@ export function useDevSession(appConfig: AppConfig) {
     devServer,
     syncResult,
     scenarioResult,
-    roleOverride,
+    testUserRoles,
     installStatus,
     authRefreshUrl,
     start,
     stop,
     resync,
     runScenario,
-    setImpersonation,
-    clearImpersonation,
+    setTestUserRoles,
     submitPort,
     skipFrontend,
   };

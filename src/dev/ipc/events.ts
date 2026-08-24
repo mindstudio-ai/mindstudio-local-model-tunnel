@@ -6,8 +6,8 @@
 // know whether it's running in a TUI or headless context.
 //
 // Only contains events for the poll loop (platform-triggered methods)
-// and connection/auth lifecycle. Scenario and impersonation events are
-// handled directly by stdin command handlers.
+// and connection/auth lifecycle. Scenario and test-user-role results are
+// returned directly by their stdin command handlers.
 //
 // Singleton — one emitter shared across the process.
 

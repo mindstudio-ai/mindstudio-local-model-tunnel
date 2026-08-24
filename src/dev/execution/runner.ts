@@ -16,8 +16,6 @@ import {
   pollDevRequest,
   submitDevResult,
   resetDevDatabase,
-  impersonate,
-  refreshContext,
   fetchCallbackToken,
   createAuthSession,
   ApiError,
@@ -55,7 +53,6 @@ export class DevRunner {
   private proxyUrl: string | undefined;
   private proxy: DevProxy | null = null;
   private appConfig: AppConfig | null = null;
-  private roleOverride: string[] | null = null;
   private testUserId: string | null = null;
 
   constructor(
@@ -95,8 +92,8 @@ export class DevRunner {
     // Default auth is anonymous — matches production behavior for
     // unauthenticated requests. The platform user's identity should never
     // leak into the app's auth context. Users get a real identity by
-    // logging in through the app's auth flow, impersonating, or passing
-    // roles/userId on the runMethod command.
+    // logging in through the app's auth flow, or by passing roles/userId
+    // on the runMethod command.
     session.auth = { userId: null, roleAssignments: [] };
 
     this.session = session;
@@ -129,7 +126,6 @@ export class DevRunner {
       this.session = null;
     }
 
-    this.roleOverride = null;
     await cleanupWorker();
 
     if (this.transpiler) {
@@ -142,35 +138,29 @@ export class DevRunner {
     return this.session;
   }
 
-  // Set role override for subsequent method executions.
-  async setImpersonation(roles: string[]): Promise<void> {
-    if (!this.session) return;
-    log.info('runner', 'Setting role override', { roles });
-    await impersonate(this.appId, this.session.sessionId, roles);
-    this.roleOverride = roles;
-    await this.refreshClientContext();
+  // Set the dev test user's roles — a real write to the user's row (the
+  // platform upserts the user, updates role assignments, and syncs the app's
+  // users table). "Role switching" in dev is just this: the developer signs in
+  // as the test user through the app's own auth flow and sees the app from
+  // whatever roles the row currently holds.
+  async setTestUserRoles(roles: string[]): Promise<Record<string, unknown>> {
+    log.info('runner', 'Setting test user roles', { roles });
+    const { user } = await createAuthSession(this.appId, {
+      ...this.testUserIdentityOpts(),
+      roles,
+    });
+    this.testUserId = typeof user.id === 'string' ? user.id : this.testUserId;
+    return user;
   }
 
-  // Clear role override — revert to session's default roles.
-  async clearImpersonation(): Promise<void> {
-    if (!this.session) return;
-    log.info('runner', 'Clearing role override');
-    await impersonate(this.appId, this.session.sessionId, null);
-    this.roleOverride = null;
-    await this.refreshClientContext();
-  }
-
-  // Fetch fresh clientContext from platform and update the proxy.
-  // Called after impersonation changes so the browser gets a new ms_iface token.
-  private async refreshClientContext(): Promise<void> {
-    if (!this.session || !this.proxy) return;
-    try {
-      const context = await refreshContext(this.appId, this.session.sessionId);
-      this.session.clientContext = context;
-      this.proxy.updateClientContext(context);
-    } catch (err) {
-      log.warn('runner', 'Failed to refresh session context after role change', { error: err instanceof Error ? err.message : String(err) });
-    }
+  // Find-or-create the dev test user and return it (including current roles).
+  async getTestUser(): Promise<Record<string, unknown>> {
+    const { user } = await createAuthSession(
+      this.appId,
+      this.testUserIdentityOpts(),
+    );
+    this.testUserId = typeof user.id === 'string' ? user.id : this.testUserId;
+    return user;
   }
 
   // Run a method directly (not via poll loop). Used by headless stdin commands
@@ -195,13 +185,17 @@ export class DevRunner {
       const { authorizationToken, secrets } = await fetchCallbackToken(this.appId, this.session.sessionId);
       const transpiledPath = await this.transpiler.transpile(opts.methodPath);
 
-      // Per-request overrides > session impersonation > session default.
       // "testUser" is a reserved sentinel — resolves to the dev-bypass user.
+      // Roles without a userId also bind to the test user (when the app has
+      // auth): a real row holds the roles, so `auth.userId`/`requireRole`
+      // behave exactly as in production. Apps without auth have no user to
+      // bind — roles attach to an anonymous call there.
       const userId =
-        opts.userId === TEST_USER_SENTINEL
+        opts.userId === TEST_USER_SENTINEL ||
+        (!opts.userId && opts.roles && this.appConfig?.auth?.enabled)
           ? await this.resolveTestUserId()
           : (opts.userId ?? this.session.auth.userId);
-      const roles = opts.roles ?? this.roleOverride;
+      const roles = opts.roles;
       const auth = roles
         ? {
             userId,
@@ -304,8 +298,9 @@ export class DevRunner {
     });
   }
 
-  // Run a scenario: truncate tables → execute seed → impersonate roles.
-  // Called directly (not via poll loop) by the TUI or headless stdin.
+  // Run a scenario: truncate tables → execute seed → assign the scenario's
+  // roles to the dev test user. Called directly (not via poll loop) by the
+  // TUI or headless stdin.
   async runScenario(scenario: AppScenario, opts?: { skipTruncate?: boolean }): Promise<{
     success: boolean;
     databases: DevSession['databases'];
@@ -327,6 +322,9 @@ export class DevRunner {
         log.debug('runner', 'Resetting database for scenario');
         const databases = await resetDevDatabase(this.appId, this.session.sessionId, 'truncate');
         this.session.databases = databases;
+        // Truncation deleted the synced users-table row behind the cached
+        // test user id — drop the cache so the next use re-upserts it.
+        this.testUserId = null;
       }
 
       // 2. Transpile and execute the seed function
@@ -366,11 +364,17 @@ export class DevRunner {
         return { success: false, databases: this.session.databases, error };
       }
 
-      // 3. Impersonate the scenario's roles
+      // 3. Assign the scenario's roles to the dev test user — a real write to
+      // the user's row, so signing in as the test account shows the app from
+      // this scenario's perspective. Requires app auth; without it there are
+      // no users to hold roles.
       if (scenario.roles.length > 0) {
-        log.debug('runner', 'Setting role override for scenario', { roles: scenario.roles });
-        await impersonate(this.appId, this.session.sessionId, scenario.roles);
-        await this.refreshClientContext();
+        if (this.appConfig?.auth?.enabled) {
+          log.debug('runner', 'Assigning scenario roles to test user', { roles: scenario.roles });
+          await this.setTestUserRoles(scenario.roles);
+        } else {
+          log.warn('runner', 'Scenario declares roles but auth is not enabled — skipping role assignment', { roles: scenario.roles });
+        }
       }
 
       const duration = Date.now() - startTime;
@@ -526,13 +530,9 @@ export class DevRunner {
       // changes as users log in/out. Never fall back to the stale session value.
       const userId = request.userId ?? null;
 
-      // Role override (impersonation) > actual role assignments from DB
-      const overrideRoles = request.roleOverride ?? this.roleOverride;
       const auth = {
         userId,
-        roleAssignments: overrideRoles
-          ? overrideRoles.map((roleName) => ({ userId, roleName }))
-          : request.roleAssignments ?? [],
+        roleAssignments: request.roleAssignments ?? [],
       };
 
       // Execute in isolated child process
@@ -596,7 +596,6 @@ export class DevRunner {
         methodExport: method.export,
         methodPath: method.path,
         input: request.input,
-        roleOverride: request.roleOverride,
         authorizationToken: request.authorizationToken,
         context: { auth, databases: session.databases },
         databases: session.databases,
@@ -638,7 +637,6 @@ export class DevRunner {
         methodExport: method.export,
         methodPath: method.path,
         input: request.input,
-        roleOverride: request.roleOverride,
         authorizationToken: request.authorizationToken,
         databases: session.databases,
         result: { success: false, error: { message } },
@@ -757,38 +755,40 @@ export class DevRunner {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private async resolveTestUserId(): Promise<string> {
-    if (this.testUserId) return this.testUserId;
+  // Resolve which identity the dev test user is minted under, from the app's
+  // auth config. auth.methods is a strict enum: "email-code", "sms-code",
+  // and/or "remy". Prefer a code-verify identity when configured (email first
+  // — the more common dev setup); fall back to a delegated "Sign in with Remy"
+  // test user for apps whose only human method is `remy` (no email/phone to
+  // seed — the platform resolves the developer's own delegated identity).
+  private testUserIdentityOpts(): {
+    email?: string;
+    phone?: string;
+    delegated?: boolean;
+  } {
     const auth = this.appConfig?.auth;
     if (!auth?.enabled) {
       throw new Error(
-        `Cannot resolve userId="${TEST_USER_SENTINEL}": auth is not enabled in mindstudio.json. ` +
-          `Add an "auth" block with enabled: true and a users table.`,
+        `The dev test user requires auth: enable it in mindstudio.json ` +
+          `(an "auth" block with enabled: true and a users table).`,
       );
     }
-    // auth.methods is a strict enum: "email-code", "sms-code", and/or "remy".
-    // Prefer a code-verify identity when configured (email first — the more
-    // common dev setup); fall back to a delegated "Sign in with Remy" test user
-    // for apps whose only human method is `remy` (no email/phone to seed — the
-    // platform resolves the developer's own delegated identity).
     const methods = auth.methods ?? [];
-    const hasEmail = methods.includes('email-code');
-    const hasSms = methods.includes('sms-code');
-    const hasRemy = methods.includes('remy');
-    let opts: { email?: string; phone?: string; delegated?: boolean };
-    if (hasEmail) {
-      opts = { email: TEST_USER_EMAIL };
-    } else if (hasSms) {
-      opts = { phone: TEST_USER_PHONE };
-    } else if (hasRemy) {
-      opts = { delegated: true };
-    } else {
-      throw new Error(
-        `Cannot resolve userId="${TEST_USER_SENTINEL}": auth.methods in mindstudio.json ` +
-          `must include "email-code", "sms-code", or "remy" (got ${JSON.stringify(methods)}).`,
-      );
-    }
-    const { user } = await createAuthSession(this.appId, opts);
+    if (methods.includes('email-code')) return { email: TEST_USER_EMAIL };
+    if (methods.includes('sms-code')) return { phone: TEST_USER_PHONE };
+    if (methods.includes('remy')) return { delegated: true };
+    throw new Error(
+      `The dev test user requires auth.methods in mindstudio.json to include ` +
+        `"email-code", "sms-code", or "remy" (got ${JSON.stringify(methods)}).`,
+    );
+  }
+
+  private async resolveTestUserId(): Promise<string> {
+    if (this.testUserId) return this.testUserId;
+    const { user } = await createAuthSession(
+      this.appId,
+      this.testUserIdentityOpts(),
+    );
     const id = (user as { id?: unknown }).id;
     if (typeof id !== 'string') {
       throw new Error(

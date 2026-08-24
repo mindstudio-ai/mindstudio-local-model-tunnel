@@ -33,14 +33,13 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
     devServer,
     syncResult,
     scenarioResult,
-    roleOverride,
+    testUserRoles,
     installStatus,
     start,
     stop,
     resync,
     runScenario,
-    setImpersonation,
-    clearImpersonation,
+    setTestUserRoles,
     submitPort,
     skipFrontend,
   } = useDevSession(appConfig);
@@ -58,14 +57,14 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
         ? [{ id: 'scenario', label: 'Run Scenario', description: 'Seed database with test data' }]
         : []),
       ...(hasRoles
-        ? [{ id: 'impersonate', label: 'Impersonate', description: roleOverride ? `Active: ${roleOverride.join(', ')}` : 'Test as a different role' }]
+        ? [{ id: 'roles', label: 'Test User Roles', description: testUserRoles ? `Active: ${testUserRoles.join(', ')}` : "Set the dev test user's roles" }]
         : []),
       { id: 'sync', label: 'Sync Schema', description: 'Re-sync table definitions from disk' },
       { id: 'stop', label: 'Stop Session', description: 'Stop the dev session and clean up' },
       { id: 'dashboard', label: 'Local Models', description: 'Switch to local models view' },
       { id: 'quit', label: 'Quit', description: 'Exit the application' },
     ],
-    [hasScenarios, hasRoles, roleOverride],
+    [hasScenarios, hasRoles, testUserRoles],
   );
 
   // Tab navigation with left/right arrows (only when running)
@@ -247,7 +246,7 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
             requests={requests}
             syncResult={syncResult}
             scenarioResult={scenarioResult}
-            roleOverride={roleOverride}
+            testUserRoles={testUserRoles}
             contentHeight={contentHeight}
           />
         )}
@@ -289,22 +288,22 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
         />
       ) : showRolePicker ? (
         <NavigationMenu
-          title="Impersonate Role"
+          title="Set Test User Roles"
           items={[
             ...appConfig.roles.map((r) => ({
               id: `role:${r.id}`,
               label: r.name ?? r.id,
               description: r.description ?? r.id,
             })),
-            ...(roleOverride ? [{ id: 'clear', label: 'Clear Override', description: 'Revert to default session roles' }] : []),
+            ...(testUserRoles ? [{ id: 'clear', label: 'Clear Roles', description: 'Remove all roles from the test user' }] : []),
             { id: 'back', label: 'Back', description: 'Return to actions' },
           ]}
           onSelect={(id) => {
             setShowRolePicker(false);
             if (id === 'clear') {
-              clearImpersonation();
+              setTestUserRoles([]);
             } else if (id.startsWith('role:')) {
-              setImpersonation([id.slice('role:'.length)]);
+              setTestUserRoles([id.slice('role:'.length)]);
             }
           }}
         />
@@ -313,7 +312,7 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
           items={runningMenuItems}
           onSelect={(id) => {
             if (id === 'scenario') setShowScenarioPicker(true);
-            else if (id === 'impersonate') setShowRolePicker(true);
+            else if (id === 'roles') setShowRolePicker(true);
             else if (id === 'sync') resync();
             else if (id === 'stop') stop();
             else onNavigate(id);
@@ -362,7 +361,7 @@ function InfoTab({
   requests,
   syncResult,
   scenarioResult,
-  roleOverride,
+  testUserRoles,
   contentHeight,
 }: {
   appConfig: AppConfig;
@@ -373,7 +372,7 @@ function InfoTab({
   requests: import('../../../dev/types').DevRequestLogEntry[];
   syncResult: import('../../../dev/types').SyncSchemaResponse | null;
   scenarioResult: { id: string; name?: string; success: boolean; roles: string[]; error?: string } | null;
-  roleOverride: string[] | null;
+  testUserRoles: string[] | null;
   contentHeight: number;
 }) {
   return (
@@ -419,10 +418,10 @@ function InfoTab({
         <Text color="gray" dimColor>Backend-only mode (no frontend)</Text>
       )}
 
-      {roleOverride && (
+      {testUserRoles && (
         <Box marginTop={1} flexDirection="column">
-          <Text bold color="white" underline>Impersonation</Text>
-          <Text color="yellow">  ● Active: {roleOverride.join(', ')}</Text>
+          <Text bold color="white" underline>Test User Roles</Text>
+          <Text color="yellow">  ● Active: {testUserRoles.join(', ')}</Text>
         </Box>
       )}
 
