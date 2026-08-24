@@ -10,6 +10,7 @@ import { emitResponse } from '../ipc/ipc';
 import { log } from '../logging/logger';
 import { handleRunScenario } from './run-scenario';
 import { handleRunMethod } from './run-method';
+import { handleTestJewel } from './test-jewel';
 import { handleImpersonate, handleClearImpersonation } from './impersonate';
 import { handleBrowser } from './browser';
 import { handleScreenshotFullPage } from './screenshot-full-page';
@@ -26,6 +27,7 @@ export type { SessionState } from './types';
 
 const handlers: Record<string, CommandHandler> = {
   'run-method': handleRunMethod,
+  'test-jewel': handleTestJewel,
   'run-scenario': handleRunScenario,
   'impersonate': handleImpersonate,
   'clear-impersonation': handleClearImpersonation,
