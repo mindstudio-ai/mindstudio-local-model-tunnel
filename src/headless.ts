@@ -188,7 +188,6 @@ async function startSession(
       proxyUrl: state.proxyPort
         ? `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${state.proxyPort}/`
         : null,
-      webInterfaceUrl: session.webInterfaceUrl,
       roles: appConfig.roles.map((r) => ({ id: r.id, name: r.name ?? r.id, description: r.description })),
       scenarios: appConfig.scenarios.map((s) => ({
         id: s.id,
