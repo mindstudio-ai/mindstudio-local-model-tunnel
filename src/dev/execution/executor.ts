@@ -4,23 +4,24 @@
 // cold start), we keep a single long-lived worker that receives requests over
 // IPC. The Node runtime and SDK modules stay warm across invocations.
 //
-// Two execution modes depending on the installed @mindstudio-ai/agent version:
+// The worker uses runWithContext() + AsyncLocalStorage for per-request auth/token
+// scoping: methods execute concurrently, fire-and-forget background tasks retain
+// their auth context, and mindstudio.waitUntil() registrations are tracked so an
+// interrupted-on-teardown annotation lands in the request log — matching prod
+// sandbox behavior (CFES worker/src/{execution,background}.ts). runWithContext
+// requires @mindstudio-ai/agent >= 0.1.46; an older SDK fails loudly at spawn (see
+// assertAgentSupportsAls) rather than silently misbehaving.
 //
-// ALS mode (>= 0.1.46): Uses runWithContext() + AsyncLocalStorage for per-request
-// auth/token scoping. Methods execute concurrently. Fire-and-forget background
-// tasks retain their auth context. Matches production sandbox behavior.
-//
-// Legacy mode (< 0.1.46): Per-request state (process.env.CALLBACK_TOKEN, global.ai)
-// is set globally. Methods are serialized via a queue to prevent auth leakage.
-//
-// The worker is lazily spawned on first use, respawned if it dies, and killed
-// on cleanup.
+// The worker itself is a compiled module (worker.ts → dist/dev-worker.js); this
+// file spawns/manages it and owns the parent side of the IPC contract
+// (worker-protocol.ts). It's lazily spawned on first use, respawned if it dies,
+// and killed on cleanup.
 
 import { fork, type ChildProcess } from 'node:child_process';
-import { writeFile, unlink, mkdir } from 'node:fs/promises';
+import { copyFile, unlink, mkdir } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { log } from '../logging/logger';
 import {
@@ -29,8 +30,12 @@ import {
   logBackgroundStdout,
 } from '../logging/request-log';
 import type { DevSession } from '../config/types';
+import type { ExecuteRequest, WorkerMessage } from './worker-protocol';
 
 const EXECUTION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes — matches prod
+
+// runWithContext (ALS-mode execution) landed in this SDK version.
+const MIN_AGENT_VERSION = '0.1.46';
 
 // V8 heap cap for the forked worker, set below the sandbox's memory headroom so
 // a heap-object runaway aborts the worker (which then respawns on the next call)
@@ -40,6 +45,13 @@ const EXECUTION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes — matches prod
 const WORKER_MAX_OLD_SPACE_MB = Math.max(
   256,
   Number(process.env.MS_DEV_WORKER_MAX_OLD_SPACE_MB) || 1024,
+);
+
+// The compiled worker (tsup entry 'dev-worker'), sitting next to this bundle in
+// dist/. Copied into the project's transpiler output dir at spawn — see spawnWorker
+// for why it must be forked from inside the project tree.
+const DEV_WORKER_DIST = fileURLToPath(
+  new URL('./dev-worker.js', import.meta.url),
 );
 
 export interface ExecuteMethodOptions {
@@ -81,271 +93,43 @@ interface PendingRequest {
 let worker: ChildProcess | null = null;
 let workerScriptPath: string | null = null;
 let workerProjectRoot: string | null = null;
-let workerSupportsAls = false;
+// In-flight spawn memo: ensureWorker is async and only assigns `worker` after
+// awaiting the ready signal, so a burst of concurrent cold-start calls would
+// otherwise each fork a worker and leak all but the last. Concurrent callers
+// await this single promise instead.
+let spawning: Promise<ChildProcess> | null = null;
 const pending = new Map<string, PendingRequest>();
 
-/** Metadata for requests, used for lifecycle log events. */
+/**
+ * Metadata for requests, used for lifecycle log events. `pendingBackground` is
+ * the count of live mindstudio.waitUntil() registrations for the request,
+ * mirrored from the worker over IPC so teardown can annotate interrupted work
+ * even though the worker is already killed by then.
+ */
 const requestMeta = new Map<
   string,
-  { sessionId: string; method: string; input: unknown }
+  {
+    sessionId: string;
+    method: string;
+    input: unknown;
+    pendingBackground: number;
+  }
 >();
 
 // ---------------------------------------------------------------------------
-// Shared error serializer (used by both worker scripts)
-// ---------------------------------------------------------------------------
-
-const SERIALIZE_ERROR_FN = `
-function serializeError(err) {
-  if (!err) return { message: 'Unknown error' };
-
-  const serialized = {
-    message: String(err.message ?? err),
-    stack: err.stack,
-  };
-
-  if (err.code !== undefined) serialized.code = err.code;
-  if (err.statusCode !== undefined) serialized.statusCode = err.statusCode;
-  if (err.status !== undefined) serialized.status = err.status;
-  if (err.response !== undefined) {
-    try { serialized.response = typeof err.response === 'string' ? err.response : JSON.stringify(err.response); } catch {}
-  }
-  if (err.body !== undefined) {
-    try { serialized.body = typeof err.body === 'string' ? err.body : JSON.stringify(err.body); } catch {}
-  }
-  if (err.cause !== undefined) {
-    serialized.cause = serializeError(err.cause);
-  }
-
-  for (const key of Object.keys(err)) {
-    if (!(key in serialized)) {
-      try {
-        const val = err[key];
-        if (val !== undefined && typeof val !== 'function') {
-          serialized[key] = typeof val === 'object' ? JSON.stringify(val) : val;
-        }
-      } catch {}
-    }
-  }
-
-  return serialized;
-}
-`;
-
-// ---------------------------------------------------------------------------
-// ALS worker script — concurrent execution with per-request context
-// ---------------------------------------------------------------------------
-
-function buildAlsWorkerScript(): string {
-  return `
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { format } from 'node:util';
-import { runWithContext } from '@mindstudio-ai/agent';
-
-${SERIALIZE_ERROR_FN}
-
-// Per-request console capture via AsyncLocalStorage
-const consoleAls = new AsyncLocalStorage();
-const _origLog = console.log;
-const _origWarn = console.warn;
-const _origError = console.error;
-
-console.log = (...args) => {
-  const stdout = consoleAls.getStore();
-  if (stdout) stdout.push(format(...args));
-  _origLog(...args);
-};
-console.warn = (...args) => {
-  const stdout = consoleAls.getStore();
-  if (stdout) stdout.push(format(...args));
-  _origWarn(...args);
-};
-console.error = (...args) => {
-  const stdout = consoleAls.getStore();
-  if (stdout) stdout.push(format(...args));
-  _origError(...args);
-};
-
-// Track secret keys so we can clean up between requests
-let _activeSecretKeys = [];
-
-// ---------------------------------------------------------------------------
-// Single flush loop for all active requests
-// ---------------------------------------------------------------------------
-// One interval sweeps all tracked requests instead of one interval per
-// request. This stays efficient even with thousands of concurrent requests.
-
-const BACKGROUND_TIMEOUT = 30 * 60 * 1000; // 30 minutes after method returns
-
-const activeRequests = new Map();
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, req] of activeRequests) {
-    if (req.stdout.length > req.flushed) {
-      const lines = req.stdout.slice(req.flushed);
-      req.flushed = req.stdout.length;
-      try {
-        process.send({ type: req.done ? 'background-stdout' : 'stdout', id, lines });
-      } catch {}
-    } else if (req.done && now - req.doneAt > BACKGROUND_TIMEOUT) {
-      activeRequests.delete(id);
-      try { process.send({ type: 'stdout-end', id }); } catch {}
-    }
-  }
-}, 1000);
-
-// ---------------------------------------------------------------------------
-
-process.on('message', async (msg) => {
-  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, dbWsUrl, streamId, session, secrets } = msg;
-
-  // DB-over-WS transport for the agent SDK's db (falls back to fetch if unset).
-  if (dbWsUrl) process.env.DB_WS_URL = dbWsUrl;
-
-  // Apply per-request secrets to process.env (clean up previous first)
-  for (const key of _activeSecretKeys) delete process.env[key];
-  _activeSecretKeys = secrets ? Object.keys(secrets) : [];
-  if (secrets) Object.assign(process.env, secrets);
-
-  const ctx = {
-    callbackToken: authorizationToken,
-    remoteHostname: apiBaseUrl,
-    auth: auth ?? { userId: null, roleAssignments: [] },
-    databases: databases ?? [],
-    streamId: streamId ?? undefined,
-    session: session ?? undefined,
-  };
-
-  const req = { stdout: [], flushed: 0, done: false, doneAt: 0 };
-  activeRequests.set(id, req);
-
-  process.send({ type: 'start', id });
-
-  const startTime = Date.now();
-
-  try {
-    const returnValue = await consoleAls.run(req.stdout, () =>
-      runWithContext(ctx, async () => {
-        const mod = await import(transpiledPath + '?t=' + Date.now());
-        const fn = mod[methodExport];
-        if (typeof fn !== 'function') {
-          throw new Error(methodExport + ' is not a function (got ' + typeof fn + ')');
-        }
-        return fn(input);
-      }),
-    );
-    const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
-
-    // Final flush of any remaining lines before sending result
-    if (req.stdout.length > req.flushed) {
-      try { process.send({ type: 'stdout', id, lines: req.stdout.slice(req.flushed) }); } catch {}
-      req.flushed = req.stdout.length;
-    }
-
-    req.done = true;
-    req.doneAt = Date.now();
-    process.send({ id, success: true, output: returnValue, stdout: req.stdout, stats });
-  } catch (err) {
-    const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
-
-    if (req.stdout.length > req.flushed) {
-      try { process.send({ type: 'stdout', id, lines: req.stdout.slice(req.flushed) }); } catch {}
-      req.flushed = req.stdout.length;
-    }
-
-    req.done = true;
-    req.doneAt = Date.now();
-    process.send({ id, success: false, error: serializeError(err), stdout: req.stdout, stats });
-  }
-});
-
-// Signal ready
-process.send({ type: 'ready' });
-`;
-}
-
-// ---------------------------------------------------------------------------
-// Legacy worker script — globals + serialized execution
-// ---------------------------------------------------------------------------
-
-function buildLegacyWorkerScript(): string {
-  return `
-${SERIALIZE_ERROR_FN}
-
-// Save original console methods so we can restore after each request
-const _origLog = console.log;
-const _origWarn = console.warn;
-const _origError = console.error;
-
-// Track secret keys so we can clean up between requests
-let _activeSecretKeys = [];
-
-process.on('message', async (msg) => {
-  const { id, transpiledPath, methodExport, input, auth, databases, authorizationToken, apiBaseUrl, dbWsUrl, streamId, secrets } = msg;
-
-  // Update per-request env vars
-  process.env.CALLBACK_TOKEN = authorizationToken;
-  process.env.REMOTE_HOSTNAME = apiBaseUrl;
-  // DB-over-WS transport for the agent SDK's db (falls back to fetch if unset).
-  if (dbWsUrl) process.env.DB_WS_URL = dbWsUrl;
-  if (streamId) process.env.STREAM_ID = streamId;
-  else delete process.env.STREAM_ID;
-
-  // Apply per-request secrets to process.env (clean up previous first)
-  for (const key of _activeSecretKeys) delete process.env[key];
-  _activeSecretKeys = secrets ? Object.keys(secrets) : [];
-  if (secrets) Object.assign(process.env, secrets);
-
-  // Update global context
-  global.ai = { auth, databases };
-
-  // Capture console output for this request
-  const stdout = [];
-  console.log = (...args) => stdout.push(args.map(String).join(' '));
-  console.warn = (...args) => stdout.push(args.map(String).join(' '));
-  console.error = (...args) => stdout.push(args.map(String).join(' '));
-
-  const startTime = Date.now();
-
-  try {
-    // Cache-bust so code changes are picked up
-    const mod = await import(transpiledPath + '?t=' + Date.now());
-    const fn = mod[methodExport];
-    if (typeof fn !== 'function') {
-      throw new Error(methodExport + ' is not a function (got ' + typeof fn + ')');
-    }
-    const returnValue = await fn(input);
-    const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
-    process.send({ id, success: true, output: returnValue, stdout, stats });
-  } catch (err) {
-    const stats = { memoryUsedBytes: process.memoryUsage().heapUsed, executionTimeMs: Date.now() - startTime };
-    process.send({ id, success: false, error: serializeError(err), stdout, stats });
-  } finally {
-    // Restore console
-    console.log = _origLog;
-    console.warn = _origWarn;
-    console.error = _origError;
-  }
-});
-
-// Signal ready
-process.send({ type: 'ready' });
-`;
-}
-
-// ---------------------------------------------------------------------------
-// SDK version detection
+// SDK version assertion
 // ---------------------------------------------------------------------------
 
 /**
- * Detect ALS support by checking the @mindstudio-ai/agent version.
- * Uses the transpiler's output directory to locate the package — the
- * transpiled methods resolve imports from there, so the agent package
- * is guaranteed to be findable from that location.
+ * Assert the installed @mindstudio-ai/agent supports ALS execution
+ * (runWithContext, added in 0.1.46). Walks up from the transpiler's output
+ * directory to find the package via normal node_modules resolution — the
+ * transpiled methods resolve their imports from there, so the agent package is
+ * guaranteed findable from that location. Throws an actionable error on a
+ * missing or too-old SDK, which surfaces as a normal method failure rather than a
+ * cryptic "does not provide an export named 'runWithContext'" worker crash.
  */
-function detectAlsSupport(scriptDir: string): boolean {
-  // Walk up from scriptDir (e.g. dist/methods/node_modules/.cache/mindstudio-dev/)
-  // to find @mindstudio-ai/agent/package.json via normal node_modules resolution.
+function assertAgentSupportsAls(scriptDir: string): void {
   let dir = scriptDir;
   while (true) {
     const candidate = join(
@@ -355,20 +139,32 @@ function detectAlsSupport(scriptDir: string): boolean {
       'agent',
       'package.json',
     );
+    let version: string | null = null;
     try {
       const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
-      const parts = (pkg.version || '').split('.').map(Number);
-      const [major = 0, minor = 0, patch = 0] = parts;
-      // runWithContext was added in 0.1.46
-      return major > 0 || minor > 1 || (minor === 1 && patch >= 46);
+      version = String(pkg.version || '');
     } catch {
-      // Not at this level — walk up
+      // Not at this level — walk up.
+    }
+    if (version !== null) {
+      const [major = 0, minor = 0, patch = 0] = version.split('.').map(Number);
+      const ok = major > 0 || minor > 1 || (minor === 1 && patch >= 46);
+      if (!ok) {
+        throw new Error(
+          `@mindstudio-ai/agent ${version} is too old for local development — ` +
+            `upgrade to >= ${MIN_AGENT_VERSION} (runWithContext support).`,
+        );
+      }
+      return;
     }
     const parent = join(dir, '..');
     if (parent === dir) break;
     dir = parent;
   }
-  return false;
+  throw new Error(
+    `@mindstudio-ai/agent not found near ${scriptDir}. Run \`npm install\` ` +
+      `(local development requires >= ${MIN_AGENT_VERSION}).`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -378,13 +174,36 @@ function detectAlsSupport(scriptDir: string): boolean {
 /** Ensure a live worker process exists; spawn one if needed. */
 async function ensureWorker(
   projectRoot: string,
-  scriptDir?: string,
+  scriptDir: string,
 ): Promise<ChildProcess> {
-  // Respawn if worker died or project root changed
+  // Fast path: a live worker already serving this project root.
   if (worker?.connected && workerProjectRoot === projectRoot) {
     return worker;
   }
 
+  // Coalesce concurrent cold-starts onto ONE spawn (see the `spawning` note).
+  if (!spawning) {
+    const p = spawnWorker(projectRoot, scriptDir);
+    spawning = p;
+    // Clear the memo when this spawn settles — but only if it's still ours (a
+    // later spawn for a different root may have already replaced it).
+    p.finally(() => {
+      if (spawning === p) spawning = null;
+    }).catch(() => {});
+  }
+
+  const w = await spawning;
+  // The coalesced spawn may have targeted a different project root; if ours still
+  // isn't the live worker, start a fresh one.
+  if (w.connected && workerProjectRoot === projectRoot) return w;
+  return ensureWorker(projectRoot, scriptDir);
+}
+
+/** Spawn a fresh worker for `projectRoot`, wait until it's ready, and wire it up. */
+async function spawnWorker(
+  projectRoot: string,
+  scriptDir: string,
+): Promise<ChildProcess> {
   // Log respawn reason (skip for first spawn)
   if (worker || workerProjectRoot) {
     const reason =
@@ -407,36 +226,27 @@ async function ensureWorker(
     workerScriptPath = null;
   }
 
-  // Detect execution mode — use the transpiler's output directory for
-  // module resolution (the agent package is findable from there).
-  workerSupportsAls = scriptDir ? detectAlsSupport(scriptDir) : false;
-  log.info('executor', 'SDK context support', {
-    als: workerSupportsAls,
-    scriptDir: scriptDir ?? null,
-  });
+  // Fail loudly on a missing / too-old SDK rather than crashing the worker at
+  // startup on the runWithContext import.
+  assertAgentSupportsAls(scriptDir);
 
-  // Write worker script in the same directory as transpiled methods so
-  // the ALS worker's `import '@mindstudio-ai/agent'` resolves correctly.
-  // Falls back to /tmp/ for legacy mode (no agent import needed).
-  const workerDir = workerSupportsAls && scriptDir ? scriptDir : tmpdir();
-  if (workerDir !== tmpdir()) {
-    await mkdir(workerDir, { recursive: true });
-  }
+  // Copy the compiled worker into the transpiler output dir and fork it from
+  // there so its `import '@mindstudio-ai/agent'` resolves against the PROJECT's
+  // install (the tunnel doesn't depend on the SDK — it can't resolve it from its
+  // own dist/). Node walks up from node_modules/.cache/mindstudio-dev/ to the
+  // project's node_modules. `.mjs` forces ESM on the ESM bundle.
+  await mkdir(scriptDir, { recursive: true });
   const scriptPath = join(
-    workerDir,
+    scriptDir,
     `ms-dev-worker-${randomBytes(4).toString('hex')}.mjs`,
   );
-  const script = workerSupportsAls
-    ? buildAlsWorkerScript()
-    : buildLegacyWorkerScript();
-  await writeFile(scriptPath, script, 'utf-8');
+  await copyFile(DEV_WORKER_DIST, scriptPath);
   workerScriptPath = scriptPath;
   workerProjectRoot = projectRoot;
 
   log.debug('executor', 'Spawning method execution process', {
     cwd: projectRoot,
     scriptPath,
-    als: workerSupportsAls,
   });
 
   const child = fork(scriptPath, [], {
@@ -449,24 +259,37 @@ async function ensureWorker(
     execArgv: [`--max-old-space-size=${WORKER_MAX_OLD_SPACE_MB}`],
   });
 
-  // Wait for ready signal
+  // Wait for ready signal. Remove ALL three startup listeners on settle so they
+  // don't linger alongside the real handlers installed below.
   await new Promise<void>((resolve, reject) => {
-    const onMessage = (msg: any) => {
-      if (msg?.type === 'ready') {
-        child.off('message', onMessage);
+    const cleanup = () => {
+      child.off('message', onMessage);
+      child.off('error', onError);
+      child.off('exit', onExit);
+    };
+    const onMessage = (raw: unknown) => {
+      if ((raw as WorkerMessage)?.type === 'ready') {
+        cleanup();
         resolve();
       }
     };
+    const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+    const onExit = (code: number | null) => {
+      cleanup();
+      reject(new Error(`Worker exited during startup with code ${code}`));
+    };
     child.on('message', onMessage);
-    child.on('error', reject);
-    child.on('exit', (code) =>
-      reject(new Error(`Worker exited during startup with code ${code}`)),
-    );
+    child.on('error', onError);
+    child.on('exit', onExit);
   });
 
   // Route lifecycle events and results from the worker
-  child.on('message', (msg: any) => {
-    if (!msg?.id) return;
+  child.on('message', (raw) => {
+    const msg = raw as WorkerMessage;
+    if (msg.type === 'ready') return; // consumed by the ready-wait above
     const meta = requestMeta.get(msg.id);
 
     switch (msg.type) {
@@ -475,24 +298,35 @@ async function ensureWorker(
           logMethodStart(msg.id, meta.sessionId, meta.method, meta.input);
         return;
       case 'stdout':
-        if (meta && msg.lines?.length)
+        if (meta && msg.lines.length)
           logMethodStdout(msg.id, meta.sessionId, meta.method, msg.lines);
         return;
       case 'background-stdout':
-        if (meta && msg.lines?.length)
+        if (meta && msg.lines.length)
           logBackgroundStdout(msg.id, meta.sessionId, meta.method, msg.lines);
+        return;
+      // waitUntil registration accounting, mirrored from the worker. We keep the
+      // count parent-side so a teardown (worker already killed by then) can
+      // annotate any request still holding background work.
+      case 'background-open':
+        if (meta) meta.pendingBackground++;
+        return;
+      case 'background-idle':
+        if (meta && meta.pendingBackground > 0) meta.pendingBackground--;
         return;
       case 'stdout-end':
         requestMeta.delete(msg.id);
         return;
+      case 'result': {
+        // Method result — resolve the pending promise.
+        const req = pending.get(msg.id);
+        if (!req) return;
+        pending.delete(msg.id);
+        clearTimeout(req.timer);
+        req.resolve(msg);
+        return;
+      }
     }
-
-    // Method result — resolve the pending promise
-    const req = pending.get(msg.id);
-    if (!req) return;
-    pending.delete(msg.id);
-    clearTimeout(req.timer);
-    req.resolve(msg as ExecuteMethodResult);
   });
 
   // If worker dies unexpectedly, reject all pending requests
@@ -500,7 +334,7 @@ async function ensureWorker(
     log.warn('executor', 'Method execution process exited unexpectedly', {
       code,
     });
-    for (const [id, req] of pending) {
+    for (const [, req] of pending) {
       clearTimeout(req.timer);
       req.resolve({
         success: false,
@@ -508,6 +342,10 @@ async function ensureWorker(
       });
     }
     pending.clear();
+    // A crash is also an interruption: annotate any request that still had
+    // background (waitUntil) work in flight, then drop the now-stale meta.
+    annotateInterruptedBackground('worker crash');
+    requestMeta.clear();
     worker = null;
   });
 
@@ -537,16 +375,20 @@ async function ensureWorker(
   return child;
 }
 
-// ---------------------------------------------------------------------------
-// Execution queue — only used in legacy mode (SDK < 0.1.46)
-// ---------------------------------------------------------------------------
-
-let queueTail: Promise<unknown> = Promise.resolve();
-
-function enqueue<T>(fn: () => Promise<T>): Promise<T> {
-  const task = queueTail.then(fn, fn);
-  queueTail = task.catch(() => {});
-  return task;
+/**
+ * Annotate any request still holding live waitUntil background work as
+ * interrupted. Called on teardown (cleanupWorker) and on an unexpected worker
+ * crash — in both cases the worker is gone, so the parent-side pendingBackground
+ * count is the only remaining record that background work was still in flight.
+ */
+function annotateInterruptedBackground(reason: string): void {
+  for (const [id, meta] of requestMeta) {
+    if (meta.pendingBackground > 0) {
+      logBackgroundStdout(id, meta.sessionId, meta.method, [
+        `[platform] Background work interrupted by ${reason}`,
+      ]);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -554,16 +396,14 @@ function enqueue<T>(fn: () => Promise<T>): Promise<T> {
 // ---------------------------------------------------------------------------
 
 /**
- * Execute a transpiled method in the persistent worker process.
- * In ALS mode, executes directly (concurrent). In legacy mode, queued.
+ * Execute a transpiled method in the persistent worker process. Methods run
+ * concurrently — the worker scopes per-request auth/token via runWithContext +
+ * AsyncLocalStorage.
  */
 export function executeMethod(
   opts: ExecuteMethodOptions,
 ): Promise<ExecuteMethodResult> {
-  if (workerSupportsAls) {
-    return executeMethodInWorker(opts);
-  }
-  return enqueue(() => executeMethodInWorker(opts));
+  return executeMethodInWorker(opts);
 }
 
 async function executeMethodInWorker(
@@ -597,10 +437,11 @@ async function executeMethodInWorker(
         sessionId: opts.sessionId,
         method: opts.methodExport,
         input: opts.input,
+        pendingBackground: 0,
       });
     }
 
-    w.send({
+    const request: ExecuteRequest = {
       id,
       transpiledPath: opts.transpiledPath,
       methodExport: opts.methodExport,
@@ -613,7 +454,8 @@ async function executeMethodInWorker(
       streamId: opts.streamId,
       session: opts.session,
       secrets: opts.secrets,
-    });
+    };
+    w.send(request);
   });
 }
 
@@ -621,6 +463,10 @@ async function executeMethodInWorker(
  * Kill the persistent worker. Called on session stop / cleanup.
  */
 export async function cleanupWorker(): Promise<void> {
+  // Annotate interrupted background work BEFORE killing the worker — the
+  // parent-side pendingBackground counts are the only record once it's dead.
+  annotateInterruptedBackground('dev session restart');
+
   if (worker) {
     worker.removeAllListeners();
     worker.kill();
@@ -631,11 +477,10 @@ export async function cleanupWorker(): Promise<void> {
     workerScriptPath = null;
   }
   workerProjectRoot = null;
-  workerSupportsAls = false;
+  spawning = null;
   for (const [, req] of pending) {
     clearTimeout(req.timer);
   }
   pending.clear();
   requestMeta.clear();
-  queueTail = Promise.resolve();
 }

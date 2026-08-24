@@ -37,6 +37,12 @@ export interface AppMethod {
   /** Autonomy ladder for the method's jewel. Anything past 'manual' means the
    *  jewel shadow-runs after successful human invocations. */
   autonomy?: 'manual' | 'shadow' | 'approve' | 'auto';
+  /** The jewel's canary/cost dial (deployed shadowing only — testJewel never
+   *  samples). Manifest parity; the tunnel doesn't enforce it. */
+  sampleRate?: number;
+  /** Arrival-grading window in seconds (deployed jewels.propose only).
+   *  Manifest parity; the tunnel doesn't enforce it. */
+  attributionWindow?: number;
   /** The method's jewel: a sibling .jewel.ts file whose export (default:
    *  'default') is a defineJewel executor. */
   jewel?: {
