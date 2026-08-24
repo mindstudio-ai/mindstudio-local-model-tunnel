@@ -1,7 +1,7 @@
 /**
  * Subscribe to DevRunner events and relay them as system events to stdout.
  * Only relays genuinely unsolicited events (poll-loop methods, connection, auth).
- * Command responses (scenarios, impersonation) are handled by stdin handlers directly.
+ * Command responses (scenarios, test-user roles) are handled by stdin handlers directly.
  *
  * Returns an array of unsubscribe functions for cleanup on teardown.
  */

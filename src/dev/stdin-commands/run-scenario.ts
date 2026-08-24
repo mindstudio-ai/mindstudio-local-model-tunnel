@@ -33,6 +33,8 @@ export async function handleRunScenario(
     success: result.success,
     scenarioId: scenario.id,
     name: scenarioName,
+    // Roles the scenario assigned to the dev test user (empty when none).
+    roles: result.success ? scenario.roles : undefined,
     error: result.error ?? null,
     errorCode: result.success ? undefined : 'EXECUTION_ERROR',
   };

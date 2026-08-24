@@ -124,7 +124,6 @@ export interface DevRequest {
   input?: unknown;
   userId?: string | null;
   roleAssignments?: Array<{ userId: string | null; roleName: string }>;
-  roleOverride?: string[];
   streamId?: string;
   /** Originating-session identity (voice/agent tool calls) — exposed by the SDK as `session`. */
   session?: {

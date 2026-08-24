@@ -17,7 +17,6 @@ export interface MethodLogEntry {
   methodExport: string;
   methodPath: string;
   input: unknown;
-  roleOverride?: string[];
   authorizationToken: string;
   /** The full globalThis.ai context at execution time. */
   context?: { auth: unknown; databases: unknown };
@@ -63,7 +62,6 @@ export function logMethodExecution(entry: MethodLogEntry): void {
     method: entry.methodExport,
     path: entry.methodPath,
     input: entry.input,
-    roleOverride: entry.roleOverride ?? null,
     authorizationToken: entry.authorizationToken,
     databases: entry.databases,
     success: entry.result.success,
