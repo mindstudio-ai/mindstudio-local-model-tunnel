@@ -568,13 +568,13 @@ async function preRollScroll(page: Page): Promise<void> {
  * capture). Then waits for at least one composited frame so the scrolled layout
  * has painted before the shot.
  *
- * No scroll target means nothing to settle, so it returns immediately. The paint
- * wait used to run unconditionally, on the theory that it was harmless for
- * current-viewport captures — on a page rendering in software it costs about 3s,
- * because a `page.evaluate` has to be scheduled on a main thread that is busy
+ * No scroll target means nothing to settle, so it returns immediately, and the
+ * paint wait only runs when the scroll actually moved the page. Each skipped
+ * `page.evaluate` matters: on a page rendering in software it costs about 3s,
+ * because the call has to be scheduled on a main thread that is busy
  * rasterizing (the round trip dominates; capping the wait *inside* the page
- * changes nothing, measured). There is no scroll to race with in that case, and
- * `Page.captureScreenshot` waits for a committed frame on its own.
+ * changes nothing, measured). When nothing moved there is no scroll to race
+ * with, and `Page.captureScreenshot` waits for a committed frame on its own.
  *
  * Best-effort — all errors swallowed.
  */
@@ -586,31 +586,37 @@ async function settleViewport(
   if (!scrollToSelector && typeof scrollY !== 'number') return;
 
   try {
-    await page.evaluate(
+    const moved = await page.evaluate(
       (sel: string | null, y: number | null) => {
-        if (sel) {
-          const el = document.querySelector(sel);
-          if (el) {
-            el.scrollIntoView({
-              block: 'start',
-              inline: 'nearest',
-              behavior: 'instant' as ScrollBehavior,
-            });
-            return;
-          }
+        const root = document.scrollingElement || document.documentElement;
+        const before = { top: root.scrollTop, left: root.scrollLeft };
+        const target = sel ? document.querySelector(sel) : null;
+        if (target) {
+          target.scrollIntoView({
+            block: 'start',
+            inline: 'nearest',
+            behavior: 'instant' as ScrollBehavior,
+          });
+          // scrollIntoView can move a nested scroll container without moving
+          // the root, so offset comparison can't prove nothing changed —
+          // always settle.
+          return true;
         }
         if (y !== null) {
-          const el = document.scrollingElement || document.documentElement;
-          el.scrollTo({
+          // Also the fallback when the selector matched nothing.
+          root.scrollTo({
             top: y,
             left: 0,
             behavior: 'instant' as ScrollBehavior,
           });
         }
+        return root.scrollTop !== before.top || root.scrollLeft !== before.left;
       },
       scrollToSelector ?? null,
       typeof scrollY === 'number' ? scrollY : null,
     );
+
+    if (!moved) return;
 
     // Wait for a painted frame (double rAF) plus a short delay so the freshly
     // scrolled layout is composited before the capture.

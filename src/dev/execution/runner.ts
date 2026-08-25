@@ -20,6 +20,7 @@ import {
   createAuthSession,
   ApiError,
   DevPollError,
+  type SessionMethodPayload,
 } from '../api';
 import { devRequestEvents } from '../ipc/events';
 import { Transpiler } from './transpiler';
@@ -28,7 +29,7 @@ import { getApiBaseUrl, getDbWsUrl } from '../../config';
 import { requestDeviceAuth, pollDeviceAuth } from '../../api';
 import { setApiKey, setUserId } from '../../config';
 import { randomBytes } from 'node:crypto';
-import { runJewelTest, JewelTestResult } from './jewel';
+import { runJewelTest, JewelTestResult, jewelUserIdForApp } from './jewel';
 import { log } from '../logging/logger';
 import { logMethodExecution, logScenarioExecution } from '../logging/request-log';
 import { formatErrorForDisplay } from './format-error';
@@ -61,7 +62,7 @@ export class DevRunner {
     private readonly startOpts: {
       branch?: string;
       proxyUrl?: string;
-      methods?: Array<{ id: string; export: string; path: string }>;
+      methods?: SessionMethodPayload[];
     } = {},
   ) {}
 
@@ -512,34 +513,66 @@ export class DevRunner {
       return;
     }
 
+    // Jewel dispatch (dev twin of the deployed jewelS3Key dispatch): run the
+    // method's companion jewel instead of the method itself. The platform
+    // gated on the session-start declaration; a missing local entry here is
+    // config drift and reports as an ordinary execution error.
+    const jewel = request.jewel ? method.jewel : undefined;
+    if (request.jewel && !jewel) {
+      const message = `Method ${method.id} declares no jewel in mindstudio.json`;
+      log.error('runner', message, { requestId: request.requestId, sessionId: session.sessionId });
+      try {
+        await submitDevResult(this.appId, session.sessionId, request.requestId, {
+          type: 'execute',
+          success: false,
+          error: { message },
+        });
+      } catch {}
+      devRequestEvents.emitComplete({ id: request.requestId, success: false, duration: 0, error: message });
+      return;
+    }
+    const execPath = jewel ? jewel.path : method.path;
+    const execExport = jewel ? (jewel.export ?? 'default') : method.export;
+
     devRequestEvents.emitStart({
       id: request.requestId,
       type: request.type,
-      method: method.export,
+      method: jewel ? `${method.export} (jewel)` : method.export,
       timestamp: startTime,
     });
 
-    log.info('runner', 'Method received', { requestId: request.requestId, method: method.export, source: 'poll', sessionId: session.sessionId });
+    log.info('runner', 'Method received', { requestId: request.requestId, method: method.export, jewel: !!jewel, source: 'poll', sessionId: session.sessionId });
 
     try {
       const t0 = Date.now();
-      const transpiledPath = await transpiler.transpile(method.path);
+      const transpiledPath = await transpiler.transpile(execPath);
       const t1 = Date.now();
 
       // userId from the resolved ms_iface_ token — fresh on every request,
       // changes as users log in/out. Never fall back to the stale session value.
       const userId = request.userId ?? null;
 
-      const auth = {
-        userId,
-        roleAssignments: request.roleAssignments ?? [],
-      };
+      // Jewels run as the app's deterministic jewel user with the
+      // manifest-declared roles — same identity a deployed run gets
+      // (matches runJewelTest).
+      const auth = jewel
+        ? {
+            userId: jewelUserIdForApp(this.appId),
+            roleAssignments: (jewel.roles ?? []).map((roleName) => ({
+              userId: jewelUserIdForApp(this.appId),
+              roleName,
+            })),
+          }
+        : {
+            userId,
+            roleAssignments: request.roleAssignments ?? [],
+          };
 
       // Execute in isolated child process
       const result = await executeMethod({
         requestId: request.requestId,
         transpiledPath,
-        methodExport: method.export,
+        methodExport: execExport,
         input: request.input,
         auth,
         databases: session.databases,
@@ -593,8 +626,8 @@ export class DevRunner {
       logMethodExecution({
         requestId: request.requestId,
         sessionId: session.sessionId,
-        methodExport: method.export,
-        methodPath: method.path,
+        methodExport: execExport,
+        methodPath: execPath,
         input: request.input,
         authorizationToken: request.authorizationToken,
         context: { auth, databases: session.databases },
@@ -634,8 +667,8 @@ export class DevRunner {
       logMethodExecution({
         requestId: request.requestId,
         sessionId: session.sessionId,
-        methodExport: method.export,
-        methodPath: method.path,
+        methodExport: execExport,
+        methodPath: execPath,
         input: request.input,
         authorizationToken: request.authorizationToken,
         databases: session.databases,

@@ -27,7 +27,7 @@ import {
   readTableSources,
   findDirsNeedingInstall,
 } from '../../../dev/config/app-config';
-import { syncSchema } from '../../../dev/api';
+import { syncSchema, sessionMethodsPayload } from '../../../dev/api';
 import { initLoggerInteractive } from '../../../dev/logging/logger';
 import { initRequestLog, closeRequestLog } from '../../../dev/logging/request-log';
 import { initBrowserLog, closeBrowserLog } from '../../../dev/logging/browser-log';
@@ -253,7 +253,7 @@ export function useDevSession(appConfig: AppConfig) {
           {
             branch,
             proxyUrl,
-            methods: currentConfig.methods.map((m) => ({ id: m.id, export: m.export, path: m.path })),
+            methods: sessionMethodsPayload(currentConfig.methods),
           },
         );
         runner.setAppConfig(currentConfig);

@@ -42,7 +42,14 @@ export async function handleScreenshotViewport(
       typeof cmd.scrollToSelector === 'string'
         ? cmd.scrollToSelector
         : undefined,
-    scrollY: typeof cmd.scrollY === 'number' ? cmd.scrollY : undefined,
+    // Default to the top of the page. This command is the agent's plain
+    // "show me the app" capture (the sidecar forwards no scroll fields), but
+    // the page can be sitting anywhere: a browser-automation session that
+    // scrolled to a section leaves the offset behind, and Chrome's scroll
+    // restoration re-applies it even across dev-server reloads. Captures
+    // that mean to frame a section come through the browserCommand
+    // screenshotViewport step, which passes its own scroll target.
+    scrollY: typeof cmd.scrollY === 'number' ? cmd.scrollY : 0,
     width: typeof cmd.width === 'number' ? cmd.width : undefined,
     height: typeof cmd.height === 'number' ? cmd.height : undefined,
     format,
