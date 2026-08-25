@@ -109,6 +109,7 @@ export async function runJewelTest(
     const { authorizationToken, secrets } = await fetchCallbackToken(
       opts.appId,
       opts.sessionId,
+      { jewelDescended: true },
     );
     const transpiledPath = await opts.transpiler.transpile(jewel.path);
 

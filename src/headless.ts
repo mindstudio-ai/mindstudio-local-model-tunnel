@@ -17,7 +17,7 @@
 import { DevRunner } from './dev/execution/runner';
 import { DevProxy } from './dev/proxy/proxy';
 import { BrowserSupervisor } from './dev/browser';
-import { syncSchema } from './dev/api';
+import { syncSchema, sessionMethodsPayload } from './dev/api';
 import {
   detectAppConfig,
   getWebInterfaceConfig,
@@ -103,7 +103,7 @@ async function startSession(
     const branch = detectGitBranch();
     const runner = new DevRunner(appConfig.appId, cwd, {
       branch,
-      methods: appConfig.methods.map((m) => ({ id: m.id, export: m.export, path: m.path })),
+      methods: sessionMethodsPayload(appConfig.methods),
     });
     runner.setAppConfig(appConfig);
     const session = await runner.start();

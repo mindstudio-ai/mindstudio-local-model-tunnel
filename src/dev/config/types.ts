@@ -133,6 +133,9 @@ export interface DevRequest {
     visitorId?: string;
   };
   secrets?: Record<string, string>;
+  /** Run the method's jewel companion instead of the method itself (dev twin
+   *  of the deployed jewelS3Key dispatch — jewels.propose in dev sessions). */
+  jewel?: boolean;
 }
 
 /** Posted to POST /_internal/v2/apps/{appId}/dev/result/{requestId} */

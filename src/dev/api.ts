@@ -7,6 +7,7 @@
 import { getApiKey, getApiBaseUrl } from '../config';
 import { log } from './logging/logger';
 import type {
+  AppMethod,
   DevSession,
   DevRequest,
   DevResult,
@@ -100,12 +101,37 @@ async function apiRequest<T>(
 // Public API
 // ---------------------------------------------------------------------------
 
+/** One session-start method entry — id/export/path for the method map, plus
+ *  the jewel declaration so the platform can gate dev-session jewels.propose
+ *  (the jewel itself always runs from local source through the tunnel). */
+export interface SessionMethodPayload {
+  id: string;
+  export: string;
+  path: string;
+  autonomy?: AppMethod['autonomy'];
+  sampleRate?: number;
+  jewel?: { path: string; export?: string };
+}
+
+export function sessionMethodsPayload(
+  methods: AppMethod[],
+): SessionMethodPayload[] {
+  return methods.map((m) => ({
+    id: m.id,
+    export: m.export,
+    path: m.path,
+    ...(m.autonomy ? { autonomy: m.autonomy } : {}),
+    ...(m.sampleRate !== undefined ? { sampleRate: m.sampleRate } : {}),
+    ...(m.jewel ? { jewel: { path: m.jewel.path, export: m.jewel.export } } : {}),
+  }));
+}
+
 export async function startDevSession(
   appId: string,
   opts?: {
     branch?: string;
     proxyUrl?: string;
-    methods?: Array<{ id: string; export: string; path: string }>;
+    methods?: SessionMethodPayload[];
   },
 ): Promise<DevSession> {
   const body: Record<string, unknown> = {};
@@ -204,11 +230,22 @@ export async function resetDevDatabase(
 export async function fetchCallbackToken(
   appId: string,
   sessionId: string,
+  opts?: {
+    /** Mark the token jewel-descended (jewel test runs): the platform's
+     *  jewels.propose/queue surfaces refuse it, so a jewel under test can't
+     *  trigger live dev proposals from inside its own run. */
+    jewelDescended?: boolean;
+  },
 ): Promise<{ authorizationToken: string; secrets?: Record<string, string> }> {
   const data = await apiRequest<{
     authorizationToken: string;
     secrets?: Record<string, string>;
-  }>('POST', `${basePath(appId)}/manage/token`, getHeaders(sessionId));
+  }>(
+    'POST',
+    `${basePath(appId)}/manage/token`,
+    getHeaders(sessionId),
+    opts?.jewelDescended ? { jewelDescended: true } : undefined,
+  );
   return { authorizationToken: data.authorizationToken, secrets: data.secrets };
 }
 
