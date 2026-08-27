@@ -1390,9 +1390,14 @@ export class DevProxy {
   ): string {
     const context = contextOverride ?? this.clientContext;
     const contextScript = `<script>window.__MINDSTUDIO__=${JSON.stringify(context)};</script>`;
+    // TEMP DEV OVERRIDE: serving the browser agent from a local ngrok tunnel
+    // while testing the snap-first Add Notes rebuild. Revert to the unpkg URL
+    // before publishing off this branch.
     const agentUrl =
-      this.browserAgentUrl ||
-      'https://unpkg.com/@mindstudio-ai/browser-agent/dist/index.js';
+      this.browserAgentUrl || 'https://seankoji-msba.ngrok.io/index.js';
+    // const agentUrl =
+    //   this.browserAgentUrl ||
+    //   'https://unpkg.com/@mindstudio-ai/browser-agent/dist/index.js';
     const agentScript = `<script async src="${agentUrl}"></script>`;
     const injection = `${contextScript}\n${agentScript}`;
     if (html.includes('</head>')) {
