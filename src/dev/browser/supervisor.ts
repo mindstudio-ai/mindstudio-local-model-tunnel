@@ -5,6 +5,10 @@
  * Responsibilities:
  * - Launch Chrome once at session start.
  * - Watch for unexpected disconnect (Chrome crash, killed process).
+ * - Watch for a wedged page: Chrome can outlive its page's main thread (a
+ *   dialog held open, a hot-update render loop), which `disconnected` never
+ *   sees — a slow-cadence main-thread ping catches it and kills Chrome so the
+ *   crash path below brings automation back.
  * - Restart with exponential backoff; after repeated failures report the browser
  *   as degraded and keep retrying on a slow cadence.
  * - Clean teardown on session stop so no orphan Chrome processes linger.
@@ -39,6 +43,15 @@ const CLOSE_TIMEOUT_MS = 5_000;
 // environment, short enough that a session outliving a transient failure gets
 // its browser back rather than losing automation for hours.
 const DEGRADED_RETRY_MS = 60_000;
+// Wedged-page watchdog cadence and grace. A ping is a trivial page.evaluate:
+// any settle — including a rejection from a context torn down mid-navigation —
+// proves the main thread is making progress; only a hang is a wedge. The grace
+// must comfortably exceed the longest legitimate synchronous stall (heavy
+// hot-update reflows, capture pre-roll), and a page that can't run a statement
+// for 15 straight seconds is unusable for automation even if it would
+// eventually wake up.
+const PAGE_PING_INTERVAL_MS = 30_000;
+const PAGE_PING_TIMEOUT_MS = 15_000;
 
 export class BrowserSupervisor {
   private browser: Browser | null = null;
@@ -47,6 +60,7 @@ export class BrowserSupervisor {
   private degraded = false;
   private consecutiveFailures = 0;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setTimeout> | null = null;
   private runningSince: number | null = null;
   private lastExitInfo: {
     exitCode: number | null;
@@ -79,6 +93,7 @@ export class BrowserSupervisor {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
     }
+    this.clearPingTimer();
     const browser = this.browser;
     this.browser = null;
     this.page = null;
@@ -116,6 +131,9 @@ export class BrowserSupervisor {
    *
    * Calls are serialized so rapid back-to-back invocations apply in order
    * rather than racing.
+   *
+   * Rejects when the reload fails — a reset whose reload never happened must
+   * not read as success (callers report the navigation error to the agent).
    */
   async setPreviewMode(
     mode: PreviewMode,
@@ -124,11 +142,16 @@ export class BrowserSupervisor {
     if (this.stopping || this.degraded) return;
     const forceReload = opts.forceReload === true;
     if (mode === this.previewMode && !forceReload) return;
-    const prev = this.viewportChange;
-    this.viewportChange = prev.then(() =>
+    const run = this.viewportChange.then(() =>
       this.applyPreviewMode(mode, forceReload),
     );
-    await this.viewportChange;
+    // Keep the serialization chain settled on failure — a rejected link would
+    // silently skip every later application.
+    this.viewportChange = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    await run;
   }
 
   private async applyPreviewMode(
@@ -163,7 +186,7 @@ export class BrowserSupervisor {
       log.warn('browser', 'Sandbox browser viewport change failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return;
+      throw err;
     }
     this.previewMode = mode;
 
@@ -241,6 +264,7 @@ export class BrowserSupervisor {
       });
 
       launched.browser.on('disconnected', () => this.onDisconnect());
+      this.schedulePing();
 
       emitEvent('sandbox-browser-state', {
         state: 'running',
@@ -273,6 +297,7 @@ export class BrowserSupervisor {
 
   private async onDisconnect(): Promise<void> {
     if (this.stopping) return;
+    this.clearPingTimer();
     const hadBrowser = !!this.browser;
     this.browser = null;
     this.page = null;
@@ -298,6 +323,72 @@ export class BrowserSupervisor {
     });
     this.lastExitInfo = null;
     this.scheduleRestart();
+  }
+
+  /**
+   * Wedged-page watchdog. Chrome can outlive its page: a page whose main
+   * thread never runs again — a native dialog held open, a hot-update render
+   * loop — leaves the process healthy, so `disconnected` never fires and the
+   * crash path can't see it; every navigation just times out, forever (a real
+   * session lost automation for two hours this way). Ping the main thread on
+   * a slow cadence and, when a ping hangs past its grace, kill Chrome so the
+   * existing crash/restart machinery brings automation back.
+   */
+  private schedulePing(): void {
+    this.clearPingTimer();
+    this.pingTimer = setTimeout(() => {
+      this.pingTimer = null;
+      void this.pingPage();
+    }, PAGE_PING_INTERVAL_MS);
+  }
+
+  private clearPingTimer(): void {
+    if (this.pingTimer) {
+      clearTimeout(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
+  private async pingPage(): Promise<void> {
+    const { browser, page } = this;
+    if (this.stopping || !browser || !page) return;
+    // Any settle counts as alive — a rejection (execution context destroyed
+    // mid-navigation, say) still proves the renderer is making progress.
+    // Only a hang is a wedge.
+    const alive = await Promise.race([
+      page.evaluate(() => true).then(
+        () => true,
+        () => true,
+      ),
+      new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(false), PAGE_PING_TIMEOUT_MS),
+      ),
+    ]);
+    // The browser may have been restarted or torn down under the ping.
+    if (this.stopping || this.page !== page) return;
+    if (alive) {
+      this.schedulePing();
+      return;
+    }
+    log.warn(
+      'browser',
+      'Sandbox browser page is unresponsive — killing Chrome to trigger a restart',
+      { pingTimeoutMs: PAGE_PING_TIMEOUT_MS },
+    );
+    const proc = browser.process();
+    if (!proc) {
+      // Not our child (shouldn't happen for a launched browser) — nothing to
+      // kill; keep watching.
+      this.schedulePing();
+      return;
+    }
+    try {
+      proc.kill('SIGKILL');
+      // The kill fires `disconnected` → onDisconnect → restart; pings resume
+      // once the relaunch succeeds. Nothing to reschedule here.
+    } catch {
+      this.schedulePing();
+    }
   }
 
   private async waitForExitInfo(timeoutMs = 200): Promise<void> {

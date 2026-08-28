@@ -298,7 +298,10 @@ async function tryHotApplyWebConfigChange(
     to: nextMode,
   });
   state.lastWebConfig = newWeb;
-  await state.browser.setPreviewMode(nextMode);
+  // Best-effort: the supervisor already logs a failed reload, and its
+  // watchdog recovers a page that's genuinely wedged. The config change
+  // itself has been applied either way.
+  await state.browser.setPreviewMode(nextMode).catch(() => {});
   return true;
 }
 

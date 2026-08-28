@@ -148,6 +148,28 @@ export async function launchSandboxBrowser(opts: {
     } catch {}
   });
 
+  // Auto-answer native dialogs. Nobody drives this browser interactively, and
+  // puppeteer (unlike Playwright) leaves unhandled dialogs open — an open
+  // dialog freezes the page's main thread and blocks every later navigation,
+  // which surfaces as bare 15s timeouts with Chrome itself perfectly healthy.
+  // The proven trigger is an app's unsaved-changes beforeunload guard arming
+  // after QA typed into a form: the next reload pops the native confirm,
+  // nothing answers it, and automation is dead for the rest of the session.
+  // beforeunload → accept (in an automation browser, navigation always wins
+  // over an unsaved-changes prompt); alert/confirm/prompt → dismiss (the
+  // neutral answer to a question nobody asked — apps under test use their own
+  // in-DOM modals, so a native dialog here is never a flow worth preserving).
+  page.on('dialog', (dialog) => {
+    log.info('browser', 'Auto-answering page dialog', {
+      type: dialog.type(),
+      message: dialog.message().slice(0, 200),
+    });
+    const answer =
+      dialog.type() === 'beforeunload' ? dialog.accept() : dialog.dismiss();
+    // Best effort — the dialog may already be gone with its document.
+    answer.catch(() => {});
+  });
+
   const target = `http://127.0.0.1:${opts.proxyPort}/?ms_sandbox=1`;
   // `load` fires once HTML + non-async assets are parsed/loaded — long-lived
   // requests (e.g. the telemetry-presence SSE the SDK opens on page load)

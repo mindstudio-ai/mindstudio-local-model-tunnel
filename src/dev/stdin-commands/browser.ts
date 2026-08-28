@@ -264,19 +264,33 @@ export async function handleBrowser(
         // step that omitted `mode` (the schema doesn't require it) still
         // maps to the app default WITHOUT forcing a mid-run reload.
         const isRunReset = requested === 'default';
-        await ctx.state.browser.setPreviewMode(mode, {
-          forceReload: isRunReset,
-        });
-        const applied = ctx.state.browser.getPreviewMode();
-        resultsByIndex[i] = {
-          index: i,
-          command,
-          result: {
-            previewMode: applied,
-            viewport: viewportToString(viewportFor(applied)),
-          },
-        };
-        totalDuration += Date.now() - start;
+        try {
+          await ctx.state.browser.setPreviewMode(mode, {
+            forceReload: isRunReset,
+          });
+          const applied = ctx.state.browser.getPreviewMode();
+          resultsByIndex[i] = {
+            index: i,
+            command,
+            result: {
+              previewMode: applied,
+              viewport: viewportToString(viewportFor(applied)),
+            },
+          };
+          totalDuration += Date.now() - start;
+        } catch (err) {
+          // The reload inside the viewport change failed — the page never got
+          // the fresh document this step promises. Report it and stop: later
+          // steps would run against whatever document we're stranded on
+          // (matching `navigate`'s stop-on-first-error).
+          resultsByIndex[i] = {
+            index: i,
+            command,
+            error: `Viewport change failed: ${err instanceof Error ? err.message : String(err)}`,
+          };
+          totalDuration += Date.now() - start;
+          break;
+        }
       }
     } else {
       buffer.push({ idx: i, step });
