@@ -327,6 +327,11 @@ async function captureViaCdpInner(
     }
   }
 
+  // The agent-cursor overlay is a real DOM element, so a CDP capture
+  // photographs it — hide it for the duration of the shot (see
+  // hideAgentCursor) and restore once the capture command has settled.
+  const cursorToken = await hideAgentCursor(page);
+
   // Hand-rolled instead of page.screenshot() for one reason: CDPSession.send
   // takes a per-command timeout, and page.screenshot() has no way to pass one.
   // Without it the command runs under puppeteer's connection-wide 180s
@@ -362,6 +367,7 @@ async function captureViaCdpInner(
     throw err;
   } finally {
     await client.detach().catch(() => {});
+    await restoreAgentCursor(page, cursorToken);
   }
 
   await uploadToPresigned(opts.uploadUrl, opts.uploadFields, buf, type);
@@ -372,6 +378,71 @@ async function captureViaCdpInner(
     height,
     ...(styleMap ? { styleMap } : {}),
   };
+}
+
+/**
+ * Hide the browser-agent's cursor overlay (the pink "Remy" pointer,
+ * `#__mindstudio-cursor`) before a capture. It's a real DOM element, so CDP
+ * captures photograph it — and during recorded QA runs it is *held* visible
+ * between commands, so it landed in QA screenshots as a phantom UI element
+ * that vision analyses then reported as an app bug.
+ *
+ * Prefers the browser-agent's snapshot-hide state machine (the same mechanism
+ * its own snapdom capture path uses, restoring the exact prior visibility);
+ * falls back to raw inline styles when the served agent predates the API —
+ * the bundle is loaded from unpkg, so versions can skew. Best-effort both
+ * ways: a cursor in the corner of an image beats a failed capture.
+ *
+ * Returns a token for {@link restoreAgentCursor}: 'api', 'raw:<prevOpacity>',
+ * or null when there was nothing to hide.
+ */
+async function hideAgentCursor(page: Page): Promise<string | null> {
+  try {
+    return await page.evaluate(() => {
+      const api = (
+        window as unknown as {
+          __MINDSTUDIO_BROWSER_AGENT__?: { hideCursor?: () => void };
+        }
+      ).__MINDSTUDIO_BROWSER_AGENT__;
+      if (api?.hideCursor) {
+        api.hideCursor();
+        return 'api';
+      }
+      const el = document.getElementById('__mindstudio-cursor');
+      if (!el) return null;
+      const prev = el.style.opacity;
+      el.style.opacity = '0';
+      return `raw:${prev}`;
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Undo {@link hideAgentCursor} once the capture command has settled. */
+async function restoreAgentCursor(
+  page: Page,
+  token: string | null,
+): Promise<void> {
+  if (token === null) return;
+  try {
+    await page.evaluate((t: string) => {
+      const api = (
+        window as unknown as {
+          __MINDSTUDIO_BROWSER_AGENT__?: { restoreCursor?: () => void };
+        }
+      ).__MINDSTUDIO_BROWSER_AGENT__;
+      if (t === 'api') {
+        api?.restoreCursor?.();
+        return;
+      }
+      const el = document.getElementById('__mindstudio-cursor');
+      if (el) el.style.opacity = t.slice('raw:'.length);
+    }, token);
+  } catch {
+    // Best-effort — the cursor state machine reasserts visibility on its
+    // next command anyway.
+  }
 }
 
 /**
