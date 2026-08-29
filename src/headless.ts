@@ -170,6 +170,10 @@ async function startSession(
           // replaces the launcher's old `networkidle0` readiness check,
           // which the telemetry-presence SSE defeats.
           () => proxy?.waitForHeadlessClient(15_000) ?? Promise.resolve(),
+          // Page left the app origin (e.g. a delegated sign-in redirect) —
+          // fail the in-flight command with an accurate error instead of a
+          // generic disconnect at grace-expiry.
+          (url) => proxy?.failPendingCommandsOffOrigin(url),
         );
         state.browser = supervisor;
         supervisor.start().catch((err) => {

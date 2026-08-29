@@ -52,6 +52,12 @@ const DEGRADED_RETRY_MS = 60_000;
 // eventually wake up.
 const PAGE_PING_INTERVAL_MS = 30_000;
 const PAGE_PING_TIMEOUT_MS = 15_000;
+// Minimum spacing between automatic returns to the app origin. An app whose
+// entry itself bounces off-origin (a root redirect to an external URL) would
+// otherwise put the watchdog in a navigation loop: return → redirect out →
+// return. One correction per window is enough; past that, leave the page
+// where it is and let the per-run QA reset handle it.
+const OFF_ORIGIN_RETURN_COOLDOWN_MS = 10_000;
 
 export class BrowserSupervisor {
   private browser: Browser | null = null;
@@ -69,6 +75,7 @@ export class BrowserSupervisor {
   private executablePath: string | null = null;
   private previewMode: PreviewMode;
   private viewportChange: Promise<void> = Promise.resolve();
+  private lastOffOriginReturnAt = 0;
 
   constructor(
     private readonly proxyPort: number,
@@ -77,6 +84,12 @@ export class BrowserSupervisor {
      *  Wired by `headless.ts` to `DevProxy.waitForHeadlessClient(...)` so
      *  `running` is only emitted once the browser-agent WS hello arrives. */
     private readonly waitForBrowserAgent?: () => Promise<void>,
+    /** Called when the page top-level-navigates off the app origin (see the
+     *  `framenavigated` watchdog in `launchOnce`). Wired by `headless.ts` to
+     *  `DevProxy.failPendingCommandsOffOrigin(...)` so the in-flight command
+     *  fails immediately with an accurate error instead of a generic
+     *  "Browser disconnected" after the reconnect grace expires. */
+    private readonly onPageLeftAppOrigin?: (externalUrl: string) => void,
   ) {
     this.previewMode = initialPreviewMode;
   }
@@ -264,6 +277,10 @@ export class BrowserSupervisor {
       });
 
       launched.browser.on('disconnected', () => this.onDisconnect());
+      launched.page.on('framenavigated', (frame) => {
+        if (frame !== launched.page.mainFrame()) return;
+        void this.onMainFrameNavigated(launched.page, frame.url());
+      });
       this.schedulePing();
 
       emitEvent('sandbox-browser-state', {
@@ -323,6 +340,67 @@ export class BrowserSupervisor {
     });
     this.lastExitInfo = null;
     this.scheduleRestart();
+  }
+
+  /**
+   * Off-origin navigation watchdog. The browser-agent is only injected into
+   * pages served through the tunnel proxy, so a top-level navigation off the
+   * app origin strands automation: the agent's WS dies at unload and nothing
+   * on the external page will ever reconnect it. Chrome stays healthy (the
+   * ping above keeps passing), so without this the in-flight command dies as
+   * a generic "Browser disconnected" after the reconnect grace, every later
+   * command reports NO_BROWSER, and the page sits stranded until the next
+   * run's reset. The proven trigger is QA clicking a delegated "Sign in with
+   * Remy" button — a full-page redirect to the platform authorize page that
+   * can never complete headlessly (no platform session).
+   *
+   * On an off-origin main-frame navigation: fail the in-flight command
+   * immediately with an accurate error (via `onPageLeftAppOrigin`), then
+   * navigate back to the app so the rest of the run isn't wedged.
+   */
+  private async onMainFrameNavigated(page: Page, url: string): Promise<void> {
+    if (this.stopping || this.page !== page) return;
+    const appOrigin = `http://127.0.0.1:${this.proxyPort}`;
+    if (url === 'about:blank') return;
+    let origin: string;
+    try {
+      origin = new URL(url).origin;
+    } catch {
+      return;
+    }
+    if (origin === appOrigin) return;
+
+    log.warn('browser', 'Sandbox browser page left the app origin', {
+      url,
+      appOrigin,
+    });
+    this.onPageLeftAppOrigin?.(url);
+
+    const now = Date.now();
+    if (now - this.lastOffOriginReturnAt < OFF_ORIGIN_RETURN_COOLDOWN_MS) {
+      log.warn(
+        'browser',
+        'Skipping auto-return to app origin — returned too recently (possible redirect loop)',
+        { cooldownMs: OFF_ORIGIN_RETURN_COOLDOWN_MS },
+      );
+      return;
+    }
+    this.lastOffOriginReturnAt = now;
+
+    try {
+      // Same target and settle condition as the launcher's initial goto; the
+      // browser-agent re-injects on load and reconnects on its own.
+      await page.goto(`${appOrigin}/?ms_sandbox=1`, {
+        waitUntil: 'load',
+        timeout: 15_000,
+      });
+      log.info('browser', 'Sandbox browser returned to app origin');
+    } catch (err) {
+      // Best effort — the per-run QA reset is the fallback recovery path.
+      log.warn('browser', 'Failed to return sandbox browser to app origin', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**

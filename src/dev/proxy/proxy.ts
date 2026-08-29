@@ -726,6 +726,34 @@ export class DevProxy {
     }
   }
 
+  /**
+   * Fail every in-flight command because the headless page top-level-navigated
+   * off the app origin. Called by `BrowserSupervisor`'s `framenavigated`
+   * watchdog (wired in `headless.ts`). The browser-agent only exists on pages
+   * served through this proxy, so nothing on the external page will ever
+   * deliver these results — without this they'd die as a generic "Browser
+   * disconnected" at grace-expiry, which QA agents read as an infrastructure
+   * outage. In practice there is exactly one pending command: the click that
+   * triggered the navigation.
+   */
+  failPendingCommandsOffOrigin(externalUrl: string): void {
+    let origin = externalUrl;
+    try {
+      origin = new URL(externalUrl).origin;
+    } catch {
+      // keep the raw URL
+    }
+    for (const id of [...this.pendingResults.keys()]) {
+      this.rejectPendingCommand(
+        id,
+        new CommandError(
+          `The page navigated away from the app to ${origin}. This usually means the last step triggered an external redirect — for example clicking a delegated "Sign in with Remy" button, which cannot be clicked through in this headless browser (it requires a real platform session; use setupBrowser to authenticate instead). This is not an infrastructure failure. The browser is being returned to the app — take a fresh snapshot to continue.`,
+          'PAGE_LEFT_APP_ORIGIN',
+        ),
+      );
+    }
+  }
+
   private rejectPendingCommand(commandId: string, error: CommandError): void {
     const pending = this.pendingResults.get(commandId);
     if (pending) {
