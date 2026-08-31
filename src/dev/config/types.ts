@@ -89,8 +89,14 @@ export interface DevSession {
   releaseId: string;   // same value as sessionId
   branch: string;
   auth: {
+    /** null for an anonymous request — nobody signed in. */
     userId: string | null;
-    roleAssignments: Array<{ userId: string | null; roleName: string }>;
+    /** A role is always held by a user, so `userId` here is non-null on
+     *  purpose. The SDK derives `auth.roles` by matching assignments against
+     *  `auth.userId`, so a null-held assignment matches a null identity and
+     *  reports a role that `requireRole` then rejects on identity. Mirrors
+     *  AppRoleAssignment in @mindstudio-ai/agent, which is `string`. */
+    roleAssignments: Array<{ userId: string; roleName: string }>;
   };
   databases: Array<{
     id: string;
@@ -123,7 +129,9 @@ export interface DevRequest {
   methodPath?: string;
   input?: unknown;
   userId?: string | null;
-  roleAssignments?: Array<{ userId: string | null; roleName: string }>;
+  /** Resolved platform-side; a system invocation arrives held by the platform's
+   *  system user, never by a null identity. See DevSession['auth']. */
+  roleAssignments?: Array<{ userId: string; roleName: string }>;
   streamId?: string;
   /** Originating-session identity (voice/agent tool calls) — exposed by the SDK as `session`. */
   session?: {
