@@ -31,6 +31,9 @@ export async function handleRunMethod(
     input: cmd.input ?? {},
     roles: Array.isArray(cmd.roles) ? cmd.roles as string[] : undefined,
     userId: typeof cmd.userId === 'string' ? cmd.userId : undefined,
+    // The roles branch keys on auth.enabled, so it needs the same freshness
+    // the method lookup above does.
+    appConfig: freshConfig,
   });
 
   return {

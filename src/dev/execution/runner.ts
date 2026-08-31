@@ -45,6 +45,18 @@ const TEST_USER_SENTINEL = 'testUser';
 const TEST_USER_EMAIL = 'remy@mindstudio.ai';
 const TEST_USER_PHONE = '+15555555555';
 
+// The synthetic identity a platform-triggered invocation runs as (cron,
+// webhook, email). Keep in sync with SYSTEM_USER_ID in youai-api
+// (src/common/Db/v2Apps/_helpers/constants.ts) — same mirroring pattern as
+// JEWEL_USER_NAMESPACE in ./jewel.ts.
+//
+// Deliberately independent of the app's auth table. A system-gated method is
+// normal in an app with no users at all, so dev has to be able to produce this
+// identity without one; the poll path gets it from the platform, and this is
+// how the direct path gets it.
+const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+const SYSTEM_ROLE = 'system';
+
 export class DevRunner {
   private isRunning = false;
   private session: DevSession | null = null;
@@ -172,6 +184,11 @@ export class DevRunner {
     input: unknown;
     roles?: string[];
     userId?: string;
+    /** Freshly-read manifest, when the caller has one. The auth branch below
+     *  keys on `auth.enabled`, and the watcher-held copy can lag a manifest
+     *  write by a debounce — the same window run-method's retry-aware read
+     *  already closes for method lookup. */
+    appConfig?: AppConfig | null;
   }): Promise<{ success: boolean; output?: unknown; error?: Record<string, unknown> | null; stdout?: string[]; duration: number }> {
     if (!this.session || !this.transpiler) {
       return { success: false, error: { message: 'Session not started' }, duration: 0 };
@@ -186,23 +203,7 @@ export class DevRunner {
       const { authorizationToken, secrets } = await fetchCallbackToken(this.appId, this.session.sessionId);
       const transpiledPath = await this.transpiler.transpile(opts.methodPath);
 
-      // "testUser" is a reserved sentinel — resolves to the dev-bypass user.
-      // Roles without a userId also bind to the test user (when the app has
-      // auth): a real row holds the roles, so `auth.userId`/`requireRole`
-      // behave exactly as in production. Apps without auth have no user to
-      // bind — roles attach to an anonymous call there.
-      const userId =
-        opts.userId === TEST_USER_SENTINEL ||
-        (!opts.userId && opts.roles && this.appConfig?.auth?.enabled)
-          ? await this.resolveTestUserId()
-          : (opts.userId ?? this.session.auth.userId);
-      const roles = opts.roles;
-      const auth = roles
-        ? {
-            userId,
-            roleAssignments: roles.map((roleName) => ({ userId, roleName })),
-          }
-        : { ...this.session.auth, userId };
+      const auth = await this.resolveRunAsAuth(opts);
 
       const result = await executeMethod({
         requestId,
@@ -813,6 +814,72 @@ export class DevRunner {
     throw new Error(
       `The dev test user requires auth.methods in mindstudio.json to include ` +
         `"email-code", "sms-code", or "remy" (got ${JSON.stringify(methods)}).`,
+    );
+  }
+
+  // The identity and roles a direct run executes as.
+  //
+  // Roles only mean something attached to a user: the SDK derives `auth.roles`
+  // by matching assignments against `auth.userId`, and `requireRole` rejects a
+  // null identity before it ever looks at roles. Roles on an anonymous call are
+  // therefore unsatisfiable — the method's own pinned SDK either reports them
+  // and rejects anyway (older builds match a null holder against a null
+  // identity, so `hasRole` says yes while `requireRole` throws 401) or drops
+  // them. Either way the gate can't pass, so every branch that carries roles
+  // resolves a real holder here or fails with a reason the caller can act on.
+  private async resolveRunAsAuth(opts: {
+    roles?: string[];
+    userId?: string;
+    appConfig?: AppConfig | null;
+  }): Promise<DevSession['auth']> {
+    const sessionAuth = this.session?.auth ?? {
+      userId: null,
+      roleAssignments: [],
+    };
+    const roles = opts.roles?.length ? opts.roles : undefined;
+
+    const named =
+      opts.userId === TEST_USER_SENTINEL
+        ? await this.resolveTestUserId()
+        : opts.userId;
+
+    // No roles requested: run as whoever was named, else anonymously — which
+    // is exactly what an unauthenticated production request looks like.
+    if (!roles) {
+      return { ...sessionAuth, userId: named ?? sessionAuth.userId };
+    }
+
+    const holder =
+      named ?? (await this.resolveRoleHolder(roles, opts.appConfig));
+    return {
+      userId: holder,
+      roleAssignments: roles.map((roleName) => ({ userId: holder, roleName })),
+    };
+  }
+
+  // Who holds caller-supplied roles when the caller didn't name a user.
+  private async resolveRoleHolder(
+    roles: string[],
+    appConfig?: AppConfig | null,
+  ): Promise<string> {
+    // An auth-enabled app binds them to the dev test user's real row — the
+    // same identity the preview's sign-in helper uses, so `auth.userId` and
+    // role lookups behave as they would in production.
+    if ((appConfig ?? this.appConfig)?.auth?.enabled) {
+      return this.resolveTestUserId();
+    }
+    // No auth block means no users to bind to. `system` is the exception and
+    // never needed one: it's the identity the platform itself runs as when it
+    // invokes a method on the app's behalf, so a system-gated method is
+    // ordinary in an app with no users.
+    if (roles.includes(SYSTEM_ROLE)) {
+      return SYSTEM_USER_ID;
+    }
+    throw new Error(
+      `Cannot run as role(s) [${roles.join(', ')}]: this app has no "auth" block in ` +
+        `mindstudio.json, so it has no users to hold a role. Only "${SYSTEM_ROLE}" can be ` +
+        `simulated without auth — it's the identity cron, webhook, and email invocations ` +
+        `run as. Enable auth in the manifest to test any other role.`,
     );
   }
 
