@@ -1,3 +1,7 @@
+/// <reference lib="dom" />
+// See the note in ./screenshot.ts — the in-page `evaluate` callbacks below need
+// DOM types, pulled in per-file rather than through tsconfig's `lib`.
+
 /**
  * Tunnel-side navigation for automation `navigate` steps.
  *

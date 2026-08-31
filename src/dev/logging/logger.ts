@@ -25,7 +25,12 @@ const LEVELS: Record<LogLevel, number> = {
 let currentLevel: number = LEVELS.error;
 let writeFn: (line: string) => void = () => {};
 
-function write(level: LogLevel, module: string, msg: string, data?: Record<string, unknown>) {
+function write(
+  level: LogLevel,
+  module: string,
+  msg: string,
+  data?: Record<string, unknown>,
+) {
   if (LEVELS[level] > currentLevel) {
     return;
   }

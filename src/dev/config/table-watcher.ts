@@ -32,10 +32,9 @@ export function watchTableFiles(
 
   let syncTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // Paths that don't exist yet are fine — chokidar watches for their creation.
   const watcher = watch(filePaths, {
     ignoreInitial: true,
-    // Don't fail if files don't exist yet — watch for creation
-    disableGlobbing: true,
   });
 
   watcher.on('all', () => {

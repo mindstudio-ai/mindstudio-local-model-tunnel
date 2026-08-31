@@ -2,9 +2,7 @@
  * Format an error object from the executor into a readable string.
  * Includes extra fields like code, statusCode, cause, etc. when present.
  */
-export function formatErrorForDisplay(
-  error: Record<string, unknown>,
-): string {
+export function formatErrorForDisplay(error: Record<string, unknown>): string {
   const parts: string[] = [];
 
   // Main message

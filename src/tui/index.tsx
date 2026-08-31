@@ -7,7 +7,11 @@ import { get as httpGet } from 'node:http';
 import { App } from './App';
 import { TunnelRunner } from '../runner';
 import { detectAppConfig } from '../dev/config/app-config';
-import { checkForUpdate, getInstallMethod, getBinaryDownloadUrl } from '../update';
+import {
+  checkForUpdate,
+  getInstallMethod,
+  getBinaryDownloadUrl,
+} from '../update';
 import { UpdatePrompt } from './components/UpdatePrompt';
 
 async function promptForUpdate(
@@ -34,7 +38,12 @@ function downloadFile(url: string, dest: string): Promise<void> {
     const get = url.startsWith('https') ? httpsGet : httpGet;
     get(url, (res) => {
       // Follow redirects
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      if (
+        res.statusCode &&
+        res.statusCode >= 300 &&
+        res.statusCode < 400 &&
+        res.headers.location
+      ) {
         downloadFile(res.headers.location, dest).then(resolve, reject);
         return;
       }
@@ -53,7 +62,9 @@ function downloadFile(url: string, dest: string): Promise<void> {
 export async function startTUI(): Promise<void> {
   // Clean up leftover .old binary from a previous Windows update
   if (process.platform === 'win32') {
-    try { unlinkSync(process.execPath + '.old'); } catch {}
+    try {
+      unlinkSync(process.execPath + '.old');
+    } catch {}
   }
 
   // Clear the screen
@@ -75,13 +86,18 @@ export async function startTUI(): Promise<void> {
           if (process.platform === 'win32') {
             // Windows locks running executables — rename-then-replace trick
             await downloadFile(url, dest + '.new');
-            try { unlinkSync(dest + '.old'); } catch {}
+            try {
+              unlinkSync(dest + '.old');
+            } catch {}
             renameSync(dest, dest + '.old');
             renameSync(dest + '.new', dest);
           } else {
-            execSync(`curl -fsSL "${url}" -o "${dest}.tmp" && chmod +x "${dest}.tmp" && mv "${dest}.tmp" "${dest}"`, {
-              stdio: 'inherit',
-            });
+            execSync(
+              `curl -fsSL "${url}" -o "${dest}.tmp" && chmod +x "${dest}.tmp" && mv "${dest}.tmp" "${dest}"`,
+              {
+                stdio: 'inherit',
+              },
+            );
           }
         } else {
           execSync('npm install -g @mindstudio-ai/local-model-tunnel@latest', {

@@ -29,12 +29,23 @@ import {
 } from '../../../dev/config/app-config';
 import { syncSchema, sessionMethodsPayload } from '../../../dev/api';
 import { initLoggerInteractive } from '../../../dev/logging/logger';
-import { initRequestLog, closeRequestLog } from '../../../dev/logging/request-log';
-import { initBrowserLog, closeBrowserLog } from '../../../dev/logging/browser-log';
+import {
+  initRequestLog,
+  closeRequestLog,
+} from '../../../dev/logging/request-log';
+import {
+  initBrowserLog,
+  closeBrowserLog,
+} from '../../../dev/logging/browser-log';
 import { stablePort, detectGitBranch } from '../../../dev/utils';
 import { watchTableFiles } from '../../../dev/config/table-watcher';
 import { useDevServer } from './useDevServer';
-import type { AppConfig, DevSession, WebInterfaceConfig, SyncSchemaResponse } from '../../../dev/config/types';
+import type {
+  AppConfig,
+  DevSession,
+  WebInterfaceConfig,
+  SyncSchemaResponse,
+} from '../../../dev/config/types';
 
 function runNpmInstall(cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -44,10 +55,15 @@ function runNpmInstall(cwd: string): Promise<void> {
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     let stderr = '';
-    proc.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
+    proc.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
     proc.on('close', (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`npm install failed in ${cwd}: ${stderr.slice(-200)}`));
+      else
+        reject(
+          new Error(`npm install failed in ${cwd}: ${stderr.slice(-200)}`),
+        );
     });
     proc.on('error', reject);
   });
@@ -78,8 +94,17 @@ export function useDevSession(appConfig: AppConfig) {
   const [proxyPort, setProxyPort] = useState<number | null>(null);
   const [webConfig, setWebConfig] = useState<WebInterfaceConfig | null>(null);
   const [syncResult, setSyncResult] = useState<SyncSchemaResponse | null>(null);
-  const [scenarioResult, setScenarioResult] = useState<{ id: string; name?: string; success: boolean; duration: number; roles: string[]; error?: string } | null>(null);
-  const [testUserRoles, setTestUserRolesState] = useState<string[] | null>(null);
+  const [scenarioResult, setScenarioResult] = useState<{
+    id: string;
+    name?: string;
+    success: boolean;
+    duration: number;
+    roles: string[];
+    error?: string;
+  } | null>(null);
+  const [testUserRoles, setTestUserRolesState] = useState<string[] | null>(
+    null,
+  );
   const [installStatus, setInstallStatus] = useState<string | null>(null);
   const [authRefreshUrl, setAuthRefreshUrl] = useState<string | null>(null);
   const runnerRef = useRef<DevRunner | null>(null);
@@ -94,14 +119,19 @@ export function useDevSession(appConfig: AppConfig) {
     tableWatcherCleanupRef.current = () => {};
   }, []);
 
-  const setupTableWatchers = useCallback((config: AppConfig) => {
-    cleanupTableWatchers();
-    tableWatcherCleanupRef.current = watchTableFiles(
-      config.tables,
-      process.cwd(),
-      () => { resyncRef.current?.(); },
-    );
-  }, [cleanupTableWatchers]);
+  const setupTableWatchers = useCallback(
+    (config: AppConfig) => {
+      cleanupTableWatchers();
+      tableWatcherCleanupRef.current = watchTableFiles(
+        config.tables,
+        process.cwd(),
+        () => {
+          resyncRef.current?.();
+        },
+      );
+    },
+    [cleanupTableWatchers],
+  );
 
   // Detect web interface config on mount
   useEffect(() => {
@@ -112,9 +142,7 @@ export function useDevSession(appConfig: AppConfig) {
       setDevPort(config.devPort);
       setPhase('ready');
     } else if (
-      !appConfig.interfaces.some(
-        (i) => i.type === 'web' && i.enabled !== false,
-      )
+      !appConfig.interfaces.some((i) => i.type === 'web' && i.enabled !== false)
     ) {
       // No web interface at all — backend-only mode
       setDevPort(null);
@@ -149,7 +177,12 @@ export function useDevSession(appConfig: AppConfig) {
         setAuthRefreshUrl(null);
       }
     });
-    return () => { unsubExpired(); unsubAuthStart(); unsubAuthSuccess(); unsubAuthFailed(); };
+    return () => {
+      unsubExpired();
+      unsubAuthStart();
+      unsubAuthSuccess();
+      unsubAuthFailed();
+    };
   }, []);
 
   // Watch mindstudio.json for changes — restart session on edit
@@ -244,18 +277,15 @@ export function useDevSession(appConfig: AppConfig) {
 
         // Start the platform session
         const branch = detectGitBranch();
-        const proxyUrl = actualPort != null
-          ? `http://localhost:${stablePort(currentConfig.appId!)}`
-          : undefined;
-        const runner = new DevRunner(
-          currentConfig.appId,
-          process.cwd(),
-          {
-            branch,
-            proxyUrl,
-            methods: sessionMethodsPayload(currentConfig.methods),
-          },
-        );
+        const proxyUrl =
+          actualPort != null
+            ? `http://localhost:${stablePort(currentConfig.appId!)}`
+            : undefined;
+        const runner = new DevRunner(currentConfig.appId, process.cwd(), {
+          branch,
+          proxyUrl,
+          methods: sessionMethodsPayload(currentConfig.methods),
+        });
         runner.setAppConfig(currentConfig);
         runnerRef.current = runner;
         const devSession = await runner.start();
@@ -282,7 +312,11 @@ export function useDevSession(appConfig: AppConfig) {
 
         // Start the local proxy if we have a frontend port and client context
         if (actualPort != null && devSession.clientContext) {
-          const proxy = new DevProxy(actualPort, devSession.clientContext, currentConfig.appId!);
+          const proxy = new DevProxy(
+            actualPort,
+            devSession.clientContext,
+            currentConfig.appId!,
+          );
           const preferredProxyPort = stablePort(currentConfig.appId!);
           const pPort = await proxy.start(preferredProxyPort);
           proxyRef.current = proxy;
@@ -332,7 +366,7 @@ export function useDevSession(appConfig: AppConfig) {
   }, [devServer, cleanupTableWatchers]);
 
   // Ref to latest resync so table watchers don't capture a stale closure
-  const resyncRef = useRef<() => Promise<void>>();
+  const resyncRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   const resync = useCallback(async () => {
     if (!session) return;
@@ -372,38 +406,38 @@ export function useDevSession(appConfig: AppConfig) {
     setTestUserRolesState(roles.length > 0 ? roles : null);
   }, []);
 
-  const runScenario = useCallback(async (scenarioId: string) => {
-    if (!runnerRef.current) return;
-    const freshConfig = detectAppConfig() ?? appConfig;
-    const scenario = freshConfig.scenarios.find((s) => s.id === scenarioId);
-    if (!scenario) return;
+  const runScenario = useCallback(
+    async (scenarioId: string) => {
+      if (!runnerRef.current) return;
+      const freshConfig = detectAppConfig() ?? appConfig;
+      const scenario = freshConfig.scenarios.find((s) => s.id === scenarioId);
+      if (!scenario) return;
 
-    const result = await runnerRef.current.runScenario(scenario);
-    if (mountedRef.current) {
-      setSession((prev) =>
-        prev ? { ...prev, databases: result.databases } : prev,
-      );
-      if (result.success && scenario.roles.length > 0) {
-        setTestUserRolesState(scenario.roles);
+      const result = await runnerRef.current.runScenario(scenario);
+      if (mountedRef.current) {
+        setSession((prev) =>
+          prev ? { ...prev, databases: result.databases } : prev,
+        );
+        if (result.success && scenario.roles.length > 0) {
+          setTestUserRolesState(scenario.roles);
+        }
+        setScenarioResult({
+          id: scenario.id,
+          name: scenario.name,
+          success: result.success,
+          duration: 0, // filled by event listener if needed
+          roles: scenario.roles,
+          error: result.error,
+        });
       }
-      setScenarioResult({
-        id: scenario.id,
-        name: scenario.name,
-        success: result.success,
-        duration: 0, // filled by event listener if needed
-        roles: scenario.roles,
-        error: result.error,
-      });
-    }
-  }, [appConfig]);
-
-  const submitPort = useCallback(
-    (port: number) => {
-      setDevPort(port);
-      setPhase('ready');
     },
-    [],
+    [appConfig],
   );
+
+  const submitPort = useCallback((port: number) => {
+    setDevPort(port);
+    setPhase('ready');
+  }, []);
 
   const skipFrontend = useCallback(() => {
     setDevPort(null);

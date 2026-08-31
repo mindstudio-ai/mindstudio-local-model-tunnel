@@ -1,3 +1,10 @@
+/// <reference lib="dom" />
+// The `evaluate` callbacks below are serialized and run in the page, so they
+// legitimately reference `document` / `window`. tsconfig's `lib` is ES2022-only
+// (this is a Node CLI), so DOM types are pulled in per-file here rather than
+// globally, where they'd let a `document` reference slip through unnoticed in
+// genuinely Node-side code.
+
 /**
  * CDP-based screenshot capture.
  *
@@ -584,7 +591,11 @@ async function renderHtmlInner(
 
     await uploadToPresigned(opts.uploadUrl, opts.uploadFields, buf, 'png');
 
-    return { uploaded: true, width: opts.width * scale, height: opts.height * scale };
+    return {
+      uploaded: true,
+      width: opts.width * scale,
+      height: opts.height * scale,
+    };
   } finally {
     // Runs when the work truly finishes — even if withTimeout already gave up
     // on it — so an abandoned render can't leak its tab.

@@ -32,10 +32,10 @@ const handlers: Record<string, CommandHandler> = {
   'run-scenario': handleRunScenario,
   'set-test-user-roles': handleSetTestUserRoles,
   'get-test-user': handleGetTestUser,
-  'browser': handleBrowser,
-  'screenshotFullPage': handleScreenshotFullPage,
-  'screenshotViewport': handleScreenshotViewport,
-  'renderHtml': handleRenderHtml,
+  browser: handleBrowser,
+  screenshotFullPage: handleScreenshotFullPage,
+  screenshotViewport: handleScreenshotViewport,
+  renderHtml: handleRenderHtml,
   'db-query': handleDbQuery,
   'list-databases': handleListDatabases,
   'setup-browser': handleSetupBrowser,
@@ -43,10 +43,7 @@ const handlers: Record<string, CommandHandler> = {
   'restart-worker': handleRestartWorker,
 };
 
-export function setupStdinCommands(
-  state: SessionState,
-  cwd: string,
-): void {
+export function setupStdinCommands(state: SessionState, cwd: string): void {
   if (!process.stdin.readable) return;
 
   let buffer = '';
@@ -63,7 +60,9 @@ export function setupStdinCommands(
       try {
         cmd = JSON.parse(line);
       } catch {
-        log.warn('stdin', 'Invalid JSON on stdin', { preview: line.slice(0, 100) });
+        log.warn('stdin', 'Invalid JSON on stdin', {
+          preview: line.slice(0, 100),
+        });
         continue;
       }
 
@@ -105,12 +104,21 @@ async function handleStdinCommand(
 
   try {
     const result = await handler(ctx, cmd);
-    log.info('stdin', 'Command complete', { requestId, action, success: result.success !== false });
+    log.info('stdin', 'Command complete', {
+      requestId,
+      action,
+      success: result.success !== false,
+    });
     emitResponse(action, requestId, 'completed', result);
   } catch (err) {
     const code = errorCodeOf(err) ?? 'INFRASTRUCTURE';
     const message = err instanceof Error ? err.message : String(err);
-    log.warn('stdin', 'Command failed', { requestId, action, error: message, errorCode: code });
+    log.warn('stdin', 'Command failed', {
+      requestId,
+      action,
+      error: message,
+      errorCode: code,
+    });
     emitResponse(action, requestId, 'completed', {
       success: false,
       error: message,

@@ -51,10 +51,7 @@ function findExportedFunction(
     }
 
     // export const foo = async (input: { ... }) => { ... }
-    if (
-      ts.isVariableStatement(stmt) &&
-      hasExportModifier(stmt)
-    ) {
+    if (ts.isVariableStatement(stmt) && hasExportModifier(stmt)) {
       for (const decl of stmt.declarationList.declarations) {
         if (
           ts.isIdentifier(decl.name) &&

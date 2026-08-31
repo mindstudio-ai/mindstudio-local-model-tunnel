@@ -6,10 +6,15 @@ export async function handleRunMethod(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!ctx.state.runner) throw new CommandError('No active session', 'NO_SESSION');
+  if (!ctx.state.runner)
+    throw new CommandError('No active session', 'NO_SESSION');
 
   const methodName = cmd.method as string;
-  if (!methodName) throw new CommandError('run-method requires "method" (export name or ID)', 'INVALID_INPUT');
+  if (!methodName)
+    throw new CommandError(
+      'run-method requires "method" (export name or ID)',
+      'INVALID_INPUT',
+    );
 
   // Retry-aware manifest read so freshly-added methods are picked up even
   // when the call lands inside the brief window between the user's
@@ -21,7 +26,8 @@ export async function handleRunMethod(
   const method =
     freshConfig?.methods.find((m) => m.export === methodName) ??
     freshConfig?.methods.find((m) => m.id === methodName);
-  if (!method) throw new CommandError(`Unknown method: ${methodName}`, 'INVALID_INPUT');
+  if (!method)
+    throw new CommandError(`Unknown method: ${methodName}`, 'INVALID_INPUT');
 
   ctx.started({ method: method.export });
 
@@ -29,7 +35,7 @@ export async function handleRunMethod(
     methodExport: method.export,
     methodPath: method.path,
     input: cmd.input ?? {},
-    roles: Array.isArray(cmd.roles) ? cmd.roles as string[] : undefined,
+    roles: Array.isArray(cmd.roles) ? (cmd.roles as string[]) : undefined,
     userId: typeof cmd.userId === 'string' ? cmd.userId : undefined,
     // The roles branch keys on auth.enabled, so it needs the same freshness
     // the method lookup above does.

@@ -43,10 +43,12 @@ export function stablePort(appId: string): number {
 /** Detect current git branch, or undefined if not in a git repo. */
 export function detectGitBranch(): string | undefined {
   try {
-    return execSync('git rev-parse --abbrev-ref HEAD', {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim() || undefined;
+    return (
+      execSync('git rev-parse --abbrev-ref HEAD', {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim() || undefined
+    );
   } catch {
     return undefined;
   }

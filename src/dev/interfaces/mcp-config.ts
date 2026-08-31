@@ -89,7 +89,9 @@ export function readMcpConfig(
     try {
       return readFileSync(join(mcpDir, rel), 'utf-8');
     } catch {
-      throw new Error(`MCP ${label} not found at ${rel} — run your build command`);
+      throw new Error(
+        `MCP ${label} not found at ${rel} — run your build command`,
+      );
     }
   };
 
@@ -102,7 +104,10 @@ export function readMcpConfig(
   const tools: McpToolConfig[] = (config.tools ?? []).map(
     (tool: McpToolConfig) => ({
       ...tool,
-      description: readRef(tool.description, `tool description for "${tool.method}"`),
+      description: readRef(
+        tool.description,
+        `tool description for "${tool.method}"`,
+      ),
     }),
   );
 
@@ -110,7 +115,10 @@ export function readMcpConfig(
   const prompts: McpPromptConfig[] = (config.prompts ?? []).map(
     (prompt: McpPromptConfig) => ({
       ...prompt,
-      template: readRef(prompt.template, `prompt template for "${prompt.name}"`),
+      template: readRef(
+        prompt.template,
+        `prompt template for "${prompt.name}"`,
+      ),
     }),
   );
 

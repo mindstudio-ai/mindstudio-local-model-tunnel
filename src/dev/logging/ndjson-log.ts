@@ -116,7 +116,6 @@ export class NdjsonLog {
       fs.writeFileSync(this.logPath, kept.join('\n') + '\n', 'utf-8');
       this.fd = fs.openSync(this.logPath, 'a');
       this.lineCount = kept.length;
-
     } catch {
       // Best effort
     } finally {

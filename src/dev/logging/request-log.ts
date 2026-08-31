@@ -111,7 +111,10 @@ export function logScenarioExecution(entry: ScenarioLogEntry): void {
     ts: Date.now(),
     level: 'info',
     module: 'execution',
-    msg: (entry.result?.success ?? false) ? 'Scenario complete' : 'Scenario failed',
+    msg:
+      (entry.result?.success ?? false)
+        ? 'Scenario complete'
+        : 'Scenario failed',
     type: 'scenario',
     sessionId: entry.sessionId,
     scenario: {

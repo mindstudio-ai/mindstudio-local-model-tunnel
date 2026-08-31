@@ -102,7 +102,9 @@ export function InterfaceRunningView({
 
   const [cursorIndex, setCursorIndex] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     return () => clearTimeout(copiedTimerRef.current);
