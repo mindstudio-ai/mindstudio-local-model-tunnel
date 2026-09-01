@@ -3,6 +3,8 @@ export { resolveChromePath } from './chrome-path';
 export {
   captureViaCdp,
   renderHtmlCapture,
+  RENDER_MIN_DIMENSION,
+  RENDER_MAX_DIMENSION,
   ScreenshotTimeoutError,
 } from './screenshot';
 export type { CaptureOpts, CaptureResult, RenderHtmlOpts } from './screenshot';

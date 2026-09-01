@@ -964,7 +964,10 @@ export class DevProxy {
     }
 
     // Telemetry trio mocked locally so the SDK doesn't flood the real backend
-    // with dev-noise events or hold open a real-backend presence SSE.
+    // with dev-noise events or hold open a real-backend presence SSE. The
+    // telemetry endpoints are the ONLY ones that should ever be mocked here —
+    // /_/events (app-events subscribe) superficially resembles presence but is
+    // app data, and mocking it would make the feature silently dead in dev.
     if (tryHandleTelemetry(clientReq, clientRes, this.sseConnections)) {
       return;
     }
@@ -1050,6 +1053,24 @@ export class DevProxy {
         }
 
         clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
+
+        // A forwarded long-lived SSE (e.g. an app-events subscription on
+        // /_/events) must be tracked like the telemetry mock's streams:
+        // stop() ends everything in sseConnections so server.close() doesn't
+        // hang waiting on it. Also tear down the upstream leg when the
+        // browser side closes, so the real API isn't left streaming into a
+        // dead response.
+        const isSse = String(proxyRes.headers['content-type'] ?? '').includes(
+          'text/event-stream',
+        );
+        if (isSse) {
+          this.sseConnections.add(clientRes);
+          clientRes.on('close', () => {
+            this.sseConnections.delete(clientRes);
+            proxyReq.destroy();
+          });
+        }
+
         proxyRes.pipe(clientRes);
       },
     );

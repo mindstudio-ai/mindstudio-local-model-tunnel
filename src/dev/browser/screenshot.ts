@@ -467,12 +467,23 @@ async function restoreAgentCursor(
  * Best-effort — all timeouts swallowed. If the page can't be scrolled
  * (short content, scroll-locked body) the function is effectively a no-op.
  */
+/** CSS-pixel bounds for a render viewport, and for the measured height an
+ * `autoHeight` render grows to. Defined here rather than in the command
+ * handler so validation and measurement clamp to the same numbers. */
+export const RENDER_MIN_DIMENSION = 16;
+export const RENDER_MAX_DIMENSION = 4096;
+
 export interface RenderHtmlOpts {
   /** Complete, self-contained HTML document to render. */
   html: string;
   /** Viewport dimensions in CSS pixels. */
   width: number;
   height: number;
+  /** Fit the capture to the document's own height, so a document that declares
+   * no height is captured whole rather than clipped to `height` or padded out
+   * to it. `height` then acts as the starting layout viewport. For authored
+   * graphics sized to an exact canvas, leave this off. */
+  autoHeight?: boolean;
   /** Render with a transparent default background (true-alpha PNG). Only
    * meaningful when the document itself leaves its background transparent. */
   transparent?: boolean;
@@ -497,7 +508,7 @@ const FONT_READY_TIMEOUT_MS = 3_000;
  * QA screenshots or browser automation. The document is injected with
  * `setContent`, never served through the dev proxy, so no browser-agent script
  * is present and no styleMap is produced — intentional: the output is a
- * fixed-size graphic, not an app page.
+ * standalone graphic, not an app page.
  */
 export async function renderHtmlCapture(
   appPage: Page,
@@ -549,17 +560,82 @@ async function renderHtmlInner(
     ]);
 
     // One painted frame so the loaded fonts/images are composited.
-    await page
-      .evaluate(
-        (delayMs: number) =>
-          new Promise<void>((resolve) =>
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => setTimeout(resolve, delayMs)),
+    const paintSettle = () =>
+      page
+        .evaluate(
+          (delayMs: number) =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => setTimeout(resolve, delayMs)),
+              ),
             ),
-          ),
-        VIEWPORT_PAINT_SETTLE_MS,
-      )
-      .catch(() => {});
+          VIEWPORT_PAINT_SETTLE_MS,
+        )
+        .catch(() => {});
+
+    await paintSettle();
+
+    // A document that declares no height of its own — a wireframe, an
+    // arbitrary page — would be clipped to the requested viewport, since the
+    // capture below is a viewport clip. Measure what it actually needs and fit
+    // to it. Measured here, after fonts and images have landed, because both
+    // change the height.
+    //
+    // `scrollHeight` alone can only grow the canvas, never shrink it: it never
+    // reports less than the viewport, so a 300px document in a 1400px viewport
+    // measures 1400 and gets reviewed with 1100px of dead space. So take the
+    // extent of the body's own children — the same union-of-rects approach the
+    // dashboard's wireframe preview uses to size its iframe — and fall back to
+    // `scrollHeight` for content that overflows, or for a body holding bare
+    // text with no element children to measure.
+    let cssHeight = opts.height;
+    if (opts.autoHeight) {
+      const needed = await page
+        .evaluate(() => {
+          const body = document.body;
+          let bottom = 0;
+          for (const el of Array.from(body?.children ?? [])) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 || rect.height > 0) {
+              bottom = Math.max(bottom, rect.bottom);
+            }
+          }
+          if (bottom > 0 && body) {
+            const style = getComputedStyle(body);
+            bottom +=
+              (parseFloat(style.paddingBottom) || 0) +
+              (parseFloat(style.marginBottom) || 0);
+          }
+          const scroll = Math.max(
+            document.documentElement.scrollHeight,
+            body?.scrollHeight ?? 0,
+          );
+          if (bottom <= 0) {
+            return Math.ceil(scroll);
+          }
+          // Overflowing content is the one case scrollHeight is authoritative
+          // for, since a child may itself be scrolled or absolutely placed.
+          return Math.ceil(
+            scroll > window.innerHeight ? Math.max(bottom, scroll) : bottom,
+          );
+        })
+        .catch(() => 0);
+      const target = Math.min(
+        Math.max(needed, RENDER_MIN_DIMENSION),
+        RENDER_MAX_DIMENSION,
+      );
+      if (needed > 0 && target !== cssHeight) {
+        cssHeight = target;
+        await page.setViewport({
+          width: opts.width,
+          height: cssHeight,
+          deviceScaleFactor: scale,
+        });
+        // Resizing reflows — `100vh` blocks and centered flex content both
+        // change with the viewport — so let the new layout paint.
+        await paintSettle();
+      }
+    }
 
     const client = await page.createCDPSession();
     let buf: Buffer;
@@ -594,7 +670,7 @@ async function renderHtmlInner(
     return {
       uploaded: true,
       width: opts.width * scale,
-      height: opts.height * scale,
+      height: cssHeight * scale,
     };
   } finally {
     // Runs when the work truly finishes — even if withTimeout already gave up
