@@ -347,6 +347,15 @@ async function captureViaCdpInner(
   // page.screenshot() sends for the same options: it defaults
   // captureBeyondViewport to true, then forces it false for non-fullPage shots,
   // and omits quality for png. Verified byte-identical for all three modes.
+  //
+  // One consequence of the separate session: device metrics overrides are
+  // session-scoped, so this capture renders at 1 device pixel per CSS pixel
+  // even in mobile preview, where the viewport preset emulates a 2x ratio.
+  // Left alone deliberately. The `width`/`height` reported above are CSS
+  // pixels, so they agree with what comes back, and a 2x app screenshot would
+  // quadruple the bytes for a vision model that resizes it on the way in.
+  // renderHtmlInner takes the other choice — it *sells* `scale` — and gets
+  // there with an explicit `clip`, which is how you'd change this too.
   const client = await page.createCDPSession();
   let buf: Buffer;
   try {
@@ -487,7 +496,10 @@ export interface RenderHtmlOpts {
   /** Render with a transparent default background (true-alpha PNG). Only
    * meaningful when the document itself leaves its background transparent. */
   transparent?: boolean;
-  /** Device scale factor — output pixels are css × scale. Clamped to 1–3. */
+  /** Device scale factor — output pixels are css × scale. Clamped to 1–3, and
+   * reduced further if the scaled output would exceed the pixel budget a
+   * max-size 1x render already permits (see effectiveScale). The returned
+   * width/height are always the pixels actually captured. */
   scale?: number;
   uploadUrl: string;
   uploadFields: Record<string, string>;
@@ -497,6 +509,28 @@ export interface RenderHtmlOpts {
  * Webfonts from CDNs are the norm for rendered brand graphics; a font that
  * hasn't arrived by now isn't coming inside the budget. */
 const FONT_READY_TIMEOUT_MS = 3_000;
+
+/**
+ * Largest scale that keeps the output inside the pixel budget a max-size 1x
+ * render already permits, so honouring `scale` can't ask the one
+ * software-rasterizing Chrome for a surface an unscaled render never could.
+ * Without this, the documented maximums multiply out: 4096×4096 at 3x is a
+ * 12288² surface, ~150M pixels, where the same ceiling at 1x is ~17M. Only
+ * ever reduces — a scale small enough to fit is returned untouched, which is
+ * every realistic call (an icon master is 512², a share card 1200×630).
+ */
+function effectiveScale(
+  width: number,
+  height: number,
+  requested: number,
+): number {
+  const budget = RENDER_MAX_DIMENSION * RENDER_MAX_DIMENSION;
+  let scale = requested;
+  while (scale > 1 && width * scale * height * scale > budget) {
+    scale--;
+  }
+  return scale;
+}
 
 /**
  * Render an agent-authored HTML document and capture it as a PNG.
@@ -525,14 +559,14 @@ async function renderHtmlInner(
 ): Promise<{ uploaded: true; width: number; height: number }> {
   const deadline = Date.now() + budgetMs;
   const remaining = () => Math.max(1_000, deadline - Date.now());
-  const scale = Math.min(Math.max(opts.scale ?? 1, 1), 3);
+  const requestedScale = Math.min(Math.max(opts.scale ?? 1, 1), 3);
 
   const page = await appPage.browser().newPage();
   try {
     await page.setViewport({
       width: opts.width,
       height: opts.height,
-      deviceScaleFactor: scale,
+      deviceScaleFactor: requestedScale,
     });
     await page.setContent(opts.html, {
       waitUntil: 'load',
@@ -624,17 +658,24 @@ async function renderHtmlInner(
         Math.max(needed, RENDER_MIN_DIMENSION),
         RENDER_MAX_DIMENSION,
       );
-      if (needed > 0 && target !== cssHeight) {
+      if (needed > 0) {
         cssHeight = target;
-        await page.setViewport({
-          width: opts.width,
-          height: cssHeight,
-          deviceScaleFactor: scale,
-        });
-        // Resizing reflows — `100vh` blocks and centered flex content both
-        // change with the viewport — so let the new layout paint.
-        await paintSettle();
       }
+    }
+
+    // Scale settles only now: its pixel budget is measured against the final
+    // height, which autoHeight may just have changed.
+    const scale = effectiveScale(opts.width, cssHeight, requestedScale);
+
+    if (cssHeight !== opts.height || scale !== requestedScale) {
+      await page.setViewport({
+        width: opts.width,
+        height: cssHeight,
+        deviceScaleFactor: scale,
+      });
+      // Resizing reflows — `100vh` blocks and centered flex content both
+      // change with the viewport — so let the new layout paint.
+      await paintSettle();
     }
 
     const client = await page.createCDPSession();
@@ -648,9 +689,29 @@ async function renderHtmlInner(
           color: { r: 0, g: 0, b: 0, a: 0 },
         });
       }
+      // The clip is what makes `scale` real. `Emulation.setDeviceMetricsOverride`
+      // — which is what page.setViewport sends, and which carries the device
+      // scale factor — is scoped to the session that sent it, and this is a
+      // fresh session (see the note in captureViaCdpInner for why the capture
+      // runs on its own session at all). So a capture issued here renders the
+      // surface at 1 device pixel per CSS pixel no matter what ratio the page
+      // is emulating: scale 1, 2 and 3 all produced an identical 600×500 PNG
+      // while this function reported 600×500, 1200×1000 and 1800×1500. An
+      // explicit clip carries the factor on the command itself, so it doesn't
+      // depend on session state, and the reported dimensions are the real ones.
       const { data } = await client.send(
         'Page.captureScreenshot',
-        { format: 'png', captureBeyondViewport: false },
+        {
+          format: 'png',
+          captureBeyondViewport: false,
+          clip: {
+            x: 0,
+            y: 0,
+            width: opts.width,
+            height: cssHeight,
+            scale,
+          },
+        },
         { timeout: remaining() },
       );
       buf = Buffer.from(data, 'base64');
