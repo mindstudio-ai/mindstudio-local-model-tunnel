@@ -31,11 +31,21 @@ import { setApiKey, setUserId } from '../../config';
 import { randomBytes } from 'node:crypto';
 import { runJewelTest, JewelTestResult, jewelUserIdForApp } from './jewel';
 import { log } from '../logging/logger';
-import { logMethodExecution, logScenarioExecution } from '../logging/request-log';
+import {
+  logMethodExecution,
+  logScenarioExecution,
+} from '../logging/request-log';
 import { formatErrorForDisplay } from './format-error';
 import { readConfig } from '../interfaces/read-config';
 import type { DevProxy } from '../proxy/proxy';
-import type { DevSession, DevRequest, DevResult, AppScenario, AppConfig, AppMethod } from '../config/types';
+import type {
+  DevSession,
+  DevRequest,
+  DevResult,
+  AppScenario,
+  AppConfig,
+  AppMethod,
+} from '../config/types';
 
 // Reserved sentinel on run-method's userId: resolves to the dev-bypass user
 // (find-or-create via platform), so agents can invoke auth-gated methods
@@ -99,7 +109,10 @@ export class DevRunner {
       throw new Error('DevRunner is already running');
     }
 
-    log.info('runner', 'Dev session starting', { appId: this.appId, branch: this.startOpts.branch });
+    log.info('runner', 'Dev session starting', {
+      appId: this.appId,
+      branch: this.startOpts.branch,
+    });
     const session = await startDevSession(this.appId, this.startOpts);
 
     // Default auth is anonymous — matches production behavior for
@@ -114,7 +127,10 @@ export class DevRunner {
     this.isRunning = true;
     this.backoffMs = 1000;
 
-    log.info('runner', 'Dev session started', { sessionId: session.sessionId, branch: session.branch });
+    log.info('runner', 'Dev session started', {
+      sessionId: session.sessionId,
+      branch: session.branch,
+    });
 
     return session;
   }
@@ -134,7 +150,9 @@ export class DevRunner {
       try {
         await stopDevSession(this.appId, this.session.sessionId);
       } catch (err) {
-        log.warn('runner', 'Failed to stop dev session cleanly', { error: err instanceof Error ? err.message : String(err) });
+        log.warn('runner', 'Failed to stop dev session cleanly', {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
       this.session = null;
     }
@@ -189,18 +207,36 @@ export class DevRunner {
      *  write by a debounce — the same window run-method's retry-aware read
      *  already closes for method lookup. */
     appConfig?: AppConfig | null;
-  }): Promise<{ success: boolean; output?: unknown; error?: Record<string, unknown> | null; stdout?: string[]; duration: number }> {
+  }): Promise<{
+    success: boolean;
+    output?: unknown;
+    error?: Record<string, unknown> | null;
+    stdout?: string[];
+    duration: number;
+  }> {
     if (!this.session || !this.transpiler) {
-      return { success: false, error: { message: 'Session not started' }, duration: 0 };
+      return {
+        success: false,
+        error: { message: 'Session not started' },
+        duration: 0,
+      };
     }
 
     const requestId = randomBytes(8).toString('hex');
     const startTime = Date.now();
 
-    log.info('runner', 'Method received', { requestId, method: opts.methodExport, source: 'direct', sessionId: this.session.sessionId });
+    log.info('runner', 'Method received', {
+      requestId,
+      method: opts.methodExport,
+      source: 'direct',
+      sessionId: this.session.sessionId,
+    });
 
     try {
-      const { authorizationToken, secrets } = await fetchCallbackToken(this.appId, this.session.sessionId);
+      const { authorizationToken, secrets } = await fetchCallbackToken(
+        this.appId,
+        this.session.sessionId,
+      );
       const transpiledPath = await this.transpiler.transpile(opts.methodPath);
 
       const auth = await this.resolveRunAsAuth(opts);
@@ -223,7 +259,12 @@ export class DevRunner {
       const duration = Date.now() - startTime;
 
       if (result.success) {
-        log.info('runner', 'Method complete', { requestId, method: opts.methodExport, duration, sessionId: this.session.sessionId });
+        log.info('runner', 'Method complete', {
+          requestId,
+          method: opts.methodExport,
+          duration,
+          sessionId: this.session.sessionId,
+        });
       } else {
         log.warn('runner', 'Method failed', {
           requestId,
@@ -257,7 +298,13 @@ export class DevRunner {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       const duration = Date.now() - startTime;
-      log.error('runner', 'Method execution error', { requestId, method: opts.methodExport, duration, error: message, sessionId: this.session.sessionId });
+      log.error('runner', 'Method execution error', {
+        requestId,
+        method: opts.methodExport,
+        duration,
+        error: message,
+        sessionId: this.session.sessionId,
+      });
 
       logMethodExecution({
         requestId,
@@ -303,7 +350,10 @@ export class DevRunner {
   // Run a scenario: truncate tables → execute seed → assign the scenario's
   // roles to the dev test user. Called directly (not via poll loop) by the
   // TUI or headless stdin.
-  async runScenario(scenario: AppScenario, opts?: { skipTruncate?: boolean }): Promise<{
+  async runScenario(
+    scenario: AppScenario,
+    opts?: { skipTruncate?: boolean },
+  ): Promise<{
     success: boolean;
     databases: DevSession['databases'];
     error?: string;
@@ -316,13 +366,21 @@ export class DevRunner {
     const startTime = Date.now();
     const scenarioName = scenario.name ?? scenario.export;
 
-    log.info('runner', 'Scenario starting', { requestId, id: scenario.id, name: scenarioName });
+    log.info('runner', 'Scenario starting', {
+      requestId,
+      id: scenario.id,
+      name: scenarioName,
+    });
 
     try {
       // 1. Truncate all tables (clean slate) unless caller opts out
       if (!opts?.skipTruncate) {
         log.debug('runner', 'Resetting database for scenario');
-        const databases = await resetDevDatabase(this.appId, this.session.sessionId, 'truncate');
+        const databases = await resetDevDatabase(
+          this.appId,
+          this.session.sessionId,
+          'truncate',
+        );
         this.session.databases = databases;
         // Truncation deleted the synced users-table row behind the cached
         // test user id — drop the cache so the next use re-upserts it.
@@ -335,9 +393,14 @@ export class DevRunner {
 
       // Fetch a callback token + dev secrets for the seed execution —
       // same scoping as poll-based tokens, but not tied to a poll request.
-      const { authorizationToken, secrets } = await fetchCallbackToken(this.appId, this.session.sessionId);
+      const { authorizationToken, secrets } = await fetchCallbackToken(
+        this.appId,
+        this.session.sessionId,
+      );
 
-      log.debug('runner', 'Running scenario seed function', { export: scenario.export });
+      log.debug('runner', 'Running scenario seed function', {
+        export: scenario.export,
+      });
       const result = await executeMethod({
         requestId,
         transpiledPath,
@@ -355,7 +418,12 @@ export class DevRunner {
 
       if (!result.success) {
         const error = result.error?.message ?? 'Scenario seed failed';
-        log.error('runner', 'Scenario seed function failed', { id: scenario.id, name: scenarioName, duration: Date.now() - startTime, error });
+        log.error('runner', 'Scenario seed function failed', {
+          id: scenario.id,
+          name: scenarioName,
+          duration: Date.now() - startTime,
+          error,
+        });
         logScenarioExecution({
           sessionId: this.session.sessionId,
           scenario,
@@ -372,15 +440,26 @@ export class DevRunner {
       // no users to hold roles.
       if (scenario.roles.length > 0) {
         if (this.appConfig?.auth?.enabled) {
-          log.debug('runner', 'Assigning scenario roles to test user', { roles: scenario.roles });
+          log.debug('runner', 'Assigning scenario roles to test user', {
+            roles: scenario.roles,
+          });
           await this.setTestUserRoles(scenario.roles);
         } else {
-          log.warn('runner', 'Scenario declares roles but auth is not enabled — skipping role assignment', { roles: scenario.roles });
+          log.warn(
+            'runner',
+            'Scenario declares roles but auth is not enabled — skipping role assignment',
+            { roles: scenario.roles },
+          );
         }
       }
 
       const duration = Date.now() - startTime;
-      log.info('runner', 'Scenario complete', { id: scenario.id, name: scenarioName, duration, roles: scenario.roles });
+      log.info('runner', 'Scenario complete', {
+        id: scenario.id,
+        name: scenarioName,
+        duration,
+        roles: scenario.roles,
+      });
       logScenarioExecution({
         sessionId: this.session.sessionId,
         scenario,
@@ -391,7 +470,12 @@ export class DevRunner {
       return { success: true, databases: this.session.databases };
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Unknown error';
-      log.error('runner', 'Scenario failed', { id: scenario.id, name: scenarioName, duration: Date.now() - startTime, error });
+      log.error('runner', 'Scenario failed', {
+        id: scenario.id,
+        name: scenarioName,
+        duration: Date.now() - startTime,
+        error,
+      });
       logScenarioExecution({
         sessionId: this.session.sessionId,
         scenario,
@@ -499,18 +583,33 @@ export class DevRunner {
 
     // Resolve method from app config by ID — the API only sends methodId,
     // we look up the export name and file path from mindstudio.json.
-    const method = this.appConfig?.methods.find((m) => m.id === request.methodId);
+    const method = this.appConfig?.methods.find(
+      (m) => m.id === request.methodId,
+    );
     if (!method) {
       const message = `Unknown method ID: ${request.methodId}`;
-      log.error('runner', message, { requestId: request.requestId, sessionId: session.sessionId });
+      log.error('runner', message, {
+        requestId: request.requestId,
+        sessionId: session.sessionId,
+      });
       try {
-        await submitDevResult(this.appId, session.sessionId, request.requestId, {
-          type: 'execute',
-          success: false,
-          error: { message },
-        });
+        await submitDevResult(
+          this.appId,
+          session.sessionId,
+          request.requestId,
+          {
+            type: 'execute',
+            success: false,
+            error: { message },
+          },
+        );
       } catch {}
-      devRequestEvents.emitComplete({ id: request.requestId, success: false, duration: 0, error: message });
+      devRequestEvents.emitComplete({
+        id: request.requestId,
+        success: false,
+        duration: 0,
+        error: message,
+      });
       return;
     }
 
@@ -521,15 +620,28 @@ export class DevRunner {
     const jewel = request.jewel ? method.jewel : undefined;
     if (request.jewel && !jewel) {
       const message = `Method ${method.id} declares no jewel in mindstudio.json`;
-      log.error('runner', message, { requestId: request.requestId, sessionId: session.sessionId });
+      log.error('runner', message, {
+        requestId: request.requestId,
+        sessionId: session.sessionId,
+      });
       try {
-        await submitDevResult(this.appId, session.sessionId, request.requestId, {
-          type: 'execute',
-          success: false,
-          error: { message },
-        });
+        await submitDevResult(
+          this.appId,
+          session.sessionId,
+          request.requestId,
+          {
+            type: 'execute',
+            success: false,
+            error: { message },
+          },
+        );
       } catch {}
-      devRequestEvents.emitComplete({ id: request.requestId, success: false, duration: 0, error: message });
+      devRequestEvents.emitComplete({
+        id: request.requestId,
+        success: false,
+        duration: 0,
+        error: message,
+      });
       return;
     }
     const execPath = jewel ? jewel.path : method.path;
@@ -542,7 +654,13 @@ export class DevRunner {
       timestamp: startTime,
     });
 
-    log.info('runner', 'Method received', { requestId: request.requestId, method: method.export, jewel: !!jewel, source: 'poll', sessionId: session.sessionId });
+    log.info('runner', 'Method received', {
+      requestId: request.requestId,
+      method: method.export,
+      jewel: !!jewel,
+      source: 'poll',
+      sessionId: session.sessionId,
+    });
 
     try {
       const t0 = Date.now();
@@ -613,7 +731,12 @@ export class DevRunner {
         totalMs: duration,
       };
       if (result.success) {
-        log.info('runner', 'Method complete', { requestId: request.requestId, method: method.export, timing, sessionId: session.sessionId });
+        log.info('runner', 'Method complete', {
+          requestId: request.requestId,
+          method: method.export,
+          timing,
+          sessionId: session.sessionId,
+        });
       } else {
         log.warn('runner', 'Method failed', {
           requestId: request.requestId,
@@ -645,10 +768,15 @@ export class DevRunner {
         error: result.error ? formatErrorForDisplay(result.error) : undefined,
       });
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown error';
+      const message = error instanceof Error ? error.message : 'Unknown error';
       const duration = Date.now() - startTime;
-      log.error('runner', 'Method execution error', { requestId: request.requestId, method: method.export, duration, error: message, sessionId: session.sessionId });
+      log.error('runner', 'Method execution error', {
+        requestId: request.requestId,
+        method: method.export,
+        duration,
+        error: message,
+        sessionId: session.sessionId,
+      });
 
       try {
         await submitDevResult(
@@ -662,7 +790,10 @@ export class DevRunner {
           },
         );
       } catch (submitErr) {
-        log.error('runner', 'Failed to report method error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
+        log.error('runner', 'Failed to report method error to platform', {
+          error:
+            submitErr instanceof Error ? submitErr.message : String(submitErr),
+        });
       }
 
       logMethodExecution({
@@ -689,7 +820,10 @@ export class DevRunner {
   private async handleGetConfig(request: DevRequest): Promise<void> {
     const session = this.session;
     if (!session) return;
-    log.info('runner', 'Config requested', { requestId: request.requestId, sessionId: session.sessionId });
+    log.info('runner', 'Config requested', {
+      requestId: request.requestId,
+      sessionId: session.sessionId,
+    });
 
     try {
       if (!this.appConfig) {
@@ -698,21 +832,19 @@ export class DevRunner {
 
       const config = readConfig(this.projectRoot, this.appConfig);
 
-      await submitDevResult(
-        this.appId,
-        session.sessionId,
-        request.requestId,
-        {
-          type: 'get-config',
-          success: true,
-          output: config,
-        },
-      );
+      await submitDevResult(this.appId, session.sessionId, request.requestId, {
+        type: 'get-config',
+        success: true,
+        output: config,
+      });
 
       log.info('runner', 'Config sent', { requestId: request.requestId });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      log.error('runner', 'Config failed', { requestId: request.requestId, error: message });
+      log.error('runner', 'Config failed', {
+        requestId: request.requestId,
+        error: message,
+      });
 
       try {
         await submitDevResult(
@@ -726,7 +858,10 @@ export class DevRunner {
           },
         );
       } catch (submitErr) {
-        log.error('runner', 'Failed to report config error to platform', { error: submitErr instanceof Error ? submitErr.message : String(submitErr) });
+        log.error('runner', 'Failed to report config error to platform', {
+          error:
+            submitErr instanceof Error ? submitErr.message : String(submitErr),
+        });
       }
     }
   }
@@ -751,7 +886,10 @@ export class DevRunner {
         const open = (await import('open')).default;
         await open(url);
       } catch {
-        log.warn('runner', 'Could not open browser — visit URL to re-authenticate');
+        log.warn(
+          'runner',
+          'Could not open browser — visit URL to re-authenticate',
+        );
       }
 
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -779,7 +917,9 @@ export class DevRunner {
       devRequestEvents.emitAuthRefreshFailed();
       return false;
     } catch (err) {
-      log.error('runner', 'Re-authentication failed', { error: err instanceof Error ? err.message : String(err) });
+      log.error('runner', 'Re-authentication failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       devRequestEvents.emitAuthRefreshFailed();
       return false;
     }
@@ -899,4 +1039,3 @@ export class DevRunner {
     return id;
   }
 }
-

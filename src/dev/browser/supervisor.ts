@@ -434,10 +434,12 @@ export class BrowserSupervisor {
     // mid-navigation, say) still proves the renderer is making progress.
     // Only a hang is a wedge.
     const alive = await Promise.race([
-      page.evaluate(() => true).then(
-        () => true,
-        () => true,
-      ),
+      page
+        .evaluate(() => true)
+        .then(
+          () => true,
+          () => true,
+        ),
       new Promise<boolean>((resolve) =>
         setTimeout(() => resolve(false), PAGE_PING_TIMEOUT_MS),
       ),

@@ -6,7 +6,8 @@ export async function handleRunScenario(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!ctx.state.runner) throw new CommandError('No active session', 'NO_SESSION');
+  if (!ctx.state.runner)
+    throw new CommandError('No active session', 'NO_SESSION');
 
   // Retry-aware manifest read — closes the same race window as run-method
   // for scenarios added immediately before invocation.
@@ -16,7 +17,8 @@ export async function handleRunScenario(
       c.scenarios.some((s) => s.id === scenarioId),
     )) ?? ctx.state.appConfig;
   const scenario = freshConfig?.scenarios.find((s) => s.id === scenarioId);
-  if (!scenario) throw new CommandError(`Unknown scenario: ${scenarioId}`, 'INVALID_INPUT');
+  if (!scenario)
+    throw new CommandError(`Unknown scenario: ${scenarioId}`, 'INVALID_INPUT');
 
   const scenarioName = scenario.name ?? scenario.export;
   ctx.started({ scenarioId: scenario.id, name: scenarioName });

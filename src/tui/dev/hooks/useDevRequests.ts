@@ -22,9 +22,7 @@ export function useDevRequests() {
       };
 
       requestsRef.current.set(event.id, entry);
-      setRequests(
-        Array.from(requestsRef.current.values()).slice(-MAX_HISTORY),
-      );
+      setRequests(Array.from(requestsRef.current.values()).slice(-MAX_HISTORY));
     });
 
     const unsubComplete = devRequestEvents.onComplete((event) => {
@@ -53,17 +51,13 @@ export function useDevRequests() {
     if (!hasActive) return;
 
     const interval = setInterval(() => {
-      setRequests(
-        Array.from(requestsRef.current.values()).slice(-MAX_HISTORY),
-      );
+      setRequests(Array.from(requestsRef.current.values()).slice(-MAX_HISTORY));
     }, 1000);
 
     return () => clearInterval(interval);
   }, [requests]);
 
-  const activeCount = requests.filter(
-    (r) => r.status === 'processing',
-  ).length;
+  const activeCount = requests.filter((r) => r.status === 'processing').length;
 
   return { requests, activeCount };
 }

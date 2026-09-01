@@ -12,9 +12,13 @@ async function main() {
     await startHeadless({
       cwd: process.cwd(),
       devPort: getFlag('--port') ? Number(getFlag('--port')) : undefined,
-      proxyPort: getFlag('--proxy-port') ? Number(getFlag('--proxy-port')) : undefined,
+      proxyPort: getFlag('--proxy-port')
+        ? Number(getFlag('--proxy-port'))
+        : undefined,
       bindAddress: getFlag('--bind'),
-      logLevel: (getFlag('--log-level') as 'error' | 'warn' | 'info' | 'debug') ?? undefined,
+      logLevel:
+        (getFlag('--log-level') as 'error' | 'warn' | 'info' | 'debug') ??
+        undefined,
       sandboxBrowser: process.argv.includes('--sandbox-browser'),
     });
   } else {

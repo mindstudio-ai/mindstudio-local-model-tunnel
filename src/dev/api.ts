@@ -122,7 +122,9 @@ export function sessionMethodsPayload(
     path: m.path,
     ...(m.autonomy ? { autonomy: m.autonomy } : {}),
     ...(m.sampleRate !== undefined ? { sampleRate: m.sampleRate } : {}),
-    ...(m.jewel ? { jewel: { path: m.jewel.path, export: m.jewel.export } } : {}),
+    ...(m.jewel
+      ? { jewel: { path: m.jewel.path, export: m.jewel.export } }
+      : {}),
   }));
 }
 

@@ -23,7 +23,12 @@ export class ClientRegistry {
 
   add(
     ws: WebSocket,
-    hello: { mode: 'iframe' | 'standalone' | 'mirror' | 'headless'; url: string; viewport: { w: number; h: number }; mirror?: boolean },
+    hello: {
+      mode: 'iframe' | 'standalone' | 'mirror' | 'headless';
+      url: string;
+      viewport: { w: number; h: number };
+      mirror?: boolean;
+    },
   ): string {
     const id = randomBytes(4).toString('hex');
     this.clients.set(id, {
@@ -38,7 +43,12 @@ export class ClientRegistry {
       alive: true,
       activeCommandId: null,
     });
-    log.info('proxy', 'Browser client connected', { clientId: id, mode: hello.mode, mirror: !!hello.mirror, url: hello.url });
+    log.info('proxy', 'Browser client connected', {
+      clientId: id,
+      mode: hello.mode,
+      mirror: !!hello.mirror,
+      url: hello.url,
+    });
     return id;
   }
 
@@ -46,7 +56,10 @@ export class ClientRegistry {
     const client = this.clients.get(id);
     if (client) {
       this.clients.delete(id);
-      log.info('proxy', 'Browser client disconnected', { clientId: id, mode: client.mode });
+      log.info('proxy', 'Browser client disconnected', {
+        clientId: id,
+        mode: client.mode,
+      });
     }
     return client;
   }
@@ -138,8 +151,14 @@ export class ClientRegistry {
     const removed: { clientId: string; activeCommandId: string | null }[] = [];
     for (const client of this.clients.values()) {
       if (!client.alive) {
-        log.warn('proxy', 'Browser client timed out (no pong)', { clientId: client.id, activeCommandId: client.activeCommandId });
-        removed.push({ clientId: client.id, activeCommandId: client.activeCommandId });
+        log.warn('proxy', 'Browser client timed out (no pong)', {
+          clientId: client.id,
+          activeCommandId: client.activeCommandId,
+        });
+        removed.push({
+          clientId: client.id,
+          activeCommandId: client.activeCommandId,
+        });
         this.clients.delete(client.id);
         client.ws.terminate();
       }

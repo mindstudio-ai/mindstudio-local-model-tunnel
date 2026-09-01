@@ -1,17 +1,23 @@
 import { getUploadUrl } from '../api';
-import { renderHtmlCapture } from '../browser';
+import {
+  renderHtmlCapture,
+  RENDER_MIN_DIMENSION as MIN_DIMENSION,
+  RENDER_MAX_DIMENSION as MAX_DIMENSION,
+} from '../browser';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
 
-const MIN_DIMENSION = 16;
-const MAX_DIMENSION = 4096;
-
 /**
  * Render an agent-authored HTML document in a fresh browser tab and capture
- * it as a PNG at exact dimensions. Used for deterministic brand graphics
- * (share cards, wordmarks, flat icon tiles) where the design agent composes
- * HTML/CSS and needs real pixels back — as opposed to the screenshot
- * commands, which photograph the served app.
+ * it as a PNG. Used for deterministic brand graphics (share cards, wordmarks,
+ * flat icon tiles) where the design agent composes HTML/CSS and needs real
+ * pixels back — as opposed to the screenshot commands, which photograph the
+ * served app.
+ *
+ * `width`/`height` are the exact canvas by default. With `autoHeight`, the
+ * height is a starting viewport and the capture is fitted to whatever the
+ * document turns out to need — for documents that declare no height of their
+ * own, where an exact canvas either clips them or pads them out.
  */
 export async function handleRenderHtml(
   ctx: CommandContext,
@@ -63,6 +69,7 @@ export async function handleRenderHtml(
     width,
     height,
     scale,
+    autoHeight: cmd.autoHeight === true,
     transparent: cmd.transparent === true,
     uploadUrl,
     uploadFields,

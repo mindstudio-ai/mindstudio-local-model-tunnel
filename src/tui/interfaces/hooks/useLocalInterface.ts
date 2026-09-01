@@ -221,7 +221,10 @@ export function useLocalInterface({
           setPhase('running');
           const { args, env } = getDevLocalArgs();
           appendOutput('Starting local dev server...');
-          const devCode = await runCommand('npm', args, { cwd: targetDir, env });
+          const devCode = await runCommand('npm', args, {
+            cwd: targetDir,
+            env,
+          });
 
           if (mountedRef.current) {
             if (devCode !== 0 && !stoppedRef.current) {
@@ -235,7 +238,10 @@ export function useLocalInterface({
           setPhase('running');
           const { args, env } = getDevLocalArgs();
           appendOutput('Starting local dev server...');
-          const devCode = await runCommand('npm', args, { cwd: localPath, env });
+          const devCode = await runCommand('npm', args, {
+            cwd: localPath,
+            env,
+          });
 
           if (mountedRef.current) {
             if (devCode !== 0 && !stoppedRef.current) {

@@ -10,10 +10,15 @@ export async function handleSetTestUserRoles(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!ctx.state.runner) throw new CommandError('No active session', 'NO_SESSION');
+  if (!ctx.state.runner)
+    throw new CommandError('No active session', 'NO_SESSION');
 
   const roles = cmd.roles as string[];
-  if (!Array.isArray(roles)) throw new CommandError('set-test-user-roles requires a roles array', 'INVALID_INPUT');
+  if (!Array.isArray(roles))
+    throw new CommandError(
+      'set-test-user-roles requires a roles array',
+      'INVALID_INPUT',
+    );
 
   const user = await ctx.state.runner.setTestUserRoles(roles);
 
@@ -29,7 +34,8 @@ export async function handleSetTestUserRoles(
 export async function handleGetTestUser(
   ctx: CommandContext,
 ): Promise<Record<string, unknown>> {
-  if (!ctx.state.runner) throw new CommandError('No active session', 'NO_SESSION');
+  if (!ctx.state.runner)
+    throw new CommandError('No active session', 'NO_SESSION');
 
   const user = await ctx.state.runner.getTestUser();
   return { success: true, user, roles: (user.roles as string[]) ?? [] };

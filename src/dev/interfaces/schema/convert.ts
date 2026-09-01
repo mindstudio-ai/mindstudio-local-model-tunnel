@@ -52,7 +52,11 @@ export function convertTypeNode(
     node.typeName.text === 'Record' &&
     node.typeArguments?.length === 2
   ) {
-    const valueSchema = convertTypeNode(node.typeArguments[1], typeMap, sourceFile);
+    const valueSchema = convertTypeNode(
+      node.typeArguments[1],
+      typeMap,
+      sourceFile,
+    );
     return { type: 'object', additionalProperties: valueSchema };
   }
 

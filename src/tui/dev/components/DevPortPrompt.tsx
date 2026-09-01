@@ -30,12 +30,8 @@ export function DevPortPrompt({ onSubmit, onSkip }: DevPortPromptProps) {
 
   return (
     <Box flexDirection="column" paddingX={1} marginTop={1}>
-      <Text color="yellow">
-        No devPort found in your web interface config.
-      </Text>
-      <Text color="gray">
-        What port is your local dev server running on?
-      </Text>
+      <Text color="yellow">No devPort found in your web interface config.</Text>
+      <Text color="gray">What port is your local dev server running on?</Text>
       <Text color="gray" dimColor>
         Type &quot;skip&quot; for backend-only mode (no frontend proxying).
       </Text>
@@ -51,9 +47,7 @@ export function DevPortPrompt({ onSubmit, onSkip }: DevPortPromptProps) {
           placeholder="5173"
         />
       </Box>
-      {error && (
-        <Text color="red">{error}</Text>
-      )}
+      {error && <Text color="red">{error}</Text>}
     </Box>
   );
 }

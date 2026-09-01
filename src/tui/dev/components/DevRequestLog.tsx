@@ -64,10 +64,15 @@ function RequestEntry({ entry }: { entry: DevRequestLogEntry }) {
         <Box gap={1}>
           <Text color="red">✖</Text>
           <Text>{methodLabel}</Text>
-          {entry.duration != null && <Text color="gray">{entry.duration}ms</Text>}
+          {entry.duration != null && (
+            <Text color="gray">{entry.duration}ms</Text>
+          )}
         </Box>
         {errorLines.map((line, i) => (
-          <Text key={i} color="red" wrap="truncate">{'  '}{line}</Text>
+          <Text key={i} color="red" wrap="truncate">
+            {'  '}
+            {line}
+          </Text>
         ))}
       </Box>
     );

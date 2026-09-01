@@ -43,6 +43,12 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - run: npm ci
+
+      # tsup transpiles without typechecking, so the build alone catches no type
+      # errors. This is the gate tsup.config.ts already refers to for dev-worker,
+      # whose no-export isolated DTS compilation can't see node globals.
+      - run: npm run typecheck
+
       - run: npm run build
 
       - name: Publish to npm

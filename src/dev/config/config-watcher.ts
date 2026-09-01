@@ -27,7 +27,6 @@ export function watchConfigFile(
 
   const watcher = watch(configPath, {
     ignoreInitial: true,
-    disableGlobbing: true,
   });
 
   watcher.on('all', () => {
@@ -37,7 +36,9 @@ export function watchConfigFile(
     }, 500);
   });
 
-  log.info('config', 'Watching mindstudio.json for changes', { path: configPath });
+  log.info('config', 'Watching mindstudio.json for changes', {
+    path: configPath,
+  });
 
   return () => {
     clearTimeout(debounceTimer);
@@ -67,7 +68,6 @@ export function watchManifestFiles(
 
   const watcher = watch(manifestPath, {
     ignoreInitial: true,
-    disableGlobbing: true,
   });
 
   const updateInterfaceWatchers = (): void => {

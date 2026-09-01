@@ -24,7 +24,10 @@ export function TabBar({ tabs, activeTab }: TabBarProps) {
   const labelText = 'Screen  ';
   const hint = ' ←/→ ';
   const tabChars = tabSegments.reduce((sum, s) => sum + s.padded.length, 0);
-  const remaining = Math.max(0, width - tabChars - hint.length - labelText.length);
+  const remaining = Math.max(
+    0,
+    width - tabChars - hint.length - labelText.length,
+  );
 
   return (
     <Box>
@@ -40,7 +43,8 @@ export function TabBar({ tabs, activeTab }: TabBarProps) {
         </Text>
       ))}
       <Text color="#666666" backgroundColor="#333333">
-        {' '.repeat(remaining)}{hint}
+        {' '.repeat(remaining)}
+        {hint}
       </Text>
     </Box>
   );

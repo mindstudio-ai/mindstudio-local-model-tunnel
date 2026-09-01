@@ -17,7 +17,10 @@ export function subscribeDevEvents(
   // Platform-triggered method execution (poll loop)
   unsubs.push(
     devRequestEvents.onStart((event) => {
-      emitEvent('platform-method-started', { id: event.id, method: event.method });
+      emitEvent('platform-method-started', {
+        id: event.id,
+        method: event.method,
+      });
     }),
   );
 

@@ -10,15 +10,23 @@ export async function handleTestJewel(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!ctx.state.runner) throw new CommandError('No active session', 'NO_SESSION');
+  if (!ctx.state.runner)
+    throw new CommandError('No active session', 'NO_SESSION');
 
   const methodName = cmd.method as string;
-  if (!methodName) throw new CommandError('test-jewel requires "method" (export name or ID)', 'INVALID_INPUT');
+  if (!methodName)
+    throw new CommandError(
+      'test-jewel requires "method" (export name or ID)',
+      'INVALID_INPUT',
+    );
 
   const hasHumanInput = cmd.humanInput !== undefined;
   const hasSubject = cmd.subject !== undefined;
   if (hasHumanInput === hasSubject) {
-    throw new CommandError('test-jewel requires exactly one of "humanInput" (graded shadow-style run) or "subject" (ungraded eval run)', 'INVALID_INPUT');
+    throw new CommandError(
+      'test-jewel requires exactly one of "humanInput" (graded shadow-style run) or "subject" (ungraded eval run)',
+      'INVALID_INPUT',
+    );
   }
 
   // Retry-aware manifest read — same freshness window as run-method.
@@ -29,9 +37,13 @@ export async function handleTestJewel(
   const method =
     freshConfig?.methods.find((m) => m.export === methodName) ??
     freshConfig?.methods.find((m) => m.id === methodName);
-  if (!method) throw new CommandError(`Unknown method: ${methodName}`, 'INVALID_INPUT');
+  if (!method)
+    throw new CommandError(`Unknown method: ${methodName}`, 'INVALID_INPUT');
   if (!method.jewel) {
-    throw new CommandError(`Method "${methodName}" has no jewel in the manifest — add a "jewel": { "path": ... } entry to test one`, 'INVALID_INPUT');
+    throw new CommandError(
+      `Method "${methodName}" has no jewel in the manifest — add a "jewel": { "path": ... } entry to test one`,
+      'INVALID_INPUT',
+    );
   }
 
   ctx.started({ method: method.export, jewel: method.jewel.path });

@@ -61,7 +61,6 @@ export interface HeadlessOptions {
   sandboxBrowser?: boolean;
 }
 
-
 // ---------------------------------------------------------------------------
 // Session lifecycle
 // ---------------------------------------------------------------------------
@@ -77,12 +76,16 @@ async function startSession(
   // Read fresh config
   const appConfig = detectAppConfig(cwd);
   if (!appConfig) {
-    emitEvent('config-error', { message: 'No valid mindstudio.json found in ' + cwd });
+    emitEvent('config-error', {
+      message: 'No valid mindstudio.json found in ' + cwd,
+    });
     return false;
   }
 
   if (!appConfig.appId) {
-    emitEvent('config-error', { message: 'Missing "appId" in mindstudio.json' });
+    emitEvent('config-error', {
+      message: 'Missing "appId" in mindstudio.json',
+    });
     return false;
   }
 
@@ -96,7 +99,10 @@ async function startSession(
     devPort = webConfig?.devPort ?? null;
   }
 
-  emitEvent('session-starting', { appId: appConfig.appId, name: appConfig.name });
+  emitEvent('session-starting', {
+    appId: appConfig.appId,
+    name: appConfig.name,
+  });
 
   try {
     // Start platform session
@@ -118,7 +124,11 @@ async function startSession(
       try {
         const tableSources = readTableSources(appConfig, cwd);
         if (tableSources.length > 0) {
-          const syncResult = await syncSchema(appConfig.appId, session.sessionId, tableSources);
+          const syncResult = await syncSchema(
+            appConfig.appId,
+            session.sessionId,
+            tableSources,
+          );
           session.databases = syncResult.databases;
           emitEvent('schema-sync-completed', {
             created: syncResult.created,
@@ -126,9 +136,13 @@ async function startSession(
             errors: syncResult.errors,
           });
         } else {
-          log.warn('session', 'No table source files found, skipping schema sync', {
-            expected: appConfig.tables.map((t) => t.path),
-          });
+          log.warn(
+            'session',
+            'No table source files found, skipping schema sync',
+            {
+              expected: appConfig.tables.map((t) => t.path),
+            },
+          );
         }
       } catch (err) {
         emitEvent('schema-sync-completed', {
@@ -145,14 +159,22 @@ async function startSession(
         // Proxy persists across restarts — just update the context
         state.proxy.updateClientContext(session.clientContext);
       } else {
-        const proxy = new DevProxy(devPort, session.clientContext, appConfig.appId, bindAddress, opts.browserAgentUrl);
+        const proxy = new DevProxy(
+          devPort,
+          session.clientContext,
+          appConfig.appId,
+          bindAddress,
+          opts.browserAgentUrl,
+        );
         const preferred = opts.proxyPort ?? stablePort(appConfig.appId);
         const proxyPort = await proxy.start(preferred);
         state.proxy = proxy;
         state.proxyPort = proxyPort;
       }
 
-      runner.setProxyUrl(`http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${state.proxyPort}`);
+      runner.setProxyUrl(
+        `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${state.proxyPort}`,
+      );
       runner.setProxy(state.proxy);
 
       // Optional sandbox-side headless Chrome. Connects back to the proxy
@@ -161,7 +183,8 @@ async function startSession(
       // the web interface's defaultPreviewMode so mobile-first apps render
       // at mobile dimensions in the sandbox Chrome too.
       if (opts.sandboxBrowser && state.proxyPort !== null && !state.browser) {
-        const previewMode = state.lastWebConfig?.defaultPreviewMode ?? 'desktop';
+        const previewMode =
+          state.lastWebConfig?.defaultPreviewMode ?? 'desktop';
         const proxy = state.proxy;
         const supervisor = new BrowserSupervisor(
           state.proxyPort,
@@ -192,7 +215,11 @@ async function startSession(
       proxyUrl: state.proxyPort
         ? `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${state.proxyPort}/`
         : null,
-      roles: appConfig.roles.map((r) => ({ id: r.id, name: r.name ?? r.id, description: r.description })),
+      roles: appConfig.roles.map((r) => ({
+        id: r.id,
+        name: r.name ?? r.id,
+        description: r.description,
+      })),
       scenarios: appConfig.scenarios.map((s) => ({
         id: s.id,
         name: s.name ?? s.export,
@@ -236,22 +263,37 @@ function setupTableWatchers(cwd: string, state: SessionState): void {
     try {
       const tableSources = readTableSources(state.appConfig, cwd);
       if (tableSources.length > 0) {
-        const result = await syncSchema(state.appConfig.appId, session.sessionId, tableSources);
+        const result = await syncSchema(
+          state.appConfig.appId,
+          session.sessionId,
+          tableSources,
+        );
         session.databases = result.databases;
         emitEvent('schema-sync-completed', {
           created: result.created,
           altered: result.altered,
           errors: result.errors,
         });
-        log.info('session', 'Schema sync complete', { created: result.created, altered: result.altered });
-      } else {
-        log.warn('session', 'Table source file change detected but file(s) still missing', {
-          expected: state.appConfig.tables.map((t) => t.path),
+        log.info('session', 'Schema sync complete', {
+          created: result.created,
+          altered: result.altered,
         });
+      } else {
+        log.warn(
+          'session',
+          'Table source file change detected but file(s) still missing',
+          {
+            expected: state.appConfig.tables.map((t) => t.path),
+          },
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Schema sync failed';
-      emitEvent('schema-sync-completed', { created: [], altered: [], errors: [message] });
+      emitEvent('schema-sync-completed', {
+        created: [],
+        altered: [],
+        errors: [message],
+      });
       log.warn('session', 'Schema sync failed', { error: message });
     }
   });
@@ -380,15 +422,22 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
   const shutdown = async () => {
     if (stopping) return;
     stopping = true;
-    if (degradedRetryTimer) { clearInterval(degradedRetryTimer); degradedRetryTimer = null; }
+    if (degradedRetryTimer) {
+      clearInterval(degradedRetryTimer);
+      degradedRetryTimer = null;
+    }
     emitEvent('session-stopping');
     cleanupConfigWatcher?.();
     await teardownAll(state);
     emitEvent('session-stopped');
   };
 
-  process.on('SIGTERM', () => { shutdown().then(() => process.exit(0)); });
-  process.on('SIGINT', () => { shutdown().then(() => process.exit(0)); });
+  process.on('SIGTERM', () => {
+    shutdown().then(() => process.exit(0));
+  });
+  process.on('SIGINT', () => {
+    shutdown().then(() => process.exit(0));
+  });
 
   // Initial session start — retry a few times with backoff before degrading.
   // Snapshot resumes often hit a transient 400 from /manage/start because the
@@ -400,16 +449,23 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
     if (started) break;
     if (attempt < MAX_START_RETRIES) {
       const delay = Math.min(1000 * 2 ** (attempt - 1), 10_000);
-      log.info('session', `Start failed, retrying in ${delay}ms`, { attempt, maxAttempts: MAX_START_RETRIES });
+      log.info('session', `Start failed, retrying in ${delay}ms`, {
+        attempt,
+        maxAttempts: MAX_START_RETRIES,
+      });
       await new Promise((r) => setTimeout(r, delay));
     }
   }
 
   if (!started && !stopping) {
     emitEvent('degraded-state', {
-      reason: 'Config invalid or missing at boot. Waiting for valid mindstudio.json.',
+      reason:
+        'Config invalid or missing at boot. Waiting for valid mindstudio.json.',
     });
-    log.warn('session', 'Booting in degraded state — no valid config. Watching for changes.');
+    log.warn(
+      'session',
+      'Booting in degraded state — no valid config. Watching for changes.',
+    );
 
     // Periodically retry in degraded state (covers transient platform issues
     // that outlast the initial retry window, e.g. long snapshot resume).
@@ -426,7 +482,9 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
         log.info('session', 'Retrying session start from degraded state');
         const ok = await startSession(cwd, opts, state, shutdown);
         if (ok) {
-          emitEvent('degraded-state-resolved', { appId: state.appConfig?.appId });
+          emitEvent('degraded-state-resolved', {
+            appId: state.appConfig?.appId,
+          });
           log.info('session', 'Recovered from degraded state');
           if (degradedRetryTimer) {
             clearInterval(degradedRetryTimer);
@@ -467,7 +525,10 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
         emitEvent('config-error', {
           message: 'mindstudio.json is invalid — keeping current session',
         });
-        log.warn('session', 'Config change detected but file is invalid, keeping current session');
+        log.warn(
+          'session',
+          'Config change detected but file is invalid, keeping current session',
+        );
         return;
       }
 
@@ -478,14 +539,18 @@ export async function startHeadless(opts: HeadlessOptions = {}): Promise<void> {
         if (wasDegraded) {
           emitEvent('degraded-state-resolved', { appId: newConfig.appId });
           log.info('session', 'Recovered from degraded state');
-          if (degradedRetryTimer) { clearInterval(degradedRetryTimer); degradedRetryTimer = null; }
+          if (degradedRetryTimer) {
+            clearInterval(degradedRetryTimer);
+            degradedRetryTimer = null;
+          }
         }
         if (state.proxy) {
           state.proxy.broadcastToClients('reload');
         }
       } else {
         emitEvent('degraded-state', {
-          reason: 'Session restart failed after config change. Will retry on next change.',
+          reason:
+            'Session restart failed after config change. Will retry on next change.',
         });
         log.warn('session', 'Session restart failed, entering degraded state');
       }

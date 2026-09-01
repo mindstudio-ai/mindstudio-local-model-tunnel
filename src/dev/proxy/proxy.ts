@@ -230,11 +230,18 @@ export class DevProxy {
           clientId: client?.id ?? null,
           pendingCount: this.pendingResults.size,
         });
-        reject(new CommandError('Browser command timed out', 'BROWSER_TIMEOUT'));
+        reject(
+          new CommandError('Browser command timed out', 'BROWSER_TIMEOUT'),
+        );
         this.drainCommandQueue();
       }, timeoutMs);
 
-      this.pendingResults.set(id, { resolve, reject, timeout, clientId: target.id });
+      this.pendingResults.set(id, {
+        resolve,
+        reject,
+        timeout,
+        clientId: target.id,
+      });
       target.activeCommandId = id;
 
       try {
@@ -247,7 +254,12 @@ export class DevProxy {
           id,
           clientId: target.id,
         });
-        reject(new CommandError('Failed to send command to browser', 'BROWSER_SEND_FAILED'));
+        reject(
+          new CommandError(
+            'Failed to send command to browser',
+            'BROWSER_SEND_FAILED',
+          ),
+        );
         // Continue draining — next command might target a different client
       }
     }
@@ -373,7 +385,9 @@ export class DevProxy {
     // long-lived presence streams. Their cleanup handlers clear the
     // keepalive interval and drop themselves from the set.
     for (const sseRes of this.sseConnections) {
-      try { sseRes.end(); } catch {}
+      try {
+        sseRes.end();
+      } catch {}
     }
     this.sseConnections.clear();
 
@@ -491,8 +505,7 @@ export class DevProxy {
               helloSandbox: msg.sandbox,
               helloUrl,
               resolvedMode: mode,
-              hint:
-                'The loopback check probably failed. See proxy.ts handleWsConnection isLoopback regex.',
+              hint: 'The loopback check probably failed. See proxy.ts handleWsConnection isLoopback regex.',
             },
           );
         }
@@ -616,11 +629,22 @@ export class DevProxy {
         // "Browser disconnected".
         if (client?.activeCommandId) {
           const commandId = client.activeCommandId;
-          log.debug('proxy', 'Browser disconnected with active command', { commandId });
+          log.debug('proxy', 'Browser disconnected with active command', {
+            commandId,
+          });
           setTimeout(() => {
             // If still pending and no client has picked it up, reject
-            if (this.pendingResults.has(commandId) && !this.clients.findByCommandId(commandId)) {
-              this.rejectPendingCommand(commandId, new CommandError('Browser disconnected', 'BROWSER_DISCONNECTED'));
+            if (
+              this.pendingResults.has(commandId) &&
+              !this.clients.findByCommandId(commandId)
+            ) {
+              this.rejectPendingCommand(
+                commandId,
+                new CommandError(
+                  'Browser disconnected',
+                  'BROWSER_DISCONNECTED',
+                ),
+              );
               this.drainCommandQueue();
             }
           }, HEADLESS_READY_TIMEOUT_MS);
@@ -760,7 +784,11 @@ export class DevProxy {
       clearTimeout(pending.timeout);
       this.pendingResults.delete(commandId);
       pending.reject(error);
-      log.warn('proxy', 'Pending command rejected', { id: commandId, code: error.code, reason: error.message });
+      log.warn('proxy', 'Pending command rejected', {
+        id: commandId,
+        code: error.code,
+        reason: error.message,
+      });
 
       // Client slot freed — dispatch next queued command
       this.drainCommandQueue();
@@ -779,7 +807,10 @@ export class DevProxy {
         if (activeCommandId) {
           this.rejectPendingCommand(
             activeCommandId,
-            new CommandError('Browser client timed out', 'BROWSER_DISCONNECTED'),
+            new CommandError(
+              'Browser client timed out',
+              'BROWSER_DISCONNECTED',
+            ),
           );
         }
       }
@@ -933,7 +964,10 @@ export class DevProxy {
     }
 
     // Telemetry trio mocked locally so the SDK doesn't flood the real backend
-    // with dev-noise events or hold open a real-backend presence SSE.
+    // with dev-noise events or hold open a real-backend presence SSE. The
+    // telemetry endpoints are the ONLY ones that should ever be mocked here —
+    // /_/events (app-events subscribe) superficially resembles presence but is
+    // app data, and mocking it would make the feature silently dead in dev.
     if (tryHandleTelemetry(clientReq, clientRes, this.sseConnections)) {
       return;
     }
@@ -1019,6 +1053,24 @@ export class DevProxy {
         }
 
         clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
+
+        // A forwarded long-lived SSE (e.g. an app-events subscription on
+        // /_/events) must be tracked like the telemetry mock's streams:
+        // stop() ends everything in sseConnections so server.close() doesn't
+        // hang waiting on it. Also tear down the upstream leg when the
+        // browser side closes, so the real API isn't left streaming into a
+        // dead response.
+        const isSse = String(proxyRes.headers['content-type'] ?? '').includes(
+          'text/event-stream',
+        );
+        if (isSse) {
+          this.sseConnections.add(clientRes);
+          clientRes.on('close', () => {
+            this.sseConnections.delete(clientRes);
+            proxyReq.destroy();
+          });
+        }
+
         proxyRes.pipe(clientRes);
       },
     );

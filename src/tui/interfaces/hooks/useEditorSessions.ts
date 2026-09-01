@@ -17,8 +17,8 @@ export function useEditorSessions(): UseEditorSessionsResult {
   const [error, setError] = useState<string | null>(null);
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus>('idle');
   const initialLoadDone = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
-  const pollRef = useRef<ReturnType<typeof setInterval>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   const refresh = useCallback(async () => {
     if (!initialLoadDone.current) {

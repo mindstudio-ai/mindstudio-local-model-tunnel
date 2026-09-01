@@ -50,7 +50,9 @@ export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
     });
     return config;
   } catch (err) {
-    log.warn('config', 'Failed to parse mindstudio.json', { error: err instanceof Error ? err.message : String(err) });
+    log.warn('config', 'Failed to parse mindstudio.json', {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
@@ -115,7 +117,8 @@ export function getWebInterfaceConfig(
 
     return {
       devPort: typeof web.devPort === 'number' ? web.devPort : undefined,
-      devCommand: typeof web.devCommand === 'string' ? web.devCommand : undefined,
+      devCommand:
+        typeof web.devCommand === 'string' ? web.devCommand : undefined,
       defaultPreviewMode:
         web.defaultPreviewMode === 'mobile'
           ? 'mobile'
@@ -160,7 +163,10 @@ export function readTableSources(
   for (const table of appConfig.tables) {
     const filePath = join(cwd, table.path);
     if (!existsSync(filePath)) {
-      log.warn('config', 'Table source file not found', { table: table.export, path: table.path });
+      log.warn('config', 'Table source file not found', {
+        table: table.export,
+        path: table.path,
+      });
       continue;
     }
 
@@ -170,12 +176,20 @@ export function readTableSources(
       const name = table.export;
       results.push({ name, source });
     } catch (err) {
-      log.warn('config', 'Table source file unreadable', { table: table.export, path: table.path, error: err instanceof Error ? err.message : String(err) });
+      log.warn('config', 'Table source file unreadable', {
+        table: table.export,
+        path: table.path,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
   if (results.length < appConfig.tables.length) {
-    log.warn('config', 'Table source files missing', { missing: appConfig.tables.length - results.length, found: results.length, expected: appConfig.tables.length });
+    log.warn('config', 'Table source files missing', {
+      missing: appConfig.tables.length - results.length,
+      found: results.length,
+      expected: appConfig.tables.length,
+    });
   }
 
   return results;

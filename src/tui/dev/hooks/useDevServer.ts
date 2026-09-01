@@ -7,11 +7,7 @@ const MAX_OUTPUT_LINES = 200;
 const PORT_READY_TIMEOUT_MS = 30_000;
 const PORT_CHECK_INTERVAL_MS = 500;
 
-export type DevServerPhase =
-  | 'idle'
-  | 'starting'
-  | 'running'
-  | 'error';
+export type DevServerPhase = 'idle' | 'starting' | 'running' | 'error';
 
 export function useDevServer() {
   const [phase, setPhase] = useState<DevServerPhase>('idle');

@@ -54,14 +54,40 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
   const runningMenuItems: MenuItem[] = useMemo(
     () => [
       ...(hasScenarios
-        ? [{ id: 'scenario', label: 'Run Scenario', description: 'Seed database with test data' }]
+        ? [
+            {
+              id: 'scenario',
+              label: 'Run Scenario',
+              description: 'Seed database with test data',
+            },
+          ]
         : []),
       ...(hasRoles
-        ? [{ id: 'roles', label: 'Test User Roles', description: testUserRoles ? `Active: ${testUserRoles.join(', ')}` : "Set the dev test user's roles" }]
+        ? [
+            {
+              id: 'roles',
+              label: 'Test User Roles',
+              description: testUserRoles
+                ? `Active: ${testUserRoles.join(', ')}`
+                : "Set the dev test user's roles",
+            },
+          ]
         : []),
-      { id: 'sync', label: 'Sync Schema', description: 'Re-sync table definitions from disk' },
-      { id: 'stop', label: 'Stop Session', description: 'Stop the dev session and clean up' },
-      { id: 'dashboard', label: 'Local Models', description: 'Switch to local models view' },
+      {
+        id: 'sync',
+        label: 'Sync Schema',
+        description: 'Re-sync table definitions from disk',
+      },
+      {
+        id: 'stop',
+        label: 'Stop Session',
+        description: 'Stop the dev session and clean up',
+      },
+      {
+        id: 'dashboard',
+        label: 'Local Models',
+        description: 'Switch to local models view',
+      },
       { id: 'quit', label: 'Quit', description: 'Exit the application' },
     ],
     [hasScenarios, hasRoles, testUserRoles],
@@ -123,11 +149,14 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
           )}
           {devServer.phase === 'starting' && (
             <Text color="gray">
-              <Spinner type="dots" /> Waiting for dev server on port {devPort}...
+              <Spinner type="dots" /> Waiting for dev server on port {devPort}
+              ...
             </Text>
           )}
           {devServer.outputLines.slice(-6).map((line, i) => (
-            <Text key={i} color="gray" dimColor wrap="truncate">{line}</Text>
+            <Text key={i} color="gray" dimColor wrap="truncate">
+              {line}
+            </Text>
           ))}
         </Box>
       </Box>
@@ -137,8 +166,16 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
   // Error state
   if (phase === 'error') {
     const errorMenuItems: MenuItem[] = [
-      { id: 'retry', label: 'Retry', description: 'Try starting the session again' },
-      { id: 'dashboard', label: 'Local Models', description: 'Switch to local models view' },
+      {
+        id: 'retry',
+        label: 'Retry',
+        description: 'Try starting the session again',
+      },
+      {
+        id: 'dashboard',
+        label: 'Local Models',
+        description: 'Switch to local models view',
+      },
       { id: 'quit', label: 'Quit', description: 'Exit the application' },
     ];
 
@@ -147,9 +184,13 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
         <AppInfoHeader appConfig={appConfig} />
         <Box flexDirection="column" paddingX={1} marginTop={1}>
           {error && <Text color="red">✖ {error}</Text>}
-          {devServer.error && <Text color="red">Dev server: {devServer.error}</Text>}
+          {devServer.error && (
+            <Text color="red">Dev server: {devServer.error}</Text>
+          )}
           {devServer.outputLines.slice(-5).map((line, i) => (
-            <Text key={i} color="gray" dimColor wrap="truncate">{line}</Text>
+            <Text key={i} color="gray" dimColor wrap="truncate">
+              {line}
+            </Text>
           ))}
         </Box>
         <Box flexGrow={1} />
@@ -167,8 +208,16 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
   // Stopped state
   if (phase === 'stopped') {
     const stoppedMenuItems: MenuItem[] = [
-      { id: 'restart', label: 'Restart', description: 'Start a new dev session' },
-      { id: 'dashboard', label: 'Local Models', description: 'Switch to local models view' },
+      {
+        id: 'restart',
+        label: 'Restart',
+        description: 'Start a new dev session',
+      },
+      {
+        id: 'dashboard',
+        label: 'Local Models',
+        description: 'Switch to local models view',
+      },
       { id: 'quit', label: 'Quit', description: 'Exit the application' },
     ];
 
@@ -193,8 +242,16 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
   // Expired state
   if (phase === 'expired') {
     const expiredMenuItems: MenuItem[] = [
-      { id: 'restart', label: 'Restart', description: 'Start a new dev session' },
-      { id: 'dashboard', label: 'Local Models', description: 'Switch to local models view' },
+      {
+        id: 'restart',
+        label: 'Restart',
+        description: 'Start a new dev session',
+      },
+      {
+        id: 'dashboard',
+        label: 'Local Models',
+        description: 'Switch to local models view',
+      },
       { id: 'quit', label: 'Quit', description: 'Exit the application' },
     ];
 
@@ -221,14 +278,19 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
   // Running state — tabbed view
   const statusLines = 4; // status bar + tab bar
   const menuLines = 8;
-  const contentHeight = Math.max(5, (termHeight ?? 30) - statusLines - menuLines);
+  const contentHeight = Math.max(
+    5,
+    (termHeight ?? 30) - statusLines - menuLines,
+  );
 
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* Persistent status bar */}
       <Box flexDirection="column" paddingX={1} paddingTop={1}>
         <Box gap={2}>
-          <Text bold color="white">{appConfig.name}</Text>
+          <Text bold color="white">
+            {appConfig.name}
+          </Text>
           <Text color="green">● {session?.branch ?? 'main'}</Text>
           <Text color="cyan">{session?.previewUrl ?? ''}</Text>
         </Box>
@@ -275,7 +337,9 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
             ...appConfig.scenarios.map((s) => ({
               id: `scenario:${s.id}`,
               label: s.name ?? s.id,
-              description: s.description ?? `Roles: ${s.roles.length > 0 ? s.roles.join(', ') : 'none'}`,
+              description:
+                s.description ??
+                `Roles: ${s.roles.length > 0 ? s.roles.join(', ') : 'none'}`,
             })),
             { id: 'back', label: 'Back', description: 'Return to actions' },
           ]}
@@ -295,7 +359,15 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
               label: r.name ?? r.id,
               description: r.description ?? r.id,
             })),
-            ...(testUserRoles ? [{ id: 'clear', label: 'Clear Roles', description: 'Remove all roles from the test user' }] : []),
+            ...(testUserRoles
+              ? [
+                  {
+                    id: 'clear',
+                    label: 'Clear Roles',
+                    description: 'Remove all roles from the test user',
+                  },
+                ]
+              : []),
             { id: 'back', label: 'Back', description: 'Return to actions' },
           ]}
           onSelect={(id) => {
@@ -344,7 +416,8 @@ function AppInfoHeader({ appConfig }: { appConfig: AppConfig }) {
       )}
       {!appConfig.appId && (
         <Text color="yellow">
-          ⚠ No &quot;appId&quot; field in mindstudio.json — add your app ID to start a dev session
+          ⚠ No &quot;appId&quot; field in mindstudio.json — add your app ID to
+          start a dev session
         </Text>
       )}
     </Box>
@@ -369,15 +442,23 @@ function InfoTab({
   devPort: number | null;
   proxyPort: number | null;
   devServerPhase: string;
-  requests: import('../../../dev/types').DevRequestLogEntry[];
-  syncResult: import('../../../dev/types').SyncSchemaResponse | null;
-  scenarioResult: { id: string; name?: string; success: boolean; roles: string[]; error?: string } | null;
+  requests: import('../../../dev/config/types').DevRequestLogEntry[];
+  syncResult: import('../../../dev/config/types').SyncSchemaResponse | null;
+  scenarioResult: {
+    id: string;
+    name?: string;
+    success: boolean;
+    roles: string[];
+    error?: string;
+  } | null;
   testUserRoles: string[] | null;
   contentHeight: number;
 }) {
   return (
     <Box flexDirection="column" paddingX={1} marginTop={1}>
-      <Text bold color="white" underline>Session</Text>
+      <Text bold color="white" underline>
+        Session
+      </Text>
       <Text>
         <Text color="gray">Session ID: </Text>
         <Text>{session?.sessionId ?? '...'}</Text>
@@ -387,22 +468,32 @@ function InfoTab({
         <Text>{session?.releaseId ?? '...'}</Text>
       </Text>
       <Text>
-        <Text color="gray">Branch:     </Text>
+        <Text color="gray">Branch: </Text>
         <Text>{session?.branch ?? '...'}</Text>
       </Text>
       {session?.user && (
         <Text>
-          <Text color="gray">User:       </Text>
-          <Text>{session.user.name} ({session.user.email})</Text>
+          <Text color="gray">User: </Text>
+          <Text>
+            {session.user.name} ({session.user.email})
+          </Text>
         </Text>
       )}
 
-      <Box marginTop={1}><Text bold color="white" underline>App URL</Text></Box>
+      <Box marginTop={1}>
+        <Text bold color="white" underline>
+          App URL
+        </Text>
+      </Box>
       <Text color="cyan" bold>
         {session?.previewUrl ?? '...'}
       </Text>
 
-      <Box marginTop={1}><Text bold color="white" underline>Dev Server</Text></Box>
+      <Box marginTop={1}>
+        <Text bold color="white" underline>
+          Dev Server
+        </Text>
+      </Box>
       {devPort !== null ? (
         <Text>
           <Text>localhost:{devPort}</Text>
@@ -415,25 +506,41 @@ function InfoTab({
           )}
         </Text>
       ) : (
-        <Text color="gray" dimColor>Backend-only mode (no frontend)</Text>
+        <Text color="gray" dimColor>
+          Backend-only mode (no frontend)
+        </Text>
       )}
 
       {testUserRoles && (
         <Box marginTop={1} flexDirection="column">
-          <Text bold color="white" underline>Test User Roles</Text>
-          <Text color="yellow">  ● Active: {testUserRoles.join(', ')}</Text>
+          <Text bold color="white" underline>
+            Test User Roles
+          </Text>
+          <Text color="yellow"> ● Active: {testUserRoles.join(', ')}</Text>
         </Box>
       )}
 
-      <Box marginTop={1}><Text bold color="white" underline>Databases</Text></Box>
+      <Box marginTop={1}>
+        <Text bold color="white" underline>
+          Databases
+        </Text>
+      </Box>
       {(session?.databases ?? []).length === 0 ? (
-        <Text color="gray" dimColor>No databases</Text>
+        <Text color="gray" dimColor>
+          No databases
+        </Text>
       ) : (
         session?.databases.map((db) => (
           <Box key={db.id} flexDirection="column">
-            <Text>  <Text color="cyan">{db.name}</Text></Text>
+            <Text>
+              {' '}
+              <Text color="cyan">{db.name}</Text>
+            </Text>
             {db.tables.map((table) => (
-              <Text key={table.name} color="gray">    {table.name}</Text>
+              <Text key={table.name} color="gray">
+                {' '}
+                {table.name}
+              </Text>
             ))}
           </Box>
         ))
@@ -441,39 +548,73 @@ function InfoTab({
 
       {syncResult && (
         <Box marginTop={1} flexDirection="column">
-          <Text bold color="white" underline>Schema Sync</Text>
+          <Text bold color="white" underline>
+            Schema Sync
+          </Text>
           {syncResult.created.length > 0 && (
-            <Text color="green">  ✓ Created: {syncResult.created.join(', ')}</Text>
+            <Text color="green">
+              {' '}
+              ✓ Created: {syncResult.created.join(', ')}
+            </Text>
           )}
           {syncResult.altered.length > 0 && (
-            <Text color="yellow">  ✓ Altered: {syncResult.altered.join(', ')}</Text>
+            <Text color="yellow">
+              {' '}
+              ✓ Altered: {syncResult.altered.join(', ')}
+            </Text>
           )}
           {syncResult.errors.map((err, i) => (
-            <Text key={i} color="red">  ✖ {err}</Text>
+            <Text key={i} color="red">
+              {' '}
+              ✖ {err}
+            </Text>
           ))}
-          {syncResult.created.length === 0 && syncResult.altered.length === 0 && syncResult.errors.length === 0 && (
-            <Text color="gray" dimColor>  No changes</Text>
-          )}
+          {syncResult.created.length === 0 &&
+            syncResult.altered.length === 0 &&
+            syncResult.errors.length === 0 && (
+              <Text color="gray" dimColor>
+                {' '}
+                No changes
+              </Text>
+            )}
         </Box>
       )}
 
       {scenarioResult && (
         <Box marginTop={1} flexDirection="column">
-          <Text bold color="white" underline>Last Scenario</Text>
+          <Text bold color="white" underline>
+            Last Scenario
+          </Text>
           {scenarioResult.success ? (
-            <Text color="green">  ✓ &quot;{scenarioResult.name ?? scenarioResult.id}&quot; applied</Text>
+            <Text color="green">
+              {' '}
+              ✓ &quot;{scenarioResult.name ?? scenarioResult.id}&quot; applied
+            </Text>
           ) : (
-            <Text color="red">  ✖ &quot;{scenarioResult.name ?? scenarioResult.id}&quot; failed: {scenarioResult.error}</Text>
+            <Text color="red">
+              {' '}
+              ✖ &quot;{scenarioResult.name ?? scenarioResult.id}&quot; failed:{' '}
+              {scenarioResult.error}
+            </Text>
           )}
           {scenarioResult.roles.length > 0 && (
-            <Text color="gray" dimColor>  Roles: {scenarioResult.roles.join(', ')}</Text>
+            <Text color="gray" dimColor>
+              {' '}
+              Roles: {scenarioResult.roles.join(', ')}
+            </Text>
           )}
         </Box>
       )}
 
-      <Box marginTop={1}><Text bold color="white" underline>Recent Requests</Text></Box>
+      <Box marginTop={1}>
+        <Text bold color="white" underline>
+          Recent Requests
+        </Text>
+      </Box>
       {requests.length === 0 ? (
-        <Text color="gray" dimColor>No requests yet</Text>
+        <Text color="gray" dimColor>
+          No requests yet
+        </Text>
       ) : (
         requests.slice(-5).map((req) => (
           <Box key={req.id} gap={1}>
@@ -483,7 +624,9 @@ function InfoTab({
             <Text>{req.method ?? 'unknown'}</Text>
             {req.duration != null && <Text color="gray">{req.duration}ms</Text>}
             {req.status === 'failed' && req.error && (
-              <Text color="red" wrap="truncate">{req.error.split('\n')[0]}</Text>
+              <Text color="red" wrap="truncate">
+                {req.error.split('\n')[0]}
+              </Text>
             )}
           </Box>
         ))
@@ -508,12 +651,18 @@ function MethodsTab({
       {appConfig.methods.slice(0, contentHeight - 2).map((method) => (
         <Box key={method.id} gap={1}>
           <Text color="cyan">{method.export}</Text>
-          <Text color="gray" dimColor>→ {method.id}</Text>
-          <Text color="gray" dimColor>({method.path})</Text>
+          <Text color="gray" dimColor>
+            → {method.id}
+          </Text>
+          <Text color="gray" dimColor>
+            ({method.path})
+          </Text>
         </Box>
       ))}
       {appConfig.methods.length === 0 && (
-        <Text color="gray" dimColor>No methods defined</Text>
+        <Text color="gray" dimColor>
+          No methods defined
+        </Text>
       )}
     </Box>
   );
@@ -550,10 +699,14 @@ function DevServerTab({
         )}
       </Text>
       {devPort !== null && (
-        <Text color="gray" dimColor>localhost:{devPort}</Text>
+        <Text color="gray" dimColor>
+          localhost:{devPort}
+        </Text>
       )}
       {devPort === null && (
-        <Text color="gray" dimColor>Backend-only mode (no frontend)</Text>
+        <Text color="gray" dimColor>
+          Backend-only mode (no frontend)
+        </Text>
       )}
       {error && <Text color="red">{error}</Text>}
       {outputLines.slice(-visibleLines).map((line, i) => (
@@ -562,10 +715,14 @@ function DevServerTab({
         </Text>
       ))}
       {outputLines.length === 0 && phase !== 'idle' && !error && (
-        <Text color="gray" dimColor>Waiting for output...</Text>
+        <Text color="gray" dimColor>
+          Waiting for output...
+        </Text>
       )}
       {outputLines.length === 0 && phase === 'idle' && !error && (
-        <Text color="gray" dimColor>Dev server not started</Text>
+        <Text color="gray" dimColor>
+          Dev server not started
+        </Text>
       )}
     </Box>
   );

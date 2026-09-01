@@ -1,3 +1,10 @@
+/// <reference lib="dom" />
+// The `evaluate` callbacks below are serialized and run in the page, so they
+// legitimately reference `document` / `window`. tsconfig's `lib` is ES2022-only
+// (this is a Node CLI), so DOM types are pulled in per-file here rather than
+// globally, where they'd let a `document` reference slip through unnoticed in
+// genuinely Node-side code.
+
 /**
  * CDP-based screenshot capture.
  *
@@ -340,6 +347,15 @@ async function captureViaCdpInner(
   // page.screenshot() sends for the same options: it defaults
   // captureBeyondViewport to true, then forces it false for non-fullPage shots,
   // and omits quality for png. Verified byte-identical for all three modes.
+  //
+  // One consequence of the separate session: device metrics overrides are
+  // session-scoped, so this capture renders at 1 device pixel per CSS pixel
+  // even in mobile preview, where the viewport preset emulates a 2x ratio.
+  // Left alone deliberately. The `width`/`height` reported above are CSS
+  // pixels, so they agree with what comes back, and a 2x app screenshot would
+  // quadruple the bytes for a vision model that resizes it on the way in.
+  // renderHtmlInner takes the other choice — it *sells* `scale` — and gets
+  // there with an explicit `clip`, which is how you'd change this too.
   const client = await page.createCDPSession();
   let buf: Buffer;
   try {
@@ -460,16 +476,30 @@ async function restoreAgentCursor(
  * Best-effort — all timeouts swallowed. If the page can't be scrolled
  * (short content, scroll-locked body) the function is effectively a no-op.
  */
+/** CSS-pixel bounds for a render viewport, and for the measured height an
+ * `autoHeight` render grows to. Defined here rather than in the command
+ * handler so validation and measurement clamp to the same numbers. */
+export const RENDER_MIN_DIMENSION = 16;
+export const RENDER_MAX_DIMENSION = 4096;
+
 export interface RenderHtmlOpts {
   /** Complete, self-contained HTML document to render. */
   html: string;
   /** Viewport dimensions in CSS pixels. */
   width: number;
   height: number;
+  /** Fit the capture to the document's own height, so a document that declares
+   * no height is captured whole rather than clipped to `height` or padded out
+   * to it. `height` then acts as the starting layout viewport. For authored
+   * graphics sized to an exact canvas, leave this off. */
+  autoHeight?: boolean;
   /** Render with a transparent default background (true-alpha PNG). Only
    * meaningful when the document itself leaves its background transparent. */
   transparent?: boolean;
-  /** Device scale factor — output pixels are css × scale. Clamped to 1–3. */
+  /** Device scale factor — output pixels are css × scale. Clamped to 1–3, and
+   * reduced further if the scaled output would exceed the pixel budget a
+   * max-size 1x render already permits (see effectiveScale). The returned
+   * width/height are always the pixels actually captured. */
   scale?: number;
   uploadUrl: string;
   uploadFields: Record<string, string>;
@@ -481,6 +511,28 @@ export interface RenderHtmlOpts {
 const FONT_READY_TIMEOUT_MS = 3_000;
 
 /**
+ * Largest scale that keeps the output inside the pixel budget a max-size 1x
+ * render already permits, so honouring `scale` can't ask the one
+ * software-rasterizing Chrome for a surface an unscaled render never could.
+ * Without this, the documented maximums multiply out: 4096×4096 at 3x is a
+ * 12288² surface, ~150M pixels, where the same ceiling at 1x is ~17M. Only
+ * ever reduces — a scale small enough to fit is returned untouched, which is
+ * every realistic call (an icon master is 512², a share card 1200×630).
+ */
+function effectiveScale(
+  width: number,
+  height: number,
+  requested: number,
+): number {
+  const budget = RENDER_MAX_DIMENSION * RENDER_MAX_DIMENSION;
+  let scale = requested;
+  while (scale > 1 && width * scale * height * scale > budget) {
+    scale--;
+  }
+  return scale;
+}
+
+/**
  * Render an agent-authored HTML document and capture it as a PNG.
  *
  * Unlike `captureViaCdp`, which photographs the app in the supervisor's page,
@@ -490,7 +542,7 @@ const FONT_READY_TIMEOUT_MS = 3_000;
  * QA screenshots or browser automation. The document is injected with
  * `setContent`, never served through the dev proxy, so no browser-agent script
  * is present and no styleMap is produced — intentional: the output is a
- * fixed-size graphic, not an app page.
+ * standalone graphic, not an app page.
  */
 export async function renderHtmlCapture(
   appPage: Page,
@@ -507,14 +559,14 @@ async function renderHtmlInner(
 ): Promise<{ uploaded: true; width: number; height: number }> {
   const deadline = Date.now() + budgetMs;
   const remaining = () => Math.max(1_000, deadline - Date.now());
-  const scale = Math.min(Math.max(opts.scale ?? 1, 1), 3);
+  const requestedScale = Math.min(Math.max(opts.scale ?? 1, 1), 3);
 
   const page = await appPage.browser().newPage();
   try {
     await page.setViewport({
       width: opts.width,
       height: opts.height,
-      deviceScaleFactor: scale,
+      deviceScaleFactor: requestedScale,
     });
     await page.setContent(opts.html, {
       waitUntil: 'load',
@@ -542,17 +594,89 @@ async function renderHtmlInner(
     ]);
 
     // One painted frame so the loaded fonts/images are composited.
-    await page
-      .evaluate(
-        (delayMs: number) =>
-          new Promise<void>((resolve) =>
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => setTimeout(resolve, delayMs)),
+    const paintSettle = () =>
+      page
+        .evaluate(
+          (delayMs: number) =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => setTimeout(resolve, delayMs)),
+              ),
             ),
-          ),
-        VIEWPORT_PAINT_SETTLE_MS,
-      )
-      .catch(() => {});
+          VIEWPORT_PAINT_SETTLE_MS,
+        )
+        .catch(() => {});
+
+    await paintSettle();
+
+    // A document that declares no height of its own — a wireframe, an
+    // arbitrary page — would be clipped to the requested viewport, since the
+    // capture below is a viewport clip. Measure what it actually needs and fit
+    // to it. Measured here, after fonts and images have landed, because both
+    // change the height.
+    //
+    // `scrollHeight` alone can only grow the canvas, never shrink it: it never
+    // reports less than the viewport, so a 300px document in a 1400px viewport
+    // measures 1400 and gets reviewed with 1100px of dead space. So take the
+    // extent of the body's own children — the same union-of-rects approach the
+    // dashboard's wireframe preview uses to size its iframe — and fall back to
+    // `scrollHeight` for content that overflows, or for a body holding bare
+    // text with no element children to measure.
+    let cssHeight = opts.height;
+    if (opts.autoHeight) {
+      const needed = await page
+        .evaluate(() => {
+          const body = document.body;
+          let bottom = 0;
+          for (const el of Array.from(body?.children ?? [])) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 || rect.height > 0) {
+              bottom = Math.max(bottom, rect.bottom);
+            }
+          }
+          if (bottom > 0 && body) {
+            const style = getComputedStyle(body);
+            bottom +=
+              (parseFloat(style.paddingBottom) || 0) +
+              (parseFloat(style.marginBottom) || 0);
+          }
+          const scroll = Math.max(
+            document.documentElement.scrollHeight,
+            body?.scrollHeight ?? 0,
+          );
+          if (bottom <= 0) {
+            return Math.ceil(scroll);
+          }
+          // Overflowing content is the one case scrollHeight is authoritative
+          // for, since a child may itself be scrolled or absolutely placed.
+          return Math.ceil(
+            scroll > window.innerHeight ? Math.max(bottom, scroll) : bottom,
+          );
+        })
+        .catch(() => 0);
+      const target = Math.min(
+        Math.max(needed, RENDER_MIN_DIMENSION),
+        RENDER_MAX_DIMENSION,
+      );
+      if (needed > 0) {
+        cssHeight = target;
+      }
+    }
+
+    // Scale settles only now: its pixel budget is measured against the final
+    // height, which autoHeight may just have changed.
+    const scale = effectiveScale(opts.width, cssHeight, requestedScale);
+
+    if (cssHeight !== opts.height || scale !== requestedScale) {
+      await page.setViewport({
+        width: opts.width,
+        height: cssHeight,
+        deviceScaleFactor: scale,
+      });
+      // Resizing reflows — `100vh` blocks and centered flex content both
+      // change with the viewport — so let the new layout paint.
+      await paintSettle();
+    }
 
     const client = await page.createCDPSession();
     let buf: Buffer;
@@ -565,9 +689,29 @@ async function renderHtmlInner(
           color: { r: 0, g: 0, b: 0, a: 0 },
         });
       }
+      // The clip is what makes `scale` real. `Emulation.setDeviceMetricsOverride`
+      // — which is what page.setViewport sends, and which carries the device
+      // scale factor — is scoped to the session that sent it, and this is a
+      // fresh session (see the note in captureViaCdpInner for why the capture
+      // runs on its own session at all). So a capture issued here renders the
+      // surface at 1 device pixel per CSS pixel no matter what ratio the page
+      // is emulating: scale 1, 2 and 3 all produced an identical 600×500 PNG
+      // while this function reported 600×500, 1200×1000 and 1800×1500. An
+      // explicit clip carries the factor on the command itself, so it doesn't
+      // depend on session state, and the reported dimensions are the real ones.
       const { data } = await client.send(
         'Page.captureScreenshot',
-        { format: 'png', captureBeyondViewport: false },
+        {
+          format: 'png',
+          captureBeyondViewport: false,
+          clip: {
+            x: 0,
+            y: 0,
+            width: opts.width,
+            height: cssHeight,
+            scale,
+          },
+        },
         { timeout: remaining() },
       );
       buf = Buffer.from(data, 'base64');
@@ -584,7 +728,11 @@ async function renderHtmlInner(
 
     await uploadToPresigned(opts.uploadUrl, opts.uploadFields, buf, 'png');
 
-    return { uploaded: true, width: opts.width * scale, height: opts.height * scale };
+    return {
+      uploaded: true,
+      width: opts.width * scale,
+      height: cssHeight * scale,
+    };
   } finally {
     // Runs when the work truly finishes — even if withTimeout already gave up
     // on it — so an abandoned render can't leak its tab.

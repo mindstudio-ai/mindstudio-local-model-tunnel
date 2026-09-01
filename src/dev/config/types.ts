@@ -85,8 +85,8 @@ export interface WebInterfaceConfig {
  *  Start resumes an existing dev release if one exists (no duplicate sessions).
  *  Databases are scoped to this release and persist across connect/disconnect. */
 export interface DevSession {
-  sessionId: string;   // same value as releaseId (dev release UUID)
-  releaseId: string;   // same value as sessionId
+  sessionId: string; // same value as releaseId (dev release UUID)
+  releaseId: string; // same value as sessionId
   branch: string;
   auth: {
     /** null for an anonymous request — nobody signed in. */
