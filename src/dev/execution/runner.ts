@@ -13,7 +13,7 @@
 import {
   startDevSession,
   stopDevSession,
-  pollDevRequest,
+  pollDevRequests,
   submitDevResult,
   resetDevDatabase,
   fetchCallbackToken,
@@ -66,6 +66,13 @@ const TEST_USER_PHONE = '+15555555555';
 // how the direct path gets it.
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_ROLE = 'system';
+
+// How many queued requests one poll may claim. The loop is sequential, so this
+// is what stops a burst of concurrent method calls from each paying its own
+// platform round-trip before it can start. Execution is already concurrent, so
+// this caps dispatch width, not how much runs at once. Kept under the
+// platform's own ceiling (MAX_DEV_POLL_BATCH).
+const DEV_POLL_BATCH = 8;
 
 export class DevRunner {
   private isRunning = false;
@@ -495,10 +502,11 @@ export class DevRunner {
         // restarts the session (stop() clears it). Snapshot it and exit if gone.
         const session = this.session;
         if (!session) break;
-        const request = await pollDevRequest(
+        const requests = await pollDevRequests(
           this.appId,
           session.sessionId,
           this.proxyUrl,
+          DEV_POLL_BATCH,
         );
 
         if (this.hadConnectionWarning) {
@@ -507,7 +515,10 @@ export class DevRunner {
           devRequestEvents.emitConnectionRestored();
         }
 
-        if (request && this.isRunning) {
+        for (const request of requests) {
+          if (!this.isRunning) {
+            break;
+          }
           // Process in background — don't block the poll loop. Fire-and-forget,
           // so guard against an unhandled rejection here taking down the whole
           // process (e.g. the session gets torn down while this is in flight).

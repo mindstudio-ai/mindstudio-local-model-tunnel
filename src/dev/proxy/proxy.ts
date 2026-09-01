@@ -983,6 +983,44 @@ export class DevProxy {
   }
 
   // ---------------------------------------------------------------------------
+  // Shared response handling
+  // ---------------------------------------------------------------------------
+
+  /** Whether an upstream response is a Server-Sent Events stream. */
+  private static isEventStream(res: http.IncomingMessage): boolean {
+    return String(res.headers['content-type'] ?? '').includes(
+      'text/event-stream',
+    );
+  }
+
+  /**
+   * Wire up a long-lived event stream being piped back to a client. Call this
+   * AFTER writeHead(), so the headers being flushed are the real ones.
+   *
+   * The flush is load-bearing: `writeHead()` only STAGES headers, and Node
+   * holds them until the first body byte is written. An idle stream's first
+   * byte is the platform's keepalive comment 15s later, so without this the
+   * client's `fetch()` promise doesn't settle for 15 seconds — and any client
+   * with a connect timeout under that can never subscribe at all. (The local
+   * telemetry mock has always flushed; the forwarded paths never did.)
+   *
+   * Tracking in `sseConnections` is what lets stop() end the stream so
+   * server.close() doesn't hang waiting on it, and tearing down the upstream
+   * leg when the client goes stops us streaming into a dead response.
+   */
+  private trackEventStream(
+    upstreamReq: http.ClientRequest,
+    clientRes: http.ServerResponse,
+  ): void {
+    clientRes.flushHeaders();
+    this.sseConnections.add(clientRes);
+    clientRes.on('close', () => {
+      this.sseConnections.delete(clientRes);
+      upstreamReq.destroy();
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // API forwarding (/_/ same-origin routes)
   // ---------------------------------------------------------------------------
 
@@ -1054,21 +1092,11 @@ export class DevProxy {
 
         clientRes.writeHead(proxyRes.statusCode ?? 502, responseHeaders);
 
-        // A forwarded long-lived SSE (e.g. an app-events subscription on
-        // /_/events) must be tracked like the telemetry mock's streams:
-        // stop() ends everything in sseConnections so server.close() doesn't
-        // hang waiting on it. Also tear down the upstream leg when the
-        // browser side closes, so the real API isn't left streaming into a
-        // dead response.
-        const isSse = String(proxyRes.headers['content-type'] ?? '').includes(
-          'text/event-stream',
-        );
-        if (isSse) {
-          this.sseConnections.add(clientRes);
-          clientRes.on('close', () => {
-            this.sseConnections.delete(clientRes);
-            proxyReq.destroy();
-          });
+        // A forwarded long-lived SSE — /_/events, a {stream:true} method
+        // invoke, an /_/api/* route asked for text/event-stream, or agent
+        // chat. See trackEventStream for why the flush matters.
+        if (DevProxy.isEventStream(proxyRes)) {
+          this.trackEventStream(proxyReq, clientRes);
         }
 
         proxyRes.pipe(clientRes);
@@ -1159,6 +1187,12 @@ export class DevProxy {
           };
           delete headers['etag'];
           clientRes.writeHead(upstreamRes.statusCode ?? 200, headers);
+          // An app can serve its own event stream from its own dev-server
+          // route (outside /_/), which lands here rather than in
+          // forwardToApi — same flush and teardown needed.
+          if (DevProxy.isEventStream(upstreamRes)) {
+            this.trackEventStream(upstreamReq, clientRes);
+          }
           upstreamRes.pipe(clientRes);
         }
       },
@@ -1169,8 +1203,15 @@ export class DevProxy {
         path: clientReq.url,
         error: err.message,
       });
-      clientRes.writeHead(502);
-      clientRes.end(`Proxy error: ${err.message}`);
+      // Only answer with a 502 if we haven't started responding: writeHead
+      // after headersSent throws out of this handler, which would take the
+      // proxy down with it. Matters more now that long-lived responses are
+      // piped through here, where headers go out long before the body ends.
+      // Matches forwardToApi, which has always guarded this way.
+      if (!clientRes.headersSent) {
+        clientRes.writeHead(502);
+        clientRes.end(`Proxy error: ${err.message}`);
+      }
     });
 
     clientReq.pipe(upstreamReq);

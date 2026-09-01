@@ -160,21 +160,52 @@ export async function stopDevSession(
   );
 }
 
-export async function pollDevRequest(
+/**
+ * Claim whatever work is queued for this dev session, up to `batch`.
+ *
+ * Asking for more than one is what keeps dispatch from costing a round-trip
+ * per request: the poll loop is sequential, so a burst of concurrent method
+ * calls used to queue behind each other even though execution is concurrent.
+ *
+ * The response shape is normalized here because both sides of this boundary
+ * version independently and neither negotiates. An API that predates `batch`
+ * ignores the param and answers with a single request object, so a new tunnel
+ * against an old platform still works — it just claims one at a time.
+ */
+export async function pollDevRequests(
   appId: string,
   sessionId: string,
   proxyUrl?: string,
-): Promise<DevRequest | null> {
-  const url = proxyUrl
-    ? `${basePath(appId)}/poll?proxyUrl=${encodeURIComponent(proxyUrl)}`
+  batch: number = 1,
+): Promise<DevRequest[]> {
+  const params = new URLSearchParams();
+  if (proxyUrl) {
+    params.set('proxyUrl', proxyUrl);
+  }
+  if (batch > 1) {
+    params.set('batch', String(batch));
+  }
+  const query = params.toString();
+  const url = query
+    ? `${basePath(appId)}/poll?${query}`
     : `${basePath(appId)}/poll`;
 
   try {
-    return await apiRequest<DevRequest | null>(
-      'GET',
-      url,
-      getHeaders(sessionId),
-    );
+    const body = await apiRequest<
+      DevRequest | { requests?: DevRequest[] } | DevRequest[] | null
+    >('GET', url, getHeaders(sessionId));
+
+    // 204 (nothing queued within the long-poll window).
+    if (!body) {
+      return [];
+    }
+    if (Array.isArray(body)) {
+      return body;
+    }
+    if (Array.isArray((body as { requests?: DevRequest[] }).requests)) {
+      return (body as { requests: DevRequest[] }).requests;
+    }
+    return [body as DevRequest];
   } catch (err) {
     // Re-throw as DevPollError so the runner can detect session expiry (404)
     if (err instanceof ApiError) {
