@@ -1431,8 +1431,11 @@ export class DevProxy {
   }
 
   /**
-   * Serve the replay-render page: an rrweb Replayer sized 1:1 to the recording
-   * that export-recording.ts screencasts while it plays. The page exposes
+   * Serve the replay-render page: an rrweb Replayer that export-recording.ts
+   * screencasts while it plays. `?scale=N` renders the recording's CSS pixels
+   * at N× — the DevTools screencast captures at CSS-pixel size regardless of
+   * device scale factor, so this CSS scale (with an N× viewport) is how the
+   * capture gets real high-resolution pixels. The page exposes
    * `window.__render` — ready/visible/total/finished plus play() and time() —
    * which the tunnel polls with short evaluates. Ready means the FullSnapshot
    * is rebuilt, the iframe's fonts have loaded, and two frames have painted,
@@ -1457,7 +1460,7 @@ export class DevProxy {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; background: #fff; overflow: hidden; }
     #player { position: absolute; inset: 0; }
-    .replayer-wrapper { position: absolute; left: 0; top: 0; transform: none !important; }
+    .replayer-wrapper { position: absolute; left: 0; top: 0; transform-origin: top left; }
     .replayer-wrapper iframe { border: none; outline: none; background: #fff; }
     /* Remy's cursor lives in the recorded DOM (#__mindstudio-cursor); rrweb's
        ghost mouse would draw a second one. */
@@ -1514,6 +1517,19 @@ export class DevProxy {
         liveMode: false,
         UNSAFE_replayCanvas: true,
       });
+      // rrweb fits its wrapper to the root on every resize; pin it to the
+      // top-left at exactly the requested scale instead.
+      const scale = Number(new URLSearchParams(location.search).get('scale') || '1') || 1;
+      const pinWrapper = () => {
+        const wrapper = document.querySelector('.replayer-wrapper');
+        if (!wrapper) return;
+        wrapper.style.setProperty('transform', 'scale(' + scale + ')', 'important');
+        wrapper.style.setProperty('transform-origin', 'top left', 'important');
+        wrapper.style.setProperty('left', '0', 'important');
+        wrapper.style.setProperty('top', '0', 'important');
+      };
+      pinWrapper();
+      replayer.on('resize', pinWrapper);
       render.total = replayer.getMetaData().totalTime;
       render.time = () => replayer.getCurrentTime();
       render.play = () => replayer.play(0);

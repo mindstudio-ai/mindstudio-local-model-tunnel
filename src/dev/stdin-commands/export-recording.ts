@@ -21,7 +21,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { CDPSession, Page } from 'puppeteer-core';
@@ -44,15 +44,26 @@ const MAX_EVENTS_BYTES = 256 * 1024 * 1024;
 const MAX_REPLAY_MS = 6 * 60_000;
 // Ready + encode + upload allowance on top of the replay's own length.
 const RENDER_MARGIN_MS = 90_000;
-const MAX_FRAMES_BYTES = 1.5 * 1024 * 1024 * 1024;
+// Frames are staged on disk (that is what keeps timing exact when the encoder
+// is slower than the capture). Hard cap, and never more than half the free
+// space where they land.
+const MAX_FRAMES_BYTES = 3 * 1024 * 1024 * 1024;
 const READY_TIMEOUT_MS = 30_000;
 const FIRST_FRAME_TIMEOUT_MS = 10_000;
 // Let the final DOM state sit on screen briefly instead of cutting on the
 // last mutation.
 const TAIL_MS = 500;
 const FPS = 30;
-const JPEG_QUALITY = 90;
-const X264_CRF = 20;
+// The screencast captures at CSS-pixel size whatever the device scale factor,
+// so the render page rasterizes the DOM at this factor inside an equally
+// enlarged viewport: a 1440×900 desktop run becomes a 2880×1800 video with
+// vector-crisp text, and 4:2:0 chroma subsampling stops being visible on UI
+// edges. Chrome's per-frame JPEG encode caps the effective capture rate on a
+// small box, but frames are timestamped, so a slower capture means fewer
+// frames, never drift.
+const RENDER_SCALE = 2;
+const JPEG_QUALITY = 95;
+const X264_CRF = 18;
 
 type Phase = 'loading' | 'rendering' | 'encoding' | 'uploading';
 
@@ -206,10 +217,16 @@ async function runExport(
     //    document and the supervisor's watchdogs are never touched
     //    (renderHtmlCapture precedent). Default context, so auth-gated app
     //    images the recording references resolve with the app page's cookies.
+    const outWidth = width * RENDER_SCALE;
+    const outHeight = height * RENDER_SCALE;
     page = await appPage.browser().newPage();
-    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await page.setViewport({
+      width: outWidth,
+      height: outHeight,
+      deviceScaleFactor: 1,
+    });
     await page.goto(
-      `http://127.0.0.1:${job.proxyPort}/__mindstudio_dev__/render?job=${jobId}`,
+      `http://127.0.0.1:${job.proxyPort}/__mindstudio_dev__/render?job=${jobId}&scale=${RENDER_SCALE}`,
       { waitUntil: 'load', timeout: READY_TIMEOUT_MS },
     );
     const ready = await waitForReady(page);
@@ -241,6 +258,7 @@ async function runExport(
 
     // 3. Screencast to disk. Each frame is written before it is acked, so
     //    Chrome's in-flight window (3 frames) is the only buffer.
+    const framesCap = Math.min(MAX_FRAMES_BYTES, await halfFreeBytes(dir));
     cdp = await page.createCDPSession();
     const frames: Array<{ file: string; ts: number }> = [];
     let framesBytes = 0;
@@ -269,8 +287,8 @@ async function runExport(
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
       quality: JPEG_QUALITY,
-      maxWidth: width,
-      maxHeight: height,
+      maxWidth: outWidth,
+      maxHeight: outHeight,
       everyNthFrame: 1,
     });
     // The paused frame 0 anchors t0 before playback starts.
@@ -305,9 +323,9 @@ async function runExport(
           'RENDER_FAILED',
         );
       }
-      if (framesBytes > MAX_FRAMES_BYTES) {
+      if (framesBytes > framesCap) {
         throw new CommandError(
-          'Replay produced too many frames to encode on this sandbox',
+          'Replay produced more frames than this sandbox has room to encode',
           'RENDER_FAILED',
         );
       }
@@ -374,8 +392,8 @@ async function runExport(
     const elapsedMs = Date.now() - startedAt;
     log.info('browser', 'Replay export complete', {
       jobId,
-      width,
-      height,
+      width: outWidth,
+      height: outHeight,
       durationMs: total,
       frames: frames.length,
       bytes,
@@ -385,8 +403,8 @@ async function runExport(
       success: true,
       jobId,
       url: publicUrl,
-      width,
-      height,
+      width: outWidth,
+      height: outHeight,
       durationMs: total,
       bytes,
       elapsedMs,
@@ -443,6 +461,16 @@ async function fetchEvents(
   return { eventsJson, width, height };
 }
 
+/** Half the free space on the volume `dir` lives on (Infinity if unknown). */
+async function halfFreeBytes(dir: string): Promise<number> {
+  try {
+    const fs = await statfs(dir);
+    return (Number(fs.bavail) * Number(fs.bsize)) / 2;
+  } catch {
+    return Infinity;
+  }
+}
+
 /** Poll the render page until it reports ready (or an error). */
 async function waitForReady(page: Page): Promise<RenderPageState> {
   const deadline = Date.now() + READY_TIMEOUT_MS;
@@ -480,9 +508,10 @@ async function waitForReady(page: Page): Promise<RenderPageState> {
 }
 
 /**
- * Encode the captured frames to H.264. libx264 veryfast handles UI content at
- * this size faster than real time on one core; the process is deprioritised so
- * it can't starve Chrome (whose app-page ping watchdog is a SIGKILL).
+ * Encode the captured frames to H.264. The render tab is closed by now and the
+ * agent is idle (the sandbox gate), so the encoder may use every core; it is
+ * still deprioritised so Chrome's app-page ping watchdog (a SIGKILL) always
+ * gets CPU.
  */
 function encode(
   ffmpeg: string,
@@ -513,7 +542,7 @@ function encode(
       '-preset',
       'veryfast',
       '-threads',
-      '1',
+      '0',
       '-crf',
       String(X264_CRF),
       '-movflags',
