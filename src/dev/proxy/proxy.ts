@@ -50,6 +50,11 @@ interface QueuedCommand {
 // empty result or a 120s hang).
 const HEADLESS_READY_TIMEOUT_MS = 30_000;
 
+// rrweb replayer served to the mirror and replay-render pages. Pinned to the
+// editor's installed @rrweb/replay so a render matches what the user watched;
+// `@latest` would silently pick up a breaking major.
+const RRWEB_REPLAY_VERSION = '2.1.1';
+
 export class DevProxy {
   private server: http.Server | null = null;
   private proxyPort: number | null = null;
@@ -60,6 +65,10 @@ export class DevProxy {
 
   /** Last mirror snapshot — sent to new mirror viewers so they don't wait for the next checkout. */
   private lastMirrorSnapshot: string | null = null;
+
+  /** Replay event streams held for the render page while an export runs
+   *  (stdin-commands/export-recording.ts), keyed by the export's job token. */
+  private renderJobs = new Map<string, string>();
 
   /** Open /_/telemetry/presence SSE responses, drained on stop(). */
   private sseConnections = new Set<http.ServerResponse>();
@@ -97,6 +106,15 @@ export class DevProxy {
 
   updateClientContext(context: Record<string, unknown>): void {
     this.clientContext = context;
+  }
+
+  /** Hold a replay's events for `/__mindstudio_dev__/render?job=` to fetch. */
+  setRenderJob(token: string, eventsJson: string): void {
+    this.renderJobs.set(token, eventsJson);
+  }
+
+  clearRenderJob(token: string): void {
+    this.renderJobs.delete(token);
   }
 
   /**
@@ -950,6 +968,20 @@ export class DevProxy {
         clientRes.end(body);
         return;
       }
+      if (
+        clientReq.url?.startsWith('/__mindstudio_dev__/render?') &&
+        clientReq.method === 'GET'
+      ) {
+        this.serveRenderPage(clientReq, clientRes);
+        return;
+      }
+      if (
+        clientReq.url?.startsWith('/__mindstudio_dev__/render-events?') &&
+        clientReq.method === 'GET'
+      ) {
+        this.serveRenderEvents(clientReq, clientRes);
+        return;
+      }
     }
 
     // CORS preflight
@@ -1262,7 +1294,7 @@ export class DevProxy {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mobile Mirror</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@rrweb/replay@latest/dist/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@rrweb/replay@${RRWEB_REPLAY_VERSION}/dist/style.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; background: #eaeaea; overflow: hidden; }
@@ -1283,7 +1315,7 @@ export class DevProxy {
     .replayer-mouse:not(.touch-device) { display: none !important; }
   </style>
   <script type="importmap">
-  { "imports": { "@rrweb/replay": "https://cdn.jsdelivr.net/npm/@rrweb/replay@latest/+esm" } }
+  { "imports": { "@rrweb/replay": "https://cdn.jsdelivr.net/npm/@rrweb/replay@${RRWEB_REPLAY_VERSION}/+esm" } }
   </script>
 </head>
 <body>
@@ -1361,6 +1393,162 @@ export class DevProxy {
     ws.onclose = () => {
       setTimeout(() => location.reload(), 2000);
     };
+  </script>
+</body>
+</html>`;
+
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(html);
+  }
+
+  /** The render job token from a `/__mindstudio_dev__/render*?job=` URL. */
+  private renderJobToken(req: http.IncomingMessage): string | null {
+    const token = new URL(req.url!, 'http://localhost').searchParams.get('job');
+    return token && /^[a-f0-9]{32}$/.test(token) && this.renderJobs.has(token)
+      ? token
+      : null;
+  }
+
+  /** The held event stream for a live render job; 404 once it is cleared. */
+  private serveRenderEvents(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): void {
+    const token = this.renderJobToken(req);
+    if (!token) {
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      res.end('no such render job');
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+    });
+    res.end(this.renderJobs.get(token)!);
+  }
+
+  /**
+   * Serve the replay-render page: an rrweb Replayer that export-recording.ts
+   * screencasts while it plays. `?scale=N` renders the recording's CSS pixels
+   * at N× — the DevTools screencast captures at CSS-pixel size regardless of
+   * device scale factor, so this CSS scale (with an N× viewport) is how the
+   * capture gets real high-resolution pixels. The page exposes
+   * `window.__render` — ready/visible/total/finished plus play() and time() —
+   * which the tunnel polls with short evaluates. Ready means the FullSnapshot
+   * is rebuilt, the iframe's fonts have loaded, and two frames have painted,
+   * so frame 0 of the capture is the styled first frame, not a bare DOM.
+   */
+  private serveRenderPage(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): void {
+    if (!this.renderJobToken(req)) {
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      res.end('no such render job');
+      return;
+    }
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Replay render</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@rrweb/replay@${RRWEB_REPLAY_VERSION}/dist/style.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; background: #fff; overflow: hidden; }
+    #player { position: absolute; inset: 0; }
+    .replayer-wrapper { position: absolute; left: 0; top: 0; transform-origin: top left; }
+    .replayer-wrapper iframe { border: none; outline: none; background: #fff; }
+    /* Remy's cursor lives in the recorded DOM (#__mindstudio-cursor); rrweb's
+       ghost mouse would draw a second one. */
+    .replayer-mouse, .replayer-mouse-tail { display: none !important; }
+  </style>
+  <script type="importmap">
+  { "imports": { "@rrweb/replay": "https://cdn.jsdelivr.net/npm/@rrweb/replay@${RRWEB_REPLAY_VERSION}/+esm" } }
+  </script>
+</head>
+<body>
+  <div id="player"></div>
+  <script type="module">
+    import { Replayer } from '@rrweb/replay';
+
+    const render = {
+      ready: false,
+      visible: document.visibilityState === 'visible',
+      total: 0,
+      width: 0,
+      height: 0,
+      finished: false,
+      error: null,
+      play() {},
+      time() { return 0; },
+    };
+    window.__render = render;
+    document.addEventListener('visibilitychange', () => {
+      render.visible = document.visibilityState === 'visible';
+    });
+
+    try {
+      const job = new URLSearchParams(location.search).get('job');
+      const res = await fetch('/__mindstudio_dev__/render-events?job=' + encodeURIComponent(job || ''));
+      if (!res.ok) throw new Error('events unavailable (' + res.status + ')');
+      const events = await res.json();
+      let width = 0;
+      let height = 0;
+      for (const e of events) {
+        if (e && e.type === 4 && e.data) {
+          width = Math.max(width, e.data.width | 0);
+          height = Math.max(height, e.data.height | 0);
+        }
+      }
+      render.width = width;
+      render.height = height;
+
+      const replayer = new Replayer(events, {
+        root: document.getElementById('player'),
+        speed: 1,
+        skipInactive: false,
+        showWarning: false,
+        showDebug: false,
+        mouseTail: false,
+        liveMode: false,
+        UNSAFE_replayCanvas: true,
+      });
+      // rrweb fits its wrapper to the root on every resize; pin it to the
+      // top-left at exactly the requested scale instead.
+      const scale = Number(new URLSearchParams(location.search).get('scale') || '1') || 1;
+      const pinWrapper = () => {
+        const wrapper = document.querySelector('.replayer-wrapper');
+        if (!wrapper) return;
+        wrapper.style.setProperty('transform', 'scale(' + scale + ')', 'important');
+        wrapper.style.setProperty('transform-origin', 'top left', 'important');
+        wrapper.style.setProperty('left', '0', 'important');
+        wrapper.style.setProperty('top', '0', 'important');
+      };
+      pinWrapper();
+      replayer.on('resize', pinWrapper);
+      render.total = replayer.getMetaData().totalTime;
+      render.time = () => replayer.getCurrentTime();
+      render.play = () => replayer.play(0);
+      replayer.on('finish', () => { render.finished = true; });
+
+      // pause(0) rebuilds the FullSnapshot synchronously but its stylesheets,
+      // images and fonts load async — wait for them so frame 0 is styled.
+      const rebuilt = new Promise((r) => replayer.on('fullsnapshot-rebuilded', r));
+      replayer.pause(0);
+      await Promise.race([rebuilt, new Promise((r) => setTimeout(r, 3000))]);
+      const doc = replayer.iframe && replayer.iframe.contentDocument;
+      if (doc && doc.fonts) {
+        await Promise.race([doc.fonts.ready, new Promise((r) => setTimeout(r, 5000))]);
+      }
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      render.ready = true;
+    } catch (err) {
+      render.error = err && err.message ? err.message : String(err);
+    }
   </script>
 </body>
 </html>`;

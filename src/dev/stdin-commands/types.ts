@@ -49,6 +49,14 @@ export const ERROR_CODES = [
   'EXECUTION_ERROR',
   'UNKNOWN_ACTION',
   'UPLOAD_FAILED',
+  /** A replay export holds the browser; browser/screenshot commands fail fast. */
+  'BUSY',
+  /** ffmpeg is not installed on this sandbox (older image). */
+  'FFMPEG_UNAVAILABLE',
+  /** The replay render or encode failed. */
+  'RENDER_FAILED',
+  /** The export was cancelled by the caller. */
+  'CANCELLED',
   'INFRASTRUCTURE',
 ] as const;
 

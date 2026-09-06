@@ -282,27 +282,49 @@ export async function fetchCallbackToken(
   return { authorizationToken: data.authorizationToken, secrets: data.secrets };
 }
 
+/**
+ * Presigned upload for a public, world-fetchable scratch file (screenshots —
+ * vision models fetch the URL directly). Recording chunks are private and go
+ * through `getRecordingUploadUrl`.
+ */
 export async function getUploadUrl(
   appId: string,
   sessionId: string,
   extension: string,
   contentType: string,
-  // 'private' stores in the private bucket and returns `path` (an s3:// ref
-  // the editor resolves to a presigned URL) instead of `publicUrl`. Used for
-  // rrweb recording chunks; screenshots stay public (vision models fetch the
-  // URL directly).
-  access?: 'private',
 ): Promise<{
   uploadUrl: string;
   uploadFields: Record<string, string>;
-  publicUrl?: string;
-  path?: string;
+  publicUrl: string;
 }> {
   return apiRequest(
     'POST',
     `${basePath(appId)}/manage/upload`,
     getHeaders(sessionId),
-    { extension, contentType, ...(access ? { access } : {}) },
+    { extension, contentType },
+  );
+}
+
+/**
+ * Presigned upload for one rrweb recording chunk into the app's private
+ * `_recordings` store, keyed `{recordingSessionId}/{seq}.json` so a retried
+ * upload overwrites. `path` is the s3:// ref the editor signs for playback.
+ */
+export async function getRecordingUploadUrl(
+  appId: string,
+  sessionId: string,
+  recordingSessionId: string,
+  seq: number,
+): Promise<{
+  uploadUrl: string;
+  uploadFields: Record<string, string>;
+  path: string;
+}> {
+  return apiRequest(
+    'POST',
+    `${basePath(appId)}/recordings/upload`,
+    getHeaders(sessionId),
+    { sessionId: recordingSessionId, seq },
   );
 }
 
