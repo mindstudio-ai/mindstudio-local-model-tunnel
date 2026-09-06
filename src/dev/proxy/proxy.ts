@@ -55,6 +55,34 @@ const HEADLESS_READY_TIMEOUT_MS = 30_000;
 // `@latest` would silently pick up a breaking major.
 const RRWEB_REPLAY_VERSION = '2.1.1';
 
+/** Stage styling the editor resolved from the app's brand (already validated). */
+export interface RenderStageStyle {
+  background: string;
+  grain: boolean;
+  windowShadow: string;
+  hairline: string;
+  /** Window corner radius in the recording's CSS px (scaled on the canvas). */
+  windowRadius: number;
+}
+
+/** How the replay-render page lays out a job (computed in export-recording.ts). */
+export interface RenderJobConfig {
+  canvasW: number;
+  canvasH: number;
+  /** DOM raster scale: recording CSS px → canvas px. */
+  scale: number;
+  phone: boolean;
+  /** Desktop faux browser bar height on the canvas (0 for phones / bare). */
+  chromeH: number;
+  /** Window (or phone bezel) rect on the canvas; null for a bare render. */
+  window: { x: number; y: number; w: number; h: number } | null;
+  style: RenderStageStyle | null;
+}
+
+// Same fractal-noise grain the editor's stage uses (WashBackdrop.GRAIN).
+const STAGE_GRAIN =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
+
 export class DevProxy {
   private server: http.Server | null = null;
   private proxyPort: number | null = null;
@@ -66,9 +94,13 @@ export class DevProxy {
   /** Last mirror snapshot — sent to new mirror viewers so they don't wait for the next checkout. */
   private lastMirrorSnapshot: string | null = null;
 
-  /** Replay event streams held for the render page while an export runs
-   *  (stdin-commands/export-recording.ts), keyed by the export's job token. */
-  private renderJobs = new Map<string, string>();
+  /** Replay renders in flight (stdin-commands/export-recording.ts), keyed by
+   *  the export's job token: the event stream the page fetches, plus the
+   *  canvas/stage the page draws. */
+  private renderJobs = new Map<
+    string,
+    { eventsJson: string; render: RenderJobConfig }
+  >();
 
   /** Open /_/telemetry/presence SSE responses, drained on stop(). */
   private sseConnections = new Set<http.ServerResponse>();
@@ -108,9 +140,13 @@ export class DevProxy {
     this.clientContext = context;
   }
 
-  /** Hold a replay's events for `/__mindstudio_dev__/render?job=` to fetch. */
-  setRenderJob(token: string, eventsJson: string): void {
-    this.renderJobs.set(token, eventsJson);
+  /** Hold a replay's events + render config for `/__mindstudio_dev__/render`. */
+  setRenderJob(
+    token: string,
+    eventsJson: string,
+    render: RenderJobConfig,
+  ): void {
+    this.renderJobs.set(token, { eventsJson, render });
   }
 
   clearRenderJob(token: string): void {
@@ -1427,29 +1463,37 @@ export class DevProxy {
       'content-type': 'application/json',
       'cache-control': 'no-store',
     });
-    res.end(this.renderJobs.get(token)!);
+    res.end(this.renderJobs.get(token)!.eventsJson);
   }
 
   /**
-   * Serve the replay-render page: an rrweb Replayer that export-recording.ts
-   * screencasts while it plays. `?scale=N` renders the recording's CSS pixels
-   * at N× — the DevTools screencast captures at CSS-pixel size regardless of
-   * device scale factor, so this CSS scale (with an N× viewport) is how the
-   * capture gets real high-resolution pixels. The page exposes
-   * `window.__render` — ready/visible/total/finished plus play() and time() —
-   * which the tunnel polls with short evaluates. Ready means the FullSnapshot
-   * is rebuilt, the iframe's fonts have loaded, and two frames have painted,
-   * so frame 0 of the capture is the styled first frame, not a bare DOM.
+   * Serve the replay-render page: the rrweb Replayer inside the export's
+   * "stage" — the app's brand wallpaper with the replay as a rounded, shadowed
+   * window (or phone bezel) centred on a fixed canvas — as computed by
+   * export-recording.ts and inlined here as `window.__stage`. With no stage
+   * (an older editor) it is the bare replay filling the canvas.
+   *
+   * The DevTools screencast captures at CSS-pixel size regardless of device
+   * scale factor, so the DOM is rasterized at `scale` via a CSS transform on
+   * the replayer wrapper inside an equally sized box: that is how the capture
+   * gets real high-resolution pixels with no resampling.
+   *
+   * The page exposes `window.__render` — ready/visible/total/finished plus
+   * play() and time() — which the tunnel polls with short evaluates. Ready
+   * means the FullSnapshot is rebuilt, the iframe's fonts have loaded, and two
+   * frames have painted, so frame 0 of the capture is the styled first frame.
    */
   private serveRenderPage(
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): void {
-    if (!this.renderJobToken(req)) {
+    const token = this.renderJobToken(req);
+    if (!token) {
       res.writeHead(404, { 'content-type': 'text/plain' });
       res.end('no such render job');
       return;
     }
+    const stageJson = JSON.stringify(this.renderJobs.get(token)!.render);
     const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -1459,7 +1503,21 @@ export class DevProxy {
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; background: #fff; overflow: hidden; }
-    #player { position: absolute; inset: 0; }
+    #stage { position: absolute; inset: 0; overflow: hidden; isolation: isolate; }
+    #grain { position: absolute; inset: 0; z-index: 0; pointer-events: none;
+      background-image: ${STAGE_GRAIN}; background-size: 140px 140px;
+      opacity: 0.035; mix-blend-mode: multiply; display: none; }
+    #window { position: absolute; z-index: 1; overflow: hidden; background: #fff; }
+    /* Apple-style squircle corners where Chrome supports them (139+), matching
+       the editor's @styles/squircle upgrade. */
+    @supports (corner-shape: superellipse(2.3)) {
+      #window, #phone { corner-shape: superellipse(2.3); }
+    }
+    #chrome { display: flex; align-items: center; background: #f1f2f4; border-bottom: 1px solid rgba(0,0,0,0.08); }
+    #chrome i { display: block; border-radius: 50%; }
+    #phone { position: absolute; z-index: 1; overflow: hidden; background: #000; }
+    #notch { position: absolute; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); z-index: 10; pointer-events: none; }
+    #player { position: relative; overflow: hidden; background: #fff; }
     .replayer-wrapper { position: absolute; left: 0; top: 0; transform-origin: top left; }
     .replayer-wrapper iframe { border: none; outline: none; background: #fff; }
     /* Remy's cursor lives in the recorded DOM (#__mindstudio-cursor); rrweb's
@@ -1469,9 +1527,13 @@ export class DevProxy {
   <script type="importmap">
   { "imports": { "@rrweb/replay": "https://cdn.jsdelivr.net/npm/@rrweb/replay@${RRWEB_REPLAY_VERSION}/+esm" } }
   </script>
+  <script>window.__stage = ${stageJson};</script>
 </head>
 <body>
-  <div id="player"></div>
+  <div id="stage">
+    <div id="grain"></div>
+    <div id="window"><div id="chrome"></div><div id="player"></div></div>
+  </div>
   <script type="module">
     import { Replayer } from '@rrweb/replay';
 
@@ -1491,7 +1553,64 @@ export class DevProxy {
       render.visible = document.visibilityState === 'visible';
     });
 
+    // Lengths in the editor-authored shadow/ring are in the recording's CSS px;
+    // scale them with the window so the treatment keeps its proportions.
+    const scaleLengths = (css, k) =>
+      css.replace(/(-?\d*\.?\d+)px/g, (_, n) => (parseFloat(n) * k).toFixed(2) + 'px');
+
+    function layoutStage(cfg) {
+      const stage = document.getElementById('stage');
+      const win = document.getElementById('window');
+      const chrome = document.getElementById('chrome');
+      const player = document.getElementById('player');
+      const S = cfg.scale;
+      player.style.width = render.width * S + 'px';
+      player.style.height = render.height * S + 'px';
+
+      if (!cfg.window || !cfg.style) {
+        // Bare render: the replay fills the canvas.
+        chrome.style.display = 'none';
+        win.style.left = '0'; win.style.top = '0';
+        win.style.width = cfg.canvasW + 'px'; win.style.height = cfg.canvasH + 'px';
+        return;
+      }
+
+      const st = cfg.style;
+      stage.style.background = st.background;
+      if (st.grain) document.getElementById('grain').style.display = 'block';
+      const shadow = scaleLengths(st.windowShadow, S) + ', 0 0 0 ' + Math.max(1, S).toFixed(2) + 'px ' + st.hairline;
+
+      if (cfg.phone) {
+        // Phone bezel around the replay, no browser bar.
+        win.id = 'phone';
+        chrome.style.display = 'none';
+        const notch = document.createElement('div');
+        notch.id = 'notch';
+        notch.style.top = 8 * S + 'px'; notch.style.width = 60 * S + 'px';
+        notch.style.height = 5 * S + 'px'; notch.style.borderRadius = 3 * S + 'px';
+        win.appendChild(notch);
+        win.style.borderRadius = (CSS.supports && CSS.supports('corner-shape', 'superellipse(2.3)') ? 28 : 20) * S + 'px';
+      } else {
+        // The squircle upgrade reads at a larger radius (the editor uses 16 → 24).
+        const squircle = CSS.supports && CSS.supports('corner-shape', 'superellipse(2.3)');
+        win.style.borderRadius = st.windowRadius * (squircle ? 1.5 : 1) * S + 'px';
+        chrome.style.height = cfg.chromeH + 'px';
+        chrome.style.padding = '0 ' + 10 * S + 'px';
+        chrome.style.gap = 6 * S + 'px';
+        for (const c of ['#FF5F56', '#FFBD2E', '#27C93F']) {
+          const dot = document.createElement('i');
+          dot.style.width = dot.style.height = 10 * S + 'px';
+          dot.style.background = c;
+          chrome.appendChild(dot);
+        }
+      }
+      win.style.left = cfg.window.x + 'px'; win.style.top = cfg.window.y + 'px';
+      win.style.width = cfg.window.w + 'px'; win.style.height = cfg.window.h + 'px';
+      win.style.boxShadow = shadow;
+    }
+
     try {
+      const cfg = window.__stage;
       const job = new URLSearchParams(location.search).get('job');
       const res = await fetch('/__mindstudio_dev__/render-events?job=' + encodeURIComponent(job || ''));
       if (!res.ok) throw new Error('events unavailable (' + res.status + ')');
@@ -1506,6 +1625,7 @@ export class DevProxy {
       }
       render.width = width;
       render.height = height;
+      layoutStage(cfg);
 
       const replayer = new Replayer(events, {
         root: document.getElementById('player'),
@@ -1518,12 +1638,11 @@ export class DevProxy {
         UNSAFE_replayCanvas: true,
       });
       // rrweb fits its wrapper to the root on every resize; pin it to the
-      // top-left at exactly the requested scale instead.
-      const scale = Number(new URLSearchParams(location.search).get('scale') || '1') || 1;
+      // top-left at exactly the derived scale instead.
       const pinWrapper = () => {
         const wrapper = document.querySelector('.replayer-wrapper');
         if (!wrapper) return;
-        wrapper.style.setProperty('transform', 'scale(' + scale + ')', 'important');
+        wrapper.style.setProperty('transform', 'scale(' + cfg.scale + ')', 'important');
         wrapper.style.setProperty('transform-origin', 'top left', 'important');
         wrapper.style.setProperty('left', '0', 'important');
         wrapper.style.setProperty('top', '0', 'important');

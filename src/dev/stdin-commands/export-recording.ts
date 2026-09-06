@@ -28,6 +28,7 @@ import type { CDPSession, Page } from 'puppeteer-core';
 import { getUploadUrl } from '../api';
 import { resolveFfmpegPath } from '../browser';
 import { emitEvent } from '../ipc/ipc';
+import type { RenderJobConfig, RenderStageStyle } from '../proxy/proxy';
 import { log } from '../logging/logger';
 import { assertNoExport, enqueueBrowserWork, exportGate } from './browser';
 import { CommandError } from './types';
@@ -54,18 +55,116 @@ const FIRST_FRAME_TIMEOUT_MS = 10_000;
 // last mutation.
 const TAIL_MS = 500;
 const FPS = 30;
-// The screencast captures at CSS-pixel size whatever the device scale factor,
-// so the render page rasterizes the DOM at this factor inside an equally
-// enlarged viewport: a 1440×900 desktop run becomes a 2880×1800 video with
-// vector-crisp text, and 4:2:0 chroma subsampling stops being visible on UI
-// edges. Chrome's per-frame JPEG encode caps the effective capture rate on a
-// small box, but frames are timestamped, so a slower capture means fewer
-// frames, never drift.
-const RENDER_SCALE = 2;
+// The video is a standard frame (Screen Studio-style), with the replay as a
+// rounded, shadowed window centred on the app's brand wallpaper — the editor
+// resolves that "stage" and sends the values with the request. The window is
+// fitted inside a uniform margin; because the replay is a DOM, the fit costs
+// nothing: the page rasterizes at exactly the derived scale, no resampling.
+// (The screencast captures at CSS-pixel size whatever the device scale factor,
+// which is why the DOM is scaled inside an equally sized viewport rather than
+// the viewport being given a DPR.) Chrome's per-frame JPEG encode caps the
+// effective capture rate on a small box, but frames are timestamped, so a
+// slower capture means fewer frames, never drift.
+const EXPORT_CANVAS = {
+  landscape: { w: 2560, h: 1440 },
+  portrait: { w: 1440, h: 2560 },
+};
+const EXPORT_MARGIN_FRAC = 0.08;
+// The faux browser bar drawn above a desktop replay, in the recording's CSS px
+// (matches the editor's BrowserChromeBar).
+const CHROME_BAR_CSS_PX = 28;
+// An editor that predates the stage sends none; render the bare replay at 2×.
+const BARE_RENDER_SCALE = 2;
 const JPEG_QUALITY = 95;
 const X264_CRF = 18;
 
+// Stage style values are CSS the editor generated; they must never carry a
+// quote or a url(): only colors, gradients, lengths and shadow lists.
+const STAGE_STRING_MAX = 2048;
+const STAGE_STRING_RE = /^[A-Za-z0-9 #%,.()\-/:_\n]*$/;
+
 type Phase = 'loading' | 'rendering' | 'encoding' | 'uploading';
+
+/** Validate the editor-supplied stage; null when the request carries none. */
+function parseStage(value: unknown): RenderStageStyle | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== 'object') {
+    throw new CommandError('"stage" must be an object', 'INVALID_INPUT');
+  }
+  const v = value as Record<string, unknown>;
+  const str = (key: string): string => {
+    const raw = v[key];
+    if (
+      typeof raw !== 'string' ||
+      raw.length > STAGE_STRING_MAX ||
+      !STAGE_STRING_RE.test(raw) ||
+      raw.includes('url(')
+    ) {
+      throw new CommandError(`Invalid stage.${key}`, 'INVALID_INPUT');
+    }
+    return raw;
+  };
+  const radius = Number(v.windowRadius);
+  if (!Number.isFinite(radius) || radius < 0 || radius > 64) {
+    throw new CommandError('Invalid stage.windowRadius', 'INVALID_INPUT');
+  }
+  return {
+    background: str('background'),
+    windowShadow: str('windowShadow'),
+    hairline: str('hairline'),
+    grain: v.grain === true,
+    windowRadius: radius,
+  };
+}
+
+/**
+ * Canvas, scale and window placement for a recording of `recW`×`recH` CSS px.
+ * With a stage: the fixed 16:9 (or 9:16) frame with the window fitted and
+ * centred. Without: the bare replay at a fixed 2×.
+ */
+function planGeometry(
+  recW: number,
+  recH: number,
+  style: RenderStageStyle | null,
+): RenderJobConfig {
+  const phone = recH > recW;
+  if (!style) {
+    return {
+      canvasW: recW * BARE_RENDER_SCALE,
+      canvasH: recH * BARE_RENDER_SCALE,
+      scale: BARE_RENDER_SCALE,
+      phone,
+      chromeH: 0,
+      window: null,
+      style: null,
+    };
+  }
+  const canvas = phone ? EXPORT_CANVAS.portrait : EXPORT_CANVAS.landscape;
+  const margin = Math.round(EXPORT_MARGIN_FRAC * Math.min(canvas.w, canvas.h));
+  const chromeCss = phone ? 0 : CHROME_BAR_CSS_PX;
+  const scale = Math.min(
+    (canvas.w - 2 * margin) / recW,
+    (canvas.h - 2 * margin) / (recH + chromeCss),
+  );
+  const w = Math.round(recW * scale);
+  const h = Math.round((recH + chromeCss) * scale);
+  return {
+    canvasW: canvas.w,
+    canvasH: canvas.h,
+    scale,
+    phone,
+    chromeH: Math.round(chromeCss * scale),
+    window: {
+      x: Math.round((canvas.w - w) / 2),
+      y: Math.round((canvas.h - h) / 2),
+      w,
+      h,
+    },
+    style,
+  };
+}
 
 interface RenderPageState {
   ready: boolean;
@@ -112,6 +211,7 @@ export async function handleExportRecording(
 ): Promise<Record<string, unknown>> {
   const jobId = typeof cmd.jobId === 'string' ? cmd.jobId : '';
   const eventsUrl = typeof cmd.eventsUrl === 'string' ? cmd.eventsUrl : '';
+  const stage = parseStage(cmd.stage);
   if (!JOB_ID_RE.test(jobId)) {
     throw new CommandError(
       'export-recording requires a 32-hex "jobId"',
@@ -163,6 +263,7 @@ export async function handleExportRecording(
         sessionId: session.sessionId,
         proxyPort: ctx.state.proxyPort!,
         ffmpeg,
+        stage,
       }),
     );
   } finally {
@@ -178,6 +279,7 @@ interface ExportJob {
   sessionId: string;
   proxyPort: number;
   ffmpeg: string;
+  stage: RenderStageStyle | null;
 }
 
 async function runExport(
@@ -210,15 +312,16 @@ async function runExport(
     // 1. The events, held in memory for the render page to fetch locally.
     progress(jobId, 'loading', 0);
     const { eventsJson, width, height } = await fetchEvents(job.eventsUrl);
-    proxy.setRenderJob(jobId, eventsJson);
+    const geometry = planGeometry(width, height, job.stage);
+    proxy.setRenderJob(jobId, eventsJson, geometry);
     checkAbort();
 
     // 2. A fresh tab in the same browser. The app page, its viewport, its
     //    document and the supervisor's watchdogs are never touched
     //    (renderHtmlCapture precedent). Default context, so auth-gated app
     //    images the recording references resolve with the app page's cookies.
-    const outWidth = width * RENDER_SCALE;
-    const outHeight = height * RENDER_SCALE;
+    const outWidth = geometry.canvasW;
+    const outHeight = geometry.canvasH;
     page = await appPage.browser().newPage();
     await page.setViewport({
       width: outWidth,
@@ -226,7 +329,7 @@ async function runExport(
       deviceScaleFactor: 1,
     });
     await page.goto(
-      `http://127.0.0.1:${job.proxyPort}/__mindstudio_dev__/render?job=${jobId}&scale=${RENDER_SCALE}`,
+      `http://127.0.0.1:${job.proxyPort}/__mindstudio_dev__/render?job=${jobId}`,
       { waitUntil: 'load', timeout: READY_TIMEOUT_MS },
     );
     const ready = await waitForReady(page);
