@@ -21,6 +21,10 @@ import { handleRestartWorker } from './restart-worker';
 import { handleDbQuery } from './db-query';
 import { handleListDatabases } from './list-databases';
 import { handleSetupBrowser } from './setup-browser';
+import {
+  handleExportRecording,
+  handleCancelExportRecording,
+} from './export-recording';
 import { errorCodeOf } from './types';
 import type { SessionState, CommandContext, CommandHandler } from './types';
 
@@ -41,6 +45,8 @@ const handlers: Record<string, CommandHandler> = {
   'setup-browser': handleSetupBrowser,
   'dev-server-restarting': handleDevServerRestarting,
   'restart-worker': handleRestartWorker,
+  'export-recording': handleExportRecording,
+  'cancel-export-recording': handleCancelExportRecording,
 };
 
 export function setupStdinCommands(state: SessionState, cwd: string): void {

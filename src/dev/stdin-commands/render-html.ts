@@ -4,6 +4,7 @@ import {
   RENDER_MIN_DIMENSION as MIN_DIMENSION,
   RENDER_MAX_DIMENSION as MAX_DIMENSION,
 } from '../browser';
+import { assertNoExport } from './browser';
 import { CommandError } from './types';
 import type { CommandContext } from './types';
 
@@ -23,6 +24,8 @@ export async function handleRenderHtml(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  // A replay export owns the browser for minutes — fail fast (see browser.ts).
+  assertNoExport();
   if (!ctx.state.runner?.getSession() || !ctx.state.appConfig?.appId) {
     throw new CommandError('No active session', 'NO_SESSION');
   }

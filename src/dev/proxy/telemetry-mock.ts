@@ -96,8 +96,9 @@ function handleBatchPost(
 /**
  * True when the request's Referer origin is loopback — i.e. it came from the
  * sandbox-owned headless Chrome (which always runs on `http://127.0.0.1:<port>`),
- * not a user iframe (served from `sb-XXX.vercel.run`). Origin-based, so it holds
- * across navigations, unlike the `?ms_sandbox=1` entry-URL query marker.
+ * not a user iframe (served from the box's public preview origin,
+ * `<appId>.remy-sandbox.com`). Origin-based, so it holds across navigations,
+ * unlike the `?ms_sandbox=1` entry-URL query marker.
  */
 function isLoopbackReferer(referer: string | undefined): boolean {
   if (!referer) return false;
@@ -130,16 +131,16 @@ function handlePresence(
   // always-1-pinned SSE from real RPCs.
   //
   // We CANNOT use req.socket.remoteAddress to recognize the sandbox browser:
-  // user-iframe requests (sb-XXX.vercel.run) arrive via the hosted sandbox's
-  // HTTP forwarder, so they reach the proxy from loopback too — making *every*
-  // presence request look local, which would 204 real user iframes.
+  // user-iframe requests (from `<appId>.remy-sandbox.com`) arrive via the box's
+  // own HTTP forwarder, so they reach the proxy from loopback too — making
+  // *every* presence request look local, which would 204 real user iframes.
   //
   // Instead recognize the sandbox browser by its *origin*, taken from the
   // Referer. The launcher always loads the app on `http://127.0.0.1:<port>`, so
   // every same-origin request it makes carries a loopback Referer host — and
   // critically that stays true after it navigates to a bare path like
   // `/organizations-contact` during screenshot capture. User iframes are served
-  // from `sb-XXX.vercel.run`, so their Referer host is never loopback.
+  // from `<appId>.remy-sandbox.com`, so their Referer host is never loopback.
   //
   // (Keying off the `?ms_sandbox=1` query marker instead would lose the sandbox
   // browser the instant a screenshot navigates away from the marked entry URL —

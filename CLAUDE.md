@@ -139,7 +139,11 @@ Headless mode accepts NDJSON commands on stdin (one JSON object per line). Every
 | `INVALID_INPUT` | Missing or invalid required fields |
 | `EXECUTION_ERROR` | Method/scenario/query threw during execution |
 | `UNKNOWN_ACTION` | Unrecognized action field |
-| `UPLOAD_FAILED` | Screenshot upload to S3 failed |
+| `UPLOAD_FAILED` | Screenshot or video upload to S3 failed |
+| `BUSY` | A replay export holds the browser; retry when it finishes |
+| `FFMPEG_UNAVAILABLE` | ffmpeg is not installed on this sandbox (older image) |
+| `RENDER_FAILED` | The replay render or encode failed |
+| `CANCELLED` | The export was cancelled |
 | `INFRASTRUCTURE` | Catch-all for unexpected errors |
 
 **Run a method:**
@@ -171,14 +175,16 @@ Times out after 120s. If the browser disconnects mid-command, rejects after a 10
 
 When a batch contains any interactive step (`click`, `type`, `select`), the browser agent records the session via rrweb. The recorder is **continuous**: it starts on the first interactive command and stays alive for the document lifetime, so each command returns only the events buffered since the last one. The first chunk of a run carries the rrweb Meta + FullSnapshot; later chunks are incremental-only continuations sharing the same node-ID namespace. A hard navigation/reload starts a new run (new `runId` + fresh FullSnapshot).
 
-The tunnel uploads each non-empty chunk to S3 and adds a `recording` object to the response:
+The tunnel uploads each non-empty chunk to the app's private `_recordings` store (`POST …/dev/recordings/upload` returns a presigned POST for key `{sessionId}/{seq}.json`) and adds a `recording` object to the response:
 
 ```json
 {"event": "browser", "requestId": "r3", "status": "completed", "success": true, "steps": [...], "duration": 250,
- "recording": {"url": "https://...", "sessionId": "...", "runId": "...", "seq": 0, "containsSnapshot": true, "startTs": 1718800000000, "endTs": 1718800000250}}
+ "recording": {"path": "s3://.../_recordings/<sessionId>/0.json", "sessionId": "...", "runId": "...", "seq": 0, "containsSnapshot": true, "startTs": 1718800000000, "endTs": 1718800000250}}
 ```
 
-UIs group chunks by `sessionId`, order by `seq`, and concatenate them into a **single** rrweb player — no per-command FullSnapshot, so no DOM rebuild/flash at command boundaries. The only rebuild seams are chunks where `containsSnapshot` is true (a new `runId` = a real page load). Per-tool-call replay is a seek to that chunk's `[startTs, endTs]` window in the merged timeline. Screenshot-only and read-only batches don't start the recorder; once it's running they still flush continuation events to keep the stream contiguous. Chunks are never dropped for being small (a missing continuation chunk would desync playback).
+UIs group chunks by `sessionId`, order by `seq`, and concatenate them into a **single** rrweb player — no per-command FullSnapshot, so no DOM rebuild/flash at command boundaries. The only rebuild seams are chunks where `containsSnapshot` is true (a new `runId` = a real page load). Per-tool-call replay is a seek to that chunk's `[startTs, endTs]` window in the merged timeline. Screenshot-only and read-only batches don't start the recorder; once it's running they still flush continuation events to keep the stream contiguous. Chunks are never dropped for being small (a missing continuation chunk would desync playback). `browser` commands are serialized in the tunnel and `seq` is stamped when the chunk is assembled, so chunk order always follows event order even when uploads race. A failed upload keeps its events in memory and folds them into the next chunk under the same `seq` (the deterministic key makes the retry an overwrite), so a transient S3 failure never punches a hole in the stream.
+
+Remy lifts the `recording` object off the result string onto the tool block before the result is capped for history, and leaves the QA sub-agent a plain `recorded: true` flag — the editor reads the reference from the block, never from the result.
 
 Available commands:
 - `snapshot` -- returns a compact accessibility-tree-style representation of the page DOM, with stable `[ref=eN]` identifiers on interactive elements. Waits for network requests to settle before walking.
@@ -200,6 +206,12 @@ Mints an auth cookie, sets it on the sandbox Chrome via CDP, and navigates to th
 {"requestId": "r7", "action": "db-query", "sql": "SELECT * FROM users LIMIT 10"}
 ```
 Executes a SQL query against the dev database. Optional `databaseId` field; defaults to the first database.
+
+**Export a replay as video:**
+```json
+{"requestId": "r8", "action": "export-recording", "jobId": "<32 hex>", "eventsUrl": "https://.../replay.rrweb.json"}
+```
+Renders a stitched rrweb event stream (the same artifact the editor's Share button uploads) to an H.264 mp4 on the box. A second tab on the sandbox Chrome plays it via the proxy's `/__mindstudio_dev__/render?job=` page, DevTools screencast frames are written to disk with Chrome's timestamps, and one ffmpeg pass encodes them (frame timing comes from the timestamps, so a slow box never drifts). Emits `started`, then unsolicited `recording-export-progress` events (`{jobId, phase: loading|rendering|encoding|uploading, percent}`), then `completed` with `{url, width, height, durationMs, bytes}`. The export queues behind any in-flight browser command; while it is pending or running, `browser`, `screenshotFullPage`, `screenshotViewport` and `renderHtml` fail immediately with `BUSY` (a queued command would outlive the sandbox's timer and then run orphaned). Needs ffmpeg (`FFMPEG_UNAVAILABLE` on the old image); replays over 6 minutes are rejected (`INVALID_INPUT`). `{"action": "cancel-export-recording", "jobId": "..."}` aborts the running export, whose result is then `CANCELLED`.
 
 ### Browser Agent
 

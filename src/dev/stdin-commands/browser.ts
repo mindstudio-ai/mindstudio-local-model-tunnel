@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { getUploadUrl } from '../api';
+import { getRecordingUploadUrl, getUploadUrl } from '../api';
 import {
   captureViaCdp,
   navigateTunnelSide,
@@ -19,6 +19,9 @@ import type { Page } from 'puppeteer-core';
  * same node-ID namespace. Consumers group by `sessionId`, order by `seq`, and
  * concatenate into a single player — the only DOM rebuild is at a chunk where
  * `containsSnapshot` is true (a new `runId` = a real page load).
+ *
+ * Remy lifts this object off the result string onto the tool block before the
+ * result is byte-capped for history; the editor reads it from the block.
  */
 interface RecordingMeta {
   /**
@@ -27,11 +30,10 @@ interface RecordingMeta {
    * the editor resolves this to a presigned URL via the app's
    * `attachment-url` endpoint before fetching.
    */
-  path?: string;
-  /** Legacy public CDN URL — only set when the API predates private chunks. */
-  url?: string;
+  path: string;
   sessionId: string;
-  runId: string | null;
+  /** Document lifetime the events belong to; a new runId = fresh FullSnapshot. */
+  runId: string;
   seq: number;
   containsSnapshot: boolean;
   startTs: number;
@@ -60,15 +62,79 @@ const RECORDING_SESSION_ID = randomBytes(16).toString('hex');
 // error code and none of the step results.
 const COMMAND_BUDGET_MS = 100_000;
 
-// Monotonic chunk sequence within the recording session. Only advances when a
-// chunk is actually uploaded, so the frontend never sees a gap.
+// Monotonic chunk sequence within the recording session, stamped when a chunk
+// is assembled (before its upload) so seq order is event order.
 let recordingSeq = 0;
 
 function nextRecordingSeq(): number {
   return recordingSeq++;
 }
 
-export async function handleBrowser(
+// Events from a chunk whose upload failed. They were already drained from the
+// page, so dropping them would punch a hole in the stream that the frontend
+// cannot detect (later mutations reference nodes the missing chunk added).
+// They ride along at the front of the next chunk, which reuses the failed
+// chunk's seq — the deterministic object key makes the retry an overwrite.
+// Bounded so an API that never accepts uploads can't grow memory forever.
+const CARRY_MAX_BYTES = 32 * 1024 * 1024;
+let carry: { seq: number; runId: string; events: unknown[] } | null = null;
+
+// Browser work runs one task at a time. The stdin dispatcher fires commands
+// without awaiting them, and the QA sub-agent can issue two browserCommand
+// calls in one turn, so two invocations would otherwise interleave: the proxy
+// only serializes per in-page batch, a multi-batch command's events would
+// straddle the other command's, and chunk seqs would disagree with event
+// order. Page execution is serial anyway, so waiting here costs no throughput.
+// The command budget starts once the command actually runs. Replay exports
+// (export-recording.ts) share the chain so nothing drives the shared Chrome
+// from two tasks at once.
+let browserCommandChain: Promise<unknown> = Promise.resolve();
+
+/** Run `fn` after every previously enqueued browser task has settled. */
+export function enqueueBrowserWork<T>(fn: () => Promise<T>): Promise<T> {
+  const run = browserCommandChain.then(fn);
+  // Keep the chain alive past a failure; the caller still sees the rejection.
+  browserCommandChain = run.catch(() => undefined);
+  return run;
+}
+
+/**
+ * The replay export currently holding (or waiting for) the browser. While one
+ * is set, browser/screenshot/render commands fail fast with BUSY instead of
+ * queueing: the sandbox's 120s timer would expire while they waited, and the
+ * tunnel would then run them anyway against a page nobody is listening to
+ * (orphan navigations, a wasted command budget). `renderHtml` would also open a
+ * tab that hides the render tab and freezes the rAF-driven replay. The gate is
+ * claimed when the export is accepted, not when its render starts, so a
+ * command arriving while the export waits behind an in-flight one fails fast
+ * too. The export itself still enqueues behind whatever is already running.
+ */
+export const exportGate: {
+  active: { jobId: string; startedAt: number; etaMs: number } | null;
+} = { active: null };
+
+export function assertNoExport(): void {
+  const active = exportGate.active;
+  if (!active) return;
+  const leftSec = Math.max(
+    0,
+    Math.round((active.startedAt + active.etaMs - Date.now()) / 1000),
+  );
+  throw new CommandError(
+    `Video export in progress (~${leftSec}s left) — browser commands are unavailable until it finishes`,
+    'BUSY',
+  );
+}
+
+export function handleBrowser(
+  ctx: CommandContext,
+  cmd: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  assertNoExport();
+  return enqueueBrowserWork(() => runBrowser(ctx, cmd));
+}
+
+async function runBrowser(
   ctx: CommandContext,
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
@@ -363,9 +429,11 @@ async function captureScreenshotStep(
 }
 
 /**
- * Upload one continuous-recording chunk to S3 using the same presigned-URL
- * flow screenshots use, and return its playback metadata (RecordingMeta).
- * Returns null when there's nothing to upload or the upload fails.
+ * Upload one continuous-recording chunk to the app's private `_recordings`
+ * store and return its playback metadata (RecordingMeta). Folds in the events
+ * of a previously failed upload (see `carry`). Returns null when there's
+ * nothing to upload or the upload fails — in which case the events are held
+ * for the next attempt rather than dropped.
  */
 async function uploadRecording(
   ctx: CommandContext,
@@ -374,22 +442,30 @@ async function uploadRecording(
 ): Promise<RecordingMeta | null> {
   // Never drop a non-empty chunk: continuation chunks are incremental-only
   // and may be small, but skipping one punches a hole in the continuous
-  // stream and desyncs playback. (The old size floor was for self-contained
-  // per-command recordings, which no longer exist.)
+  // stream and desyncs playback.
   if (events.length === 0) return null;
   const session = ctx.state.runner?.getSession();
   const appId = ctx.state.appConfig?.appId;
   if (!session || !appId) return null;
 
-  const body = JSON.stringify(events);
+  // A flush always arrives with its runId; a carried chunk keeps the run of
+  // the command that produced it. When the two differ the combined chunk
+  // straddles a navigation — rrweb plays leading incrementals before a
+  // FullSnapshot fine, and the editor anchors per runId, so label it with the
+  // current run.
+  const chunkRunId = runId ?? carry?.runId;
+  if (!chunkRunId) return null;
+  const chunkEvents = carry ? [...carry.events, ...events] : events;
+  const seq = carry ? carry.seq : nextRecordingSeq();
+  const carried = carry ? carry.events.length : 0;
+  const body = JSON.stringify(chunkEvents);
 
   try {
-    const { uploadUrl, uploadFields, publicUrl, path } = await getUploadUrl(
+    const { uploadUrl, uploadFields, path } = await getRecordingUploadUrl(
       appId,
       session.sessionId,
-      'json',
-      'application/json',
-      'private',
+      RECORDING_SESSION_ID,
+      seq,
     );
     const form = new FormData();
     for (const [k, v] of Object.entries(uploadFields)) form.append(k, v);
@@ -400,36 +476,47 @@ async function uploadRecording(
     );
     const res = await fetch(uploadUrl, { method: 'POST', body: form });
     if (!res.ok) {
-      log.warn('browser', 'Recording upload failed', {
-        status: res.status,
-        bytes: body.length,
-      });
-      return null;
+      throw new Error(`HTTP ${res.status}`);
     }
+    carry = null;
 
-    const { containsSnapshot, startTs, endTs } = summarizeEvents(events);
-    const seq = nextRecordingSeq();
+    const { containsSnapshot, startTs, endTs } = summarizeEvents(chunkEvents);
     log.info('browser', 'Recording chunk uploaded', {
       bytes: body.length,
-      events: events.length,
+      events: chunkEvents.length,
+      carried,
       seq,
       containsSnapshot,
-      private: Boolean(path),
     });
     return {
-      // An API that predates private chunks ignores `access` and returns a
-      // public URL — carry whichever locator it gave us.
-      ...(path ? { path } : { url: publicUrl }),
+      path,
       sessionId: RECORDING_SESSION_ID,
-      runId: runId ?? null,
+      runId: chunkRunId,
       seq,
       containsSnapshot,
       startTs,
       endTs,
     };
   } catch (err) {
-    log.warn('browser', 'Recording upload errored', {
-      error: err instanceof Error ? err.message : String(err),
+    const error = err instanceof Error ? err.message : String(err);
+    if (body.length > CARRY_MAX_BYTES) {
+      // Too much to hold. The stream has a hole from here until the next
+      // FullSnapshot (a real page load starts a fresh run).
+      carry = null;
+      log.warn('browser', 'Recording upload failed; chunk too large to retry', {
+        seq,
+        events: chunkEvents.length,
+        bytes: body.length,
+        error,
+      });
+      return null;
+    }
+    carry = { seq, runId: chunkRunId, events: chunkEvents };
+    log.warn('browser', 'Recording upload failed; holding chunk for retry', {
+      seq,
+      events: chunkEvents.length,
+      bytes: body.length,
+      error,
     });
     return null;
   }

@@ -1,5 +1,6 @@
 export { BrowserSupervisor } from './supervisor';
 export { resolveChromePath } from './chrome-path';
+export { resolveFfmpegPath } from './ffmpeg-path';
 export {
   captureViaCdp,
   renderHtmlCapture,
