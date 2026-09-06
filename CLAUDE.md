@@ -179,7 +179,7 @@ The tunnel uploads each non-empty chunk to the app's private `_recordings` store
 
 ```json
 {"event": "browser", "requestId": "r3", "status": "completed", "success": true, "steps": [...], "duration": 250,
- "recording": {"path": "s3://.../_recordings/<sessionId>/0.json", "sessionId": "...", "runId": "...", "seq": 0, "containsSnapshot": true, "startTs": 1718800000000, "endTs": 1718800000250}}
+ "recording": {"path": "s3://.../_recordings/<sessionId>/0.json", "sessionId": "...", "runId": "...", "seq": 0, "containsSnapshot": true, "startTs": 1718800000000, "endTs": 1718800000250, "width": 1440, "height": 900}}
 ```
 
 UIs group chunks by `sessionId`, order by `seq`, and concatenate them into a **single** rrweb player — no per-command FullSnapshot, so no DOM rebuild/flash at command boundaries. The only rebuild seams are chunks where `containsSnapshot` is true (a new `runId` = a real page load). Per-tool-call replay is a seek to that chunk's `[startTs, endTs]` window in the merged timeline. Screenshot-only and read-only batches don't start the recorder; once it's running they still flush continuation events to keep the stream contiguous. Chunks are never dropped for being small (a missing continuation chunk would desync playback). `browser` commands are serialized in the tunnel and `seq` is stamped when the chunk is assembled, so chunk order always follows event order even when uploads race. A failed upload keeps its events in memory and folds them into the next chunk under the same `seq` (the deterministic key makes the retry an overwrite), so a transient S3 failure never punches a hole in the stream.

@@ -38,6 +38,11 @@ interface RecordingMeta {
   containsSnapshot: boolean;
   startTs: number;
   endTs: number;
+  /** Recorded viewport in CSS px, from the rrweb Meta event (the last one in
+   *  the chunk, else the last one seen this session). Lets the editor reserve
+   *  the player's exact box before it fetches a byte. */
+  width: number;
+  height: number;
 }
 
 // Recording-session id for this tunnel process. The frontend groups recording
@@ -78,6 +83,10 @@ function nextRecordingSeq(): number {
 // Bounded so an API that never accepts uploads can't grow memory forever.
 const CARRY_MAX_BYTES = 32 * 1024 * 1024;
 let carry: { seq: number; runId: string; events: unknown[] } | null = null;
+
+// Viewport of the recorded page as of the last Meta event seen. Continuation
+// chunks carry no Meta of their own, so they inherit it.
+let lastRecordingViewport = { width: 0, height: 0 };
 
 // Browser work runs one task at a time. The stdin dispatcher fires commands
 // without awaiting them, and the QA sub-agent can issue two browserCommand
@@ -480,13 +489,15 @@ async function uploadRecording(
     }
     carry = null;
 
-    const { containsSnapshot, startTs, endTs } = summarizeEvents(chunkEvents);
+    const { containsSnapshot, startTs, endTs, width, height } =
+      summarizeEvents(chunkEvents);
     log.info('browser', 'Recording chunk uploaded', {
       bytes: body.length,
       events: chunkEvents.length,
       carried,
       seq,
       containsSnapshot,
+      viewport: `${width}x${height}`,
     });
     return {
       path,
@@ -496,6 +507,8 @@ async function uploadRecording(
       containsSnapshot,
       startTs,
       endTs,
+      width,
+      height,
     };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
@@ -526,19 +539,34 @@ async function uploadRecording(
  * Derive playback metadata from a chunk's rrweb events. `containsSnapshot`
  * (any type-2 FullSnapshot) marks a rebuild seam; startTs/endTs (absolute
  * event timestamps, passed through unchanged from the agent) give the
- * per-chunk window the frontend seeks to for per-tool replay.
+ * per-chunk window the frontend seeks to for per-tool replay; width/height
+ * is the viewport from the chunk's last Meta event (type 4), remembered
+ * across chunks so incremental-only continuations carry it too.
  */
 function summarizeEvents(events: unknown[]): {
   containsSnapshot: boolean;
   startTs: number;
   endTs: number;
+  width: number;
+  height: number;
 } {
   let containsSnapshot = false;
   let startTs = Infinity;
   let endTs = -Infinity;
   for (const e of events) {
-    const ev = e as { type?: number; timestamp?: number };
+    const ev = e as {
+      type?: number;
+      timestamp?: number;
+      data?: { width?: number; height?: number };
+    };
     if (ev.type === 2) containsSnapshot = true;
+    if (
+      ev.type === 4 &&
+      typeof ev.data?.width === 'number' &&
+      typeof ev.data?.height === 'number'
+    ) {
+      lastRecordingViewport = { width: ev.data.width, height: ev.data.height };
+    }
     if (typeof ev.timestamp === 'number') {
       if (ev.timestamp < startTs) startTs = ev.timestamp;
       if (ev.timestamp > endTs) endTs = ev.timestamp;
@@ -548,5 +576,6 @@ function summarizeEvents(events: unknown[]): {
     containsSnapshot,
     startTs: Number.isFinite(startTs) ? startTs : 0,
     endTs: Number.isFinite(endTs) ? endTs : 0,
+    ...lastRecordingViewport,
   };
 }
