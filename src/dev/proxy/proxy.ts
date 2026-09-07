@@ -72,8 +72,6 @@ export interface RenderJobConfig {
   /** DOM raster scale: recording CSS px → canvas px. */
   scale: number;
   phone: boolean;
-  /** Desktop faux browser bar height on the canvas (0 for phones / bare). */
-  chromeH: number;
   /** Window (or phone bezel) rect on the canvas; null for a bare render. */
   window: { x: number; y: number; w: number; h: number } | null;
   style: RenderStageStyle | null;
@@ -1469,7 +1467,7 @@ export class DevProxy {
   /**
    * Serve the replay-render page: the rrweb Replayer inside the export's
    * "stage" — the app's brand wallpaper with the replay as a rounded, shadowed
-   * window (or phone bezel) centred on a fixed canvas — as computed by
+   * window (or phone bezel, no browser chrome) centred on a fixed canvas — as computed by
    * export-recording.ts and inlined here as `window.__stage`. With no stage
    * (an older editor) it is the bare replay filling the canvas.
    *
@@ -1513,8 +1511,6 @@ export class DevProxy {
     @supports (corner-shape: superellipse(2.3)) {
       #window, #phone { corner-shape: superellipse(2.3); }
     }
-    #chrome { display: flex; align-items: center; background: #f1f2f4; border-bottom: 1px solid rgba(0,0,0,0.08); }
-    #chrome i { display: block; border-radius: 50%; }
     #phone { position: absolute; z-index: 1; overflow: hidden; background: #000; }
     #notch { position: absolute; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); z-index: 10; pointer-events: none; }
     #player { position: relative; overflow: hidden; background: #fff; }
@@ -1532,7 +1528,7 @@ export class DevProxy {
 <body>
   <div id="stage">
     <div id="grain"></div>
-    <div id="window"><div id="chrome"></div><div id="player"></div></div>
+    <div id="window"><div id="player"></div></div>
   </div>
   <script type="module">
     import { Replayer } from '@rrweb/replay';
@@ -1561,7 +1557,6 @@ export class DevProxy {
     function layoutStage(cfg) {
       const stage = document.getElementById('stage');
       const win = document.getElementById('window');
-      const chrome = document.getElementById('chrome');
       const player = document.getElementById('player');
       const S = cfg.scale;
       player.style.width = render.width * S + 'px';
@@ -1569,7 +1564,6 @@ export class DevProxy {
 
       if (!cfg.window || !cfg.style) {
         // Bare render: the replay fills the canvas.
-        chrome.style.display = 'none';
         win.style.left = '0'; win.style.top = '0';
         win.style.width = cfg.canvasW + 'px'; win.style.height = cfg.canvasH + 'px';
         return;
@@ -1581,9 +1575,8 @@ export class DevProxy {
       const shadow = scaleLengths(st.windowShadow, S) + ', 0 0 0 ' + Math.max(1, S).toFixed(2) + 'px ' + st.hairline;
 
       if (cfg.phone) {
-        // Phone bezel around the replay, no browser bar.
+        // Phone bezel around the replay.
         win.id = 'phone';
-        chrome.style.display = 'none';
         const notch = document.createElement('div');
         notch.id = 'notch';
         notch.style.top = 8 * S + 'px'; notch.style.width = 60 * S + 'px';
@@ -1594,15 +1587,6 @@ export class DevProxy {
         // The squircle upgrade reads at a larger radius (the editor uses 16 → 24).
         const squircle = CSS.supports && CSS.supports('corner-shape', 'superellipse(2.3)');
         win.style.borderRadius = st.windowRadius * (squircle ? 1.5 : 1) * S + 'px';
-        chrome.style.height = cfg.chromeH + 'px';
-        chrome.style.padding = '0 ' + 10 * S + 'px';
-        chrome.style.gap = 6 * S + 'px';
-        for (const c of ['#FF5F56', '#FFBD2E', '#27C93F']) {
-          const dot = document.createElement('i');
-          dot.style.width = dot.style.height = 10 * S + 'px';
-          dot.style.background = c;
-          chrome.appendChild(dot);
-        }
       }
       win.style.left = cfg.window.x + 'px'; win.style.top = cfg.window.y + 'px';
       win.style.width = cfg.window.w + 'px'; win.style.height = cfg.window.h + 'px';

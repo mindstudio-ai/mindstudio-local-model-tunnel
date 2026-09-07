@@ -70,9 +70,6 @@ const EXPORT_CANVAS = {
   portrait: { w: 1440, h: 2560 },
 };
 const EXPORT_MARGIN_FRAC = 0.08;
-// The faux browser bar drawn above a desktop replay, in the recording's CSS px
-// (matches the editor's BrowserChromeBar).
-const CHROME_BAR_CSS_PX = 28;
 // An editor that predates the stage sends none; render the bare replay at 2×.
 const BARE_RENDER_SCALE = 2;
 const JPEG_QUALITY = 95;
@@ -136,26 +133,23 @@ function planGeometry(
       canvasH: recH * BARE_RENDER_SCALE,
       scale: BARE_RENDER_SCALE,
       phone,
-      chromeH: 0,
       window: null,
       style: null,
     };
   }
   const canvas = phone ? EXPORT_CANVAS.portrait : EXPORT_CANVAS.landscape;
   const margin = Math.round(EXPORT_MARGIN_FRAC * Math.min(canvas.w, canvas.h));
-  const chromeCss = phone ? 0 : CHROME_BAR_CSS_PX;
   const scale = Math.min(
     (canvas.w - 2 * margin) / recW,
-    (canvas.h - 2 * margin) / (recH + chromeCss),
+    (canvas.h - 2 * margin) / recH,
   );
   const w = Math.round(recW * scale);
-  const h = Math.round((recH + chromeCss) * scale);
+  const h = Math.round(recH * scale);
   return {
     canvasW: canvas.w,
     canvasH: canvas.h,
     scale,
     phone,
-    chromeH: Math.round(chromeCss * scale),
     window: {
       x: Math.round((canvas.w - w) / 2),
       y: Math.round((canvas.h - h) / 2),
