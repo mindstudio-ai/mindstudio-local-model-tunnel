@@ -39,6 +39,15 @@ export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
       methods: parsed.methods,
       scenarios: parsed.scenarios ?? [],
       interfaces: parsed.interfaces ?? [],
+      dataSources: Array.isArray(parsed.dataSources)
+        ? parsed.dataSources.filter(
+            (d: unknown) =>
+              d &&
+              typeof (d as { slug?: unknown }).slug === 'string' &&
+              typeof (d as { mapper?: { path?: unknown } }).mapper?.path ===
+                'string',
+          )
+        : [],
     };
     log.info('config', 'Loaded mindstudio.json', {
       appId: config.appId,
@@ -47,6 +56,7 @@ export function detectAppConfig(cwd: string = process.cwd()): AppConfig | null {
       tables: config.tables.length,
       scenarios: config.scenarios.length,
       interfaces: config.interfaces.length,
+      dataSources: config.dataSources.length,
     });
     return config;
   } catch (err) {

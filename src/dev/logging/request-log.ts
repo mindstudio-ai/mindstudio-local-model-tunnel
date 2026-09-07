@@ -106,6 +106,38 @@ export function logJewelExecution(entry: JewelLogEntry): void {
   });
 }
 
+export interface MapperLogEntry {
+  sessionId: string;
+  dataSource: string;
+  mapperPath: string;
+  requestId: string;
+  objects: number;
+  /** The MapRunRecord, when the run produced one. */
+  record?: Record<string, unknown>;
+  error?: string;
+  stdout?: string[];
+  duration: number;
+}
+
+export function logMapperExecution(entry: MapperLogEntry): void {
+  ndjsonLog.append({
+    ts: Date.now(),
+    level: entry.error ? 'warn' : 'info',
+    module: 'execution',
+    msg: entry.error ? 'Mapper run failed' : 'Mapper run complete',
+    type: 'mapper',
+    sessionId: entry.sessionId,
+    dataSource: entry.dataSource,
+    path: entry.mapperPath,
+    requestId: entry.requestId,
+    objects: entry.objects,
+    record: entry.record ?? null,
+    error: entry.error ?? null,
+    stdout: entry.stdout ?? [],
+    duration: entry.duration,
+  });
+}
+
 export function logScenarioExecution(entry: ScenarioLogEntry): void {
   ndjsonLog.append({
     ts: Date.now(),

@@ -7,6 +7,7 @@
 import { getApiKey, getApiBaseUrl } from '../config';
 import { log } from './logging/logger';
 import type {
+  AppDataSource,
   AppMethod,
   DevSession,
   DevRequest,
@@ -128,18 +129,43 @@ export function sessionMethodsPayload(
   }));
 }
 
+/** One session-start data-source entry: the mapper declaration, so the
+ *  platform routes a dev-session `add()` or `map test --dev` through the
+ *  tunnel to the local mapper. */
+export interface SessionDataSourcePayload {
+  slug: string;
+  mapper: { path: string; export?: string; timeoutMs?: number };
+}
+
+export function sessionDataSourcesPayload(
+  dataSources: AppDataSource[] | undefined,
+): SessionDataSourcePayload[] {
+  return (dataSources ?? []).map((d) => ({
+    slug: d.slug,
+    mapper: {
+      path: d.mapper.path,
+      ...(d.mapper.export ? { export: d.mapper.export } : {}),
+      ...(d.mapper.timeoutMs !== undefined
+        ? { timeoutMs: d.mapper.timeoutMs }
+        : {}),
+    },
+  }));
+}
+
 export async function startDevSession(
   appId: string,
   opts?: {
     branch?: string;
     proxyUrl?: string;
     methods?: SessionMethodPayload[];
+    dataSources?: SessionDataSourcePayload[];
   },
 ): Promise<DevSession> {
   const body: Record<string, unknown> = {};
   if (opts?.branch) body.branch = opts.branch;
   if (opts?.proxyUrl) body.proxyUrl = opts.proxyUrl;
   if (opts?.methods) body.methods = opts.methods;
+  if (opts?.dataSources) body.dataSources = opts.dataSources;
 
   return apiRequest<DevSession>(
     'POST',

@@ -20,6 +20,20 @@ export interface AppConfig {
   methods: AppMethod[];
   scenarios: AppScenario[];
   interfaces: AppInterface[];
+  /** Data sources with a mapper. Sources without one are never declared. */
+  dataSources: AppDataSource[];
+}
+
+/** A data source whose objects go through a mapper (`<slug>.mapper.ts`). */
+export interface AppDataSource {
+  slug: string;
+  mapper: {
+    path: string;
+    /** Default 'default' — a defineMapper executor. */
+    export?: string;
+    /** Per-object budget for `map`, in ms. Manifest parity; enforced by the executor. */
+    timeoutMs?: number;
+  };
 }
 
 export interface AppRole {
@@ -144,6 +158,10 @@ export interface DevRequest {
   /** Run the method's jewel companion instead of the method itself (dev twin
    *  of the deployed jewelS3Key dispatch — jewels.propose in dev sessions). */
   jewel?: boolean;
+  /** Run a data source's mapper (dev twin of the deployed mapperS3Key
+   *  dispatch — a dev-session `add()` or `map test --dev`). `methodId` is the
+   *  synthetic `datasource:<slug>`; `input` is the executor's `{ objects }`. */
+  mapper?: { slug: string };
 }
 
 /** Posted to POST /_internal/v2/apps/{appId}/dev/result/{requestId} */

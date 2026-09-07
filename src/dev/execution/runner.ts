@@ -20,6 +20,7 @@ import {
   createAuthSession,
   ApiError,
   DevPollError,
+  type SessionDataSourcePayload,
   type SessionMethodPayload,
 } from '../api';
 import { devRequestEvents } from '../ipc/events';
@@ -30,8 +31,16 @@ import { requestDeviceAuth, pollDeviceAuth } from '../../api';
 import { setApiKey, setUserId } from '../../config';
 import { randomBytes } from 'node:crypto';
 import { runJewelTest, JewelTestResult, jewelUserIdForApp } from './jewel';
+import {
+  MapperTestResult,
+  runMapper,
+  runMapperTest,
+  SYSTEM_USER_ID,
+  SYSTEM_ROLE,
+} from './mapper';
 import { log } from '../logging/logger';
 import {
+  logMapperExecution,
   logMethodExecution,
   logScenarioExecution,
 } from '../logging/request-log';
@@ -44,6 +53,7 @@ import type {
   DevResult,
   AppScenario,
   AppConfig,
+  AppDataSource,
   AppMethod,
 } from '../config/types';
 
@@ -55,17 +65,9 @@ const TEST_USER_SENTINEL = 'testUser';
 const TEST_USER_EMAIL = 'remy@mindstudio.ai';
 const TEST_USER_PHONE = '+15555555555';
 
-// The synthetic identity a platform-triggered invocation runs as (cron,
-// webhook, email). Keep in sync with SYSTEM_USER_ID in youai-api
-// (src/common/Db/v2Apps/_helpers/constants.ts) — same mirroring pattern as
-// JEWEL_USER_NAMESPACE in ./jewel.ts.
-//
-// Deliberately independent of the app's auth table. A system-gated method is
-// normal in an app with no users at all, so dev has to be able to produce this
-// identity without one; the poll path gets it from the platform, and this is
-// how the direct path gets it.
-const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
-const SYSTEM_ROLE = 'system';
+// SYSTEM_USER_ID / SYSTEM_ROLE (the identity a platform-triggered invocation
+// runs as) live in ./mapper.ts, shared with the mapper dispatch, which always
+// runs as system.
 
 // How many queued requests one poll may claim. The loop is sequential, so this
 // is what stops a burst of concurrent method calls from each paying its own
@@ -92,6 +94,7 @@ export class DevRunner {
       branch?: string;
       proxyUrl?: string;
       methods?: SessionMethodPayload[];
+      dataSources?: SessionDataSourcePayload[];
     } = {},
   ) {}
 
@@ -354,6 +357,30 @@ export class DevRunner {
     });
   }
 
+  // Run a data source's mapper directly over caller-supplied objects and
+  // return the outcomes. Called via the test-mapper stdin command — the mapper
+  // authoring loop. Nothing is ingested.
+  async testMapper(opts: {
+    dataSource: AppDataSource;
+    objects: unknown[];
+    timeoutMs?: number;
+  }): Promise<MapperTestResult | { success: false; error: string }> {
+    if (!this.session || !this.transpiler) {
+      return { success: false, error: 'Session not started' };
+    }
+
+    return runMapperTest({
+      appId: this.appId,
+      sessionId: this.session.sessionId,
+      databases: this.session.databases,
+      transpiler: this.transpiler,
+      projectRoot: this.projectRoot,
+      dataSource: opts.dataSource,
+      objects: opts.objects,
+      timeoutMs: opts.timeoutMs,
+    });
+  }
+
   // Run a scenario: truncate tables → execute seed → assign the scenario's
   // roles to the dev test user. Called directly (not via poll loop) by the
   // TUI or headless stdin.
@@ -592,6 +619,15 @@ export class DevRunner {
 
     const startTime = Date.now();
 
+    // Mapper dispatch (dev twin of the deployed mapperS3Key dispatch): a data
+    // source's mapper over a slice of objects, as system. Resolved by slug
+    // from the local mindstudio.json — the platform gated on the session-start
+    // declaration, so a missing local entry is config drift.
+    if (request.mapper) {
+      await this.handleMapperRequest(request, session, transpiler, startTime);
+      return;
+    }
+
     // Resolve method from app config by ID — the API only sends methodId,
     // we look up the export name and file path from mindstudio.json.
     const method = this.appConfig?.methods.find(
@@ -826,6 +862,130 @@ export class DevRunner {
         error: message,
       });
     }
+  }
+
+  // The platform asked for a data source's mapper over a slice of objects (a
+  // dev-session add(), a map test). Runs as system, from local source; the
+  // result is the executor's record, which the platform validates.
+  private async handleMapperRequest(
+    request: DevRequest,
+    session: DevSession,
+    transpiler: Transpiler,
+    startTime: number,
+  ): Promise<void> {
+    const slug = request.mapper!.slug;
+    const dataSource = this.appConfig?.dataSources.find((d) => d.slug === slug);
+    const label = `mapper:${slug}`;
+
+    const finish = async (devResult: DevResult) => {
+      try {
+        await submitDevResult(
+          this.appId,
+          session.sessionId,
+          request.requestId,
+          devResult,
+        );
+      } catch {}
+    };
+
+    if (!dataSource) {
+      const message = `Data source "${slug}" declares no mapper in mindstudio.json`;
+      log.error('runner', message, {
+        requestId: request.requestId,
+        sessionId: session.sessionId,
+      });
+      await finish({ type: 'execute', success: false, error: { message } });
+      devRequestEvents.emitComplete({
+        id: request.requestId,
+        success: false,
+        duration: 0,
+        error: message,
+      });
+      return;
+    }
+
+    devRequestEvents.emitStart({
+      id: request.requestId,
+      type: 'execute',
+      method: label,
+      timestamp: startTime,
+    });
+    log.info('runner', 'Mapper frame received', {
+      requestId: request.requestId,
+      dataSource: slug,
+      source: 'poll',
+      sessionId: session.sessionId,
+    });
+
+    let result: import('./mapper').MapperRunResult;
+    try {
+      result = await runMapper({
+        appId: this.appId,
+        sessionId: session.sessionId,
+        databases: session.databases,
+        transpiler,
+        projectRoot: this.projectRoot,
+        dataSource,
+        input: request.input,
+        authorizationToken: request.authorizationToken,
+        secrets: request.secrets,
+        requestId: request.requestId,
+      });
+    } catch (err) {
+      result = {
+        success: false,
+        error: { message: err instanceof Error ? err.message : String(err) },
+        duration: Date.now() - startTime,
+      };
+    }
+
+    await finish({
+      type: 'execute',
+      success: result.success,
+      output: result.record,
+      error: result.error,
+      stdout: result.stdout,
+      stats: result.stats,
+    });
+
+    const duration = Date.now() - startTime;
+    logMapperExecution({
+      sessionId: session.sessionId,
+      dataSource: slug,
+      mapperPath: dataSource.mapper.path,
+      requestId: request.requestId,
+      objects: Array.isArray(
+        (request.input as { objects?: unknown[] })?.objects,
+      )
+        ? (request.input as { objects: unknown[] }).objects.length
+        : 0,
+      record: result.record,
+      error: result.error?.message,
+      stdout: result.stdout,
+      duration,
+    });
+    if (result.success) {
+      log.info('runner', 'Mapper frame complete', {
+        requestId: request.requestId,
+        dataSource: slug,
+        duration,
+        sessionId: session.sessionId,
+      });
+    } else {
+      log.warn('runner', 'Mapper frame failed', {
+        requestId: request.requestId,
+        dataSource: slug,
+        duration,
+        error: result.error ? formatErrorForDisplay(result.error) : undefined,
+        sessionId: session.sessionId,
+      });
+    }
+    devRequestEvents.emitComplete({
+      id: request.requestId,
+      success: result.success,
+      duration,
+      error: result.error?.message,
+    });
   }
 
   private async handleGetConfig(request: DevRequest): Promise<void> {

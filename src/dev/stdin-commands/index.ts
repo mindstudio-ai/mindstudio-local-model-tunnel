@@ -11,6 +11,7 @@ import { log } from '../logging/logger';
 import { handleRunScenario } from './run-scenario';
 import { handleRunMethod } from './run-method';
 import { handleTestJewel } from './test-jewel';
+import { handleTestMapper } from './test-mapper';
 import { handleSetTestUserRoles, handleGetTestUser } from './test-user-roles';
 import { handleBrowser } from './browser';
 import { handleScreenshotFullPage } from './screenshot-full-page';
@@ -33,6 +34,7 @@ export type { SessionState } from './types';
 const handlers: Record<string, CommandHandler> = {
   'run-method': handleRunMethod,
   'test-jewel': handleTestJewel,
+  'test-mapper': handleTestMapper,
   'run-scenario': handleRunScenario,
   'set-test-user-roles': handleSetTestUserRoles,
   'get-test-user': handleGetTestUser,

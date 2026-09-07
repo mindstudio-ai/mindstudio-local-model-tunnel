@@ -17,7 +17,11 @@
 import { DevRunner } from './dev/execution/runner';
 import { DevProxy } from './dev/proxy/proxy';
 import { BrowserSupervisor } from './dev/browser';
-import { syncSchema, sessionMethodsPayload } from './dev/api';
+import {
+  syncSchema,
+  sessionDataSourcesPayload,
+  sessionMethodsPayload,
+} from './dev/api';
 import {
   detectAppConfig,
   getWebInterfaceConfig,
@@ -110,6 +114,7 @@ async function startSession(
     const runner = new DevRunner(appConfig.appId, cwd, {
       branch,
       methods: sessionMethodsPayload(appConfig.methods),
+      dataSources: sessionDataSourcesPayload(appConfig.dataSources),
     });
     runner.setAppConfig(appConfig);
     const session = await runner.start();
