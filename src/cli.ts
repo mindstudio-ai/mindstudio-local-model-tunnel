@@ -20,6 +20,9 @@ async function main() {
         (getFlag('--log-level') as 'error' | 'warn' | 'info' | 'debug') ??
         undefined,
       sandboxBrowser: process.argv.includes('--sandbox-browser'),
+      // Only a Remy dev box passes this; a laptop is `cli`, which is also what the platform assumes
+      // when nothing says otherwise.
+      devOrigin: getFlag('--dev-origin') === 'sandbox' ? 'sandbox' : 'cli',
     });
   } else {
     const { startTUI } = await import('./tui/index.js');

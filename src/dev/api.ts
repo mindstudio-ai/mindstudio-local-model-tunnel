@@ -14,6 +14,7 @@ import type {
   DevResult,
   SyncSchemaResponse,
 } from './config/types';
+import type { ConfigBundle } from './interfaces/read-config';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -155,17 +156,41 @@ export function sessionDataSourcesPayload(
 export async function startDevSession(
   appId: string,
   opts?: {
-    branch?: string;
+    /**
+     * Which of this person's dev workspaces we are — `sandbox` inside a Remy dev box, `cli` on a
+     * laptop, which is what the platform assumes when we say nothing.
+     *
+     * The platform keys a dev release on `(app, user, origin)`, so this is what stops somebody
+     * running `mindstudio dev` locally from sharing one dev release, one data plane and one poll
+     * queue with the box they also have open — the two would race for every polled request.
+     */
+    devOrigin?: 'sandbox' | 'cli';
     proxyUrl?: string;
     methods?: SessionMethodPayload[];
     dataSources?: SessionDataSourcePayload[];
+    /**
+     * The local interface config — `readConfig()`'s bundle, as-is.
+     *
+     * Pushed for the same reason `methods` is: so the platform's dev release
+     * describes the project this tunnel has open, and a dev request can answer
+     * from the row rather than asking us mid-request. It replaced a
+     * `get-config` poll request that sat in the platform's request path with a
+     * 30-second timeout.
+     *
+     * Sent at start, which is also the update path: a change to
+     * `mindstudio.json` or to any interface JSON it references restarts the
+     * session (see `watchManifestFiles`), so every change comes back through
+     * here.
+     */
+    config?: ConfigBundle;
   },
 ): Promise<DevSession> {
   const body: Record<string, unknown> = {};
-  if (opts?.branch) body.branch = opts.branch;
+  if (opts?.devOrigin) body.devOrigin = opts.devOrigin;
   if (opts?.proxyUrl) body.proxyUrl = opts.proxyUrl;
   if (opts?.methods) body.methods = opts.methods;
   if (opts?.dataSources) body.dataSources = opts.dataSources;
+  if (opts?.config) body.config = opts.config;
 
   return apiRequest<DevSession>(
     'POST',

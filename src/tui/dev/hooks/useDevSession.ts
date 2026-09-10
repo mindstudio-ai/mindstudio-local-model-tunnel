@@ -16,7 +16,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { spawn } from 'node:child_process';
-import { watchConfigFile } from '../../../dev/config/config-watcher';
+import { watchManifestFiles } from '../../../dev/config/config-watcher';
+import { readConfig } from '../../../dev/interfaces/read-config';
 import { DevRunner } from '../../../dev/execution/runner';
 import { DevProxy } from '../../../dev/proxy/proxy';
 import { devRequestEvents } from '../../../dev/ipc/events';
@@ -41,7 +42,7 @@ import {
   initBrowserLog,
   closeBrowserLog,
 } from '../../../dev/logging/browser-log';
-import { stablePort, detectGitBranch } from '../../../dev/utils';
+import { stablePort } from '../../../dev/utils';
 import { watchTableFiles } from '../../../dev/config/table-watcher';
 import { useDevServer } from './useDevServer';
 import type {
@@ -189,9 +190,18 @@ export function useDevSession(appConfig: AppConfig) {
     };
   }, []);
 
-  // Watch mindstudio.json for changes — restart session on edit
+  // Watch mindstudio.json AND every interface JSON it references — restart the
+  // session on any edit, which is how the session's start payload gets pushed
+  // again.
+  //
+  // It watched only mindstudio.json until the platform stopped asking us for
+  // config mid-request: an `api.json` or `voice.json` edit used to be picked up
+  // on the next `get-config` poll, so nothing here had to notice it. Now the
+  // dev release carries what we pushed at start, and a restart is the push —
+  // so an unwatched file would be an edit the platform never hears about.
+  // Headless has watched the whole set all along; this is the same watcher.
   useEffect(() => {
-    const cleanup = watchConfigFile(process.cwd(), async () => {
+    const cleanup = watchManifestFiles(process.cwd(), async () => {
       if (!mountedRef.current || phase !== 'running') return;
       // Stop current session, re-enter ready phase (auto-starts)
       cleanupTableWatchers();
@@ -280,16 +290,17 @@ export function useDevSession(appConfig: AppConfig) {
         }
 
         // Start the platform session
-        const branch = detectGitBranch();
         const proxyUrl =
           actualPort != null
             ? `http://localhost:${stablePort(currentConfig.appId!)}`
             : undefined;
         const runner = new DevRunner(currentConfig.appId, process.cwd(), {
-          branch,
+          // The TUI only ever runs on somebody's own machine.
+          devOrigin: 'cli',
           proxyUrl,
           methods: sessionMethodsPayload(currentConfig.methods),
           dataSources: sessionDataSourcesPayload(currentConfig.dataSources),
+          config: readConfig(process.cwd(), currentConfig),
         });
         runner.setAppConfig(currentConfig);
         runnerRef.current = runner;

@@ -40,9 +40,10 @@ import {
   getConfigPath,
 } from './config';
 import { initLoggerHeadless, log, type LogLevel } from './dev/logging/logger';
-import { stablePort, detectGitBranch } from './dev/utils';
+import { stablePort } from './dev/utils';
 import { watchTableFiles } from './dev/config/table-watcher';
 import { watchManifestFiles } from './dev/config/config-watcher';
+import { readConfig } from './dev/interfaces/read-config';
 import { join } from 'node:path';
 
 /**
@@ -63,6 +64,8 @@ export interface HeadlessOptions {
   browserAgentUrl?: string;
   /** Launch a sandbox-side headless Chrome that participates as a WS client. */
   sandboxBrowser?: boolean;
+  /** Which dev workspace this tunnel is — see `startDevSession`. Defaults to `cli`. */
+  devOrigin?: 'sandbox' | 'cli';
 }
 
 // ---------------------------------------------------------------------------
@@ -110,11 +113,11 @@ async function startSession(
 
   try {
     // Start platform session
-    const branch = detectGitBranch();
     const runner = new DevRunner(appConfig.appId, cwd, {
-      branch,
+      devOrigin: opts.devOrigin ?? 'cli',
       methods: sessionMethodsPayload(appConfig.methods),
       dataSources: sessionDataSourcesPayload(appConfig.dataSources),
+      config: readConfig(cwd, appConfig),
     });
     runner.setAppConfig(appConfig);
     const session = await runner.start();
@@ -215,7 +218,6 @@ async function startSession(
     emitEvent('session-started', {
       sessionId: session.sessionId,
       releaseId: session.releaseId,
-      branch: session.branch,
       proxyPort: state.proxyPort,
       proxyUrl: state.proxyPort
         ? `http://${bindAddress === '0.0.0.0' ? 'localhost' : bindAddress}:${state.proxyPort}/`
