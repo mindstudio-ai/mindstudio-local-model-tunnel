@@ -22,6 +22,23 @@ interface ConfigSchema {
   };
 }
 
+/**
+ * Built-in per-environment defaults.
+ *
+ * Named separately from the `Conf` `defaults` below because `getEnvConfig` has to apply them per
+ * key: `conf`'s own merge is shallow, so a stored `environments` object shadows this one whole.
+ */
+const DEFAULT_ENVIRONMENTS: Record<Environment, EnvironmentConfig> = {
+  prod: {
+    apiBaseUrl: 'https://api.mindstudio.ai',
+    dbWsUrl: 'wss://api-socket.mindstudio.ai/db',
+  },
+  local: {
+    apiBaseUrl: 'http://localhost:3129',
+    dbWsUrl: 'ws://localhost:8888/db',
+  },
+};
+
 export const config = new Conf<ConfigSchema>({
   projectName: 'mindstudio-local',
   cwd: path.join(os.homedir(), '.mindstudio-local-tunnel'),
@@ -31,16 +48,7 @@ export const config = new Conf<ConfigSchema>({
     providerBaseUrls: {},
     providerInstallPaths: {},
     localInterfaces: {},
-    environments: {
-      prod: {
-        apiBaseUrl: 'https://api.mindstudio.ai',
-        dbWsUrl: 'wss://api-socket.mindstudio.ai/db',
-      },
-      local: {
-        apiBaseUrl: 'http://localhost:3129',
-        dbWsUrl: 'ws://localhost:8888/db',
-      },
-    },
+    environments: DEFAULT_ENVIRONMENTS,
   },
 });
 
@@ -53,10 +61,24 @@ export function setEnvironment(env: Environment): void {
   config.set('environment', env);
 }
 
-// Get config for current environment
+/**
+ * Config for the current environment, with the built-in defaults filled in per key.
+ *
+ * Per KEY, and that is the whole point. `conf` merges its `defaults` into the stored file
+ * SHALLOWLY, so a config.json written before a key existed — which is every config on a machine
+ * that has run an older build, and every one the sandbox writes — carries `environments` as a whole
+ * object and replaces the default `environments` entirely. Reading `dbWsUrl` off it then gives
+ * `undefined` rather than the default it looks like it should give, and the DB-over-WS transport
+ * silently degrades to a fetch per database call. Filling in per key is what makes the fallback the
+ * doc comments have always promised actually happen.
+ */
 function getEnvConfig(): EnvironmentConfig {
   const env = getEnvironment();
-  return config.get(`environments.${env}`) as EnvironmentConfig;
+  const stored = (config.get(`environments.${env}`) ??
+    {}) as Partial<EnvironmentConfig>;
+  const defaults = (DEFAULT_ENVIRONMENTS[env] ??
+    {}) as Partial<EnvironmentConfig>;
+  return { ...defaults, ...stored } as EnvironmentConfig;
 }
 
 function setEnvConfig(key: keyof EnvironmentConfig, value: string): void {
@@ -101,8 +123,9 @@ export function setApiBaseUrl(url: string): void {
   setEnvConfig('apiBaseUrl', url);
 }
 
-// DB WebSocket URL (per environment). Falls back to the per-env default so
-// existing persisted configs (written before this key existed) still resolve.
+// DB WebSocket URL (per environment). Falls back to the per-env default so existing persisted
+// configs (written before this key existed) still resolve — see `getEnvConfig`, which is where the
+// per-key fill-in that makes that true actually happens.
 export function getDbWsUrl(): string {
   return getEnvConfig().dbWsUrl;
 }

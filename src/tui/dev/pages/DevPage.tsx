@@ -485,15 +485,6 @@ function InfoTab({
 
       <Box marginTop={1}>
         <Text bold color="white" underline>
-          App URL
-        </Text>
-      </Box>
-      <Text color="cyan" bold>
-        {session?.previewUrl ?? '...'}
-      </Text>
-
-      <Box marginTop={1}>
-        <Text bold color="white" underline>
           Dev Server
         </Text>
       </Box>

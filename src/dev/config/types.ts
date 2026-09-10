@@ -120,15 +120,20 @@ export interface DevSession {
     }>;
   }>;
   methods: Record<string, string>;
+  /**
+   * RELATIVE path (`/v2/{appId}/run?dev-preview=true`), not a URL — the consuming dashboard
+   * prepends its own host. A caller with no host to prepend has nothing to show.
+   */
   previewUrl?: string;
   /** The window.__MINDSTUDIO__ context object to inject into HTML. */
   clientContext: Record<string, unknown>;
+  /** Null today: the route returns no user on this response. Guard before reading. */
   user: {
     id: string;
     name: string;
     email: string;
     profilePictureUrl?: string;
-  };
+  } | null;
 }
 
 /**
