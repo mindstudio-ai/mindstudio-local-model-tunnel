@@ -17,7 +17,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { spawn } from 'node:child_process';
 import { watchManifestFiles } from '../../../dev/config/config-watcher';
-import { readConfig } from '../../../dev/interfaces/read-config';
+import {
+  resolveConfigSnapshot,
+  hasLoopCriticalGap,
+} from '../../../dev/interfaces/read-config';
 import { DevRunner } from '../../../dev/execution/runner';
 import { DevProxy } from '../../../dev/proxy/proxy';
 import { devRequestEvents } from '../../../dev/ipc/events';
@@ -289,6 +292,21 @@ export function useDevSession(appConfig: AppConfig) {
           }
         }
 
+        // Resolve the pushed config, retrying a declared-but-unresolved
+        // agent/voice interface (see resolveConfigSnapshot). Don't publish a
+        // release the platform would serve as `no_agent_config`.
+        const { bundle: configBundle, unresolvedDeclared } =
+          await resolveConfigSnapshot(process.cwd(), currentConfig);
+        if (hasLoopCriticalGap(unresolvedDeclared)) {
+          if (mountedRef.current) {
+            setError(
+              `A declared ${unresolvedDeclared.join(', ')} interface could not be loaded — run your build command, then restart.`,
+            );
+            setPhase('error');
+          }
+          return;
+        }
+
         // Start the platform session
         const proxyUrl =
           actualPort != null
@@ -300,7 +318,7 @@ export function useDevSession(appConfig: AppConfig) {
           proxyUrl,
           methods: sessionMethodsPayload(currentConfig.methods),
           dataSources: sessionDataSourcesPayload(currentConfig.dataSources),
-          config: readConfig(process.cwd(), currentConfig),
+          config: configBundle,
         });
         runner.setAppConfig(currentConfig);
         runnerRef.current = runner;

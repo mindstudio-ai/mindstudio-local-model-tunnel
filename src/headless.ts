@@ -43,7 +43,10 @@ import { initLoggerHeadless, log, type LogLevel } from './dev/logging/logger';
 import { stablePort } from './dev/utils';
 import { watchTableFiles } from './dev/config/table-watcher';
 import { watchManifestFiles } from './dev/config/config-watcher';
-import { readConfig } from './dev/interfaces/read-config';
+import {
+  resolveConfigSnapshot,
+  hasLoopCriticalGap,
+} from './dev/interfaces/read-config';
 import { join } from 'node:path';
 
 /**
@@ -81,18 +84,40 @@ async function startSession(
   const bindAddress = opts.bindAddress ?? '127.0.0.1';
 
   // Read fresh config
-  const appConfig = detectAppConfig(cwd);
-  if (!appConfig) {
+  const initialConfig = detectAppConfig(cwd);
+  if (!initialConfig) {
     emitEvent('config-error', {
       message: 'No valid mindstudio.json found in ' + cwd,
     });
     return false;
   }
 
+  // Resolve the config snapshot we push as the dev release, retrying while a
+  // declared agent/voice interface can't be read yet — compiled files still
+  // materializing after a snapshot resume, or the manifest caught mid-write.
+  // Publishing a release with a declared-but-null agent is what surfaces as
+  // `no_agent_config` for the whole session (RPT-1232).
+  const {
+    appConfig,
+    bundle: configBundle,
+    unresolvedDeclared,
+  } = await resolveConfigSnapshot(cwd, initialConfig);
+
   if (!appConfig.appId) {
     emitEvent('config-error', {
       message: 'Missing "appId" in mindstudio.json',
     });
+    return false;
+  }
+
+  if (hasLoopCriticalGap(unresolvedDeclared)) {
+    // Don't publish a broken release. Return false so the boot-retry + 15s
+    // degraded loop re-attempts a full start until the interface resolves.
+    log.warn(
+      'session',
+      'Config snapshot missing a declared agent/voice interface; deferring start',
+      { unresolvedDeclared },
+    );
     return false;
   }
 
@@ -117,7 +142,7 @@ async function startSession(
       devOrigin: opts.devOrigin ?? 'cli',
       methods: sessionMethodsPayload(appConfig.methods),
       dataSources: sessionDataSourcesPayload(appConfig.dataSources),
-      config: readConfig(cwd, appConfig),
+      config: configBundle,
     });
     runner.setAppConfig(appConfig);
     const session = await runner.start();
