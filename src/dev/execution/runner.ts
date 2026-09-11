@@ -45,7 +45,7 @@ import {
   logScenarioExecution,
 } from '../logging/request-log';
 import { formatErrorForDisplay } from './format-error';
-import { readConfig } from '../interfaces/read-config';
+import type { ConfigBundle } from '../interfaces/read-config';
 import type { DevProxy } from '../proxy/proxy';
 import type {
   DevSession,
@@ -91,10 +91,13 @@ export class DevRunner {
     private readonly appId: string,
     private readonly projectRoot: string,
     private readonly startOpts: {
-      branch?: string;
+      /** Which dev workspace this tunnel is — see `startDevSession`. */
+      devOrigin?: 'sandbox' | 'cli';
       proxyUrl?: string;
       methods?: SessionMethodPayload[];
       dataSources?: SessionDataSourcePayload[];
+      /** The local interface config, pushed at start — see `startDevSession`. */
+      config?: ConfigBundle;
     } = {},
   ) {}
 
@@ -121,7 +124,7 @@ export class DevRunner {
 
     log.info('runner', 'Dev session starting', {
       appId: this.appId,
-      branch: this.startOpts.branch,
+      devOrigin: this.startOpts.devOrigin,
     });
     const session = await startDevSession(this.appId, this.startOpts);
 
@@ -139,7 +142,6 @@ export class DevRunner {
 
     log.info('runner', 'Dev session started', {
       sessionId: session.sessionId,
-      branch: session.branch,
     });
 
     return session;
@@ -609,11 +611,6 @@ export class DevRunner {
     const session = this.session;
     if (!session) return;
 
-    if (request.type === 'get-config') {
-      await this.handleGetConfig(request);
-      return;
-    }
-
     const transpiler = this.transpiler;
     if (!transpiler) return;
 
@@ -986,55 +983,6 @@ export class DevRunner {
       duration,
       error: result.error?.message,
     });
-  }
-
-  private async handleGetConfig(request: DevRequest): Promise<void> {
-    const session = this.session;
-    if (!session) return;
-    log.info('runner', 'Config requested', {
-      requestId: request.requestId,
-      sessionId: session.sessionId,
-    });
-
-    try {
-      if (!this.appConfig) {
-        throw new Error('App config not available');
-      }
-
-      const config = readConfig(this.projectRoot, this.appConfig);
-
-      await submitDevResult(this.appId, session.sessionId, request.requestId, {
-        type: 'get-config',
-        success: true,
-        output: config,
-      });
-
-      log.info('runner', 'Config sent', { requestId: request.requestId });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      log.error('runner', 'Config failed', {
-        requestId: request.requestId,
-        error: message,
-      });
-
-      try {
-        await submitDevResult(
-          this.appId,
-          session.sessionId,
-          request.requestId,
-          {
-            type: 'get-config',
-            success: false,
-            error: { message },
-          },
-        );
-      } catch (submitErr) {
-        log.error('runner', 'Failed to report config error to platform', {
-          error:
-            submitErr instanceof Error ? submitErr.message : String(submitErr),
-        });
-      }
-    }
   }
 
   /**

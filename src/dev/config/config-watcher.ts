@@ -1,50 +1,20 @@
-// Watches mindstudio.json (and optionally every interface JSON it references)
-// for changes and triggers a callback.
+// Watches mindstudio.json and every interface JSON it references, triggering a
+// callback on change.
 //
 // Uses chokidar instead of fs.watch so that atomic file replacements
 // (write-tmp + rename) are detected on Linux. fs.watch watches the inode,
 // so a rename-based write silently kills the watcher.
+//
+// There was a manifest-only variant (`watchConfigFile`) that the TUI used while
+// the platform still asked the tunnel for config mid-request — an interface JSON
+// edit needed no notice, because the next `get-config` poll read it off disk.
+// The platform reads the pushed copy now, so an unwatched file is an edit it
+// never hears about, and both entry points watch the whole set.
 
 import { watch } from 'chokidar';
 import { join } from 'node:path';
 import { log } from '../logging/logger';
 import { detectAppConfig } from './app-config';
-
-/**
- * Watch mindstudio.json for changes.
- *
- * @param cwd - Project root directory
- * @param onChanged - Called (debounced 500ms) when the config file changes
- * @returns Cleanup function that closes the watcher and clears timers
- */
-export function watchConfigFile(
-  cwd: string,
-  onChanged: () => void,
-): () => void {
-  const configPath = join(cwd, 'mindstudio.json');
-
-  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-
-  const watcher = watch(configPath, {
-    ignoreInitial: true,
-  });
-
-  watcher.on('all', () => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      onChanged();
-    }, 500);
-  });
-
-  log.info('config', 'Watching mindstudio.json for changes', {
-    path: configPath,
-  });
-
-  return () => {
-    clearTimeout(debounceTimer);
-    watcher.close();
-  };
-}
 
 /**
  * Watch mindstudio.json plus every JSON file it references via

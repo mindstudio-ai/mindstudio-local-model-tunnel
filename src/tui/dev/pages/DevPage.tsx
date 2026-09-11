@@ -9,6 +9,7 @@ import { TabBar, type Tab } from '../components/TabBar';
 import { useDevSession } from '../hooks/useDevSession';
 import { useDevRequests } from '../hooks/useDevRequests';
 import type { AppConfig } from '../../../dev/config/types';
+import { detectGitBranch } from '../../../dev/utils';
 
 const TABS: Tab[] = [
   { id: 'info', label: 'Info' },
@@ -291,7 +292,9 @@ export function DevPage({ appConfig, onNavigate, termHeight }: DevPageProps) {
           <Text bold color="white">
             {appConfig.name}
           </Text>
-          <Text color="green">● {session?.branch ?? 'main'}</Text>
+          {/* Read from local git rather than off the session: the platform does not track which
+              branch a dev session is on, and this is a CLI sitting in the repo it can just ask. */}
+          <Text color="green">● {detectGitBranch() ?? 'main'}</Text>
           <Text color="cyan">{session?.previewUrl ?? ''}</Text>
         </Box>
       </Box>
@@ -469,7 +472,7 @@ function InfoTab({
       </Text>
       <Text>
         <Text color="gray">Branch: </Text>
-        <Text>{session?.branch ?? '...'}</Text>
+        <Text>{detectGitBranch() ?? '...'}</Text>
       </Text>
       {session?.user && (
         <Text>
@@ -479,15 +482,6 @@ function InfoTab({
           </Text>
         </Text>
       )}
-
-      <Box marginTop={1}>
-        <Text bold color="white" underline>
-          App URL
-        </Text>
-      </Box>
-      <Text color="cyan" bold>
-        {session?.previewUrl ?? '...'}
-      </Text>
 
       <Box marginTop={1}>
         <Text bold color="white" underline>

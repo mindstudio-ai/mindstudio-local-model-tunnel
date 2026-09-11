@@ -101,7 +101,6 @@ export interface WebInterfaceConfig {
 export interface DevSession {
   sessionId: string; // same value as releaseId (dev release UUID)
   releaseId: string; // same value as sessionId
-  branch: string;
   auth: {
     /** null for an anonymous request — nobody signed in. */
     userId: string | null;
@@ -121,23 +120,36 @@ export interface DevSession {
     }>;
   }>;
   methods: Record<string, string>;
+  /**
+   * RELATIVE path (`/v2/{appId}/run?dev-preview=true`), not a URL — the consuming dashboard
+   * prepends its own host. A caller with no host to prepend has nothing to show.
+   */
   previewUrl?: string;
   /** The window.__MINDSTUDIO__ context object to inject into HTML. */
   clientContext: Record<string, unknown>;
+  /** Null today: the route returns no user on this response. Guard before reading. */
   user: {
     id: string;
     name: string;
     email: string;
     profilePictureUrl?: string;
-  };
+  } | null;
 }
 
-/** Returned from GET /_internal/v2/apps/{appId}/dev/poll */
+/**
+ * Returned from GET /_internal/v2/apps/{appId}/dev/poll
+ *
+ * `execute` is the only type. There used to be a `get-config`, which is how the
+ * platform learned this project's interface config: a round trip through this
+ * queue, in the platform's own request path, with a 30-second timeout. The
+ * config is PUSHED now — `readConfig()` rides `startDevSession`, and a config
+ * change restarts the session — so the platform reads it off the dev release
+ * like any other environment reads it off its release.
+ */
 export interface DevRequest {
   requestId: string;
-  type: 'execute' | 'get-config';
+  type: 'execute';
   authorizationToken: string;
-  // Present on 'execute' requests only:
   methodId?: string;
   methodExport?: string;
   methodPath?: string;
@@ -166,7 +178,7 @@ export interface DevRequest {
 
 /** Posted to POST /_internal/v2/apps/{appId}/dev/result/{requestId} */
 export interface DevResult {
-  type: 'execute' | 'get-config';
+  type: 'execute';
   success: boolean;
   output?: unknown;
   error?: { message: string; stack?: string };
@@ -185,7 +197,7 @@ export interface SyncSchemaResponse {
 /** For request log display in the TUI. */
 export interface DevRequestLogEntry {
   id: string;
-  type: 'execute' | 'get-config';
+  type: 'execute';
   method?: string;
   status: 'processing' | 'completed' | 'failed';
   startTime: number;
