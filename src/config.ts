@@ -61,24 +61,10 @@ export function setEnvironment(env: Environment): void {
   config.set('environment', env);
 }
 
-/**
- * Config for the current environment, with the built-in defaults filled in per key.
- *
- * Per KEY, and that is the whole point. `conf` merges its `defaults` into the stored file
- * SHALLOWLY, so a config.json written before a key existed — which is every config on a machine
- * that has run an older build, and every one the sandbox writes — carries `environments` as a whole
- * object and replaces the default `environments` entirely. Reading `dbWsUrl` off it then gives
- * `undefined` rather than the default it looks like it should give, and the DB-over-WS transport
- * silently degrades to a fetch per database call. Filling in per key is what makes the fallback the
- * doc comments have always promised actually happen.
- */
+// Get config for current environment
 function getEnvConfig(): EnvironmentConfig {
   const env = getEnvironment();
-  const stored = (config.get(`environments.${env}`) ??
-    {}) as Partial<EnvironmentConfig>;
-  const defaults = (DEFAULT_ENVIRONMENTS[env] ??
-    {}) as Partial<EnvironmentConfig>;
-  return { ...defaults, ...stored } as EnvironmentConfig;
+  return config.get(`environments.${env}`) as EnvironmentConfig;
 }
 
 function setEnvConfig(key: keyof EnvironmentConfig, value: string): void {
@@ -123,11 +109,24 @@ export function setApiBaseUrl(url: string): void {
   setEnvConfig('apiBaseUrl', url);
 }
 
-// DB WebSocket URL (per environment). Falls back to the per-env default so existing persisted
-// configs (written before this key existed) still resolve — see `getEnvConfig`, which is where the
-// per-key fill-in that makes that true actually happens.
-export function getDbWsUrl(): string {
-  return getEnvConfig().dbWsUrl;
+/**
+ * DB WebSocket URL for the current environment, or undefined when the stored config has none.
+ *
+ * Undefined is a MEANINGFUL answer, not a gap to paper over: the worker does
+ * `if (dbWsUrl) process.env.DB_WS_URL = dbWsUrl`, so absence selects the fetch transport, which
+ * addresses whatever `apiBaseUrl` this config points at. That is the only correct answer for a
+ * config written by something that does not know our built-in URLs — a dev box writes
+ * `environments.prod` with an `apiBaseUrl` aimed at whichever API booted it and no `dbWsUrl` at all.
+ *
+ * `conf` merges its `defaults` shallowly, so such a config replaces the default `environments`
+ * whole and this reads undefined. Do NOT "fix" that by filling the per-env default in per key: the
+ * default `dbWsUrl` is an absolute production URL with no relationship to the stored `apiBaseUrl`,
+ * so doing that points a box's database calls at production while its method dispatch — and the
+ * hook token authorizing those calls — came from somewhere else entirely. The symptom is
+ * `[db] invalid_authorization` on every database call from an otherwise healthy box.
+ */
+export function getDbWsUrl(): string | undefined {
+  return getEnvConfig()?.dbWsUrl;
 }
 
 export function setDbWsUrl(url: string): void {
