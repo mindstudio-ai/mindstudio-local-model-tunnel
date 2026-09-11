@@ -1,27 +1,63 @@
 name: Release
 
+# Merge = release. The version in package.json IS the trigger: land a PR that bumps it, and merging
+# publishes. Nothing to click afterwards, and no bot commit pushed back to main — the version is
+# already there, reviewed, in the same diff as the code it describes.
+#
+# `check-version` is what makes running on every push safe: a merge that did not move the version is
+# a no-op rather than a failed publish. A missed bump is caught earlier, on the PR, by
+# pr-checks.yml's `version-bumped` job; this gate is the backstop for anything that reaches main
+# another way.
+#
+# `workflow_dispatch` stays as a manual escape hatch and deliberately bypasses the gate, so
+# dispatching with nothing to release fails loudly at `npm publish` (E403) instead of quietly
+# doing nothing.
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+# `id-token: write` is the npm CREDENTIAL — do not remove it as leftover provenance plumbing.
+# There is no NODE_AUTH_TOKEN or NPM_TOKEN anywhere in this repo: publishing goes through npm's
+# OIDC trusted publishing, which mints the credential from this token. `88adb4b` is where this
+# repo switched, replacing `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` with `--provenance`;
+# `2e9a415` then dropped the explicit flag because trusted publishing adds provenance implicitly.
+# The permission was never the flag's — it is the auth. Without it `npm publish` fails as
+# `E404 Not Found - PUT https://registry.npmjs.org/@scope%2fname`, because the registry answers
+# 404 rather than 401 for an unauthorized write to a scoped package.
+#
+# `contents: write` is for pushing the tag.
 permissions:
   id-token: write
   contents: write
+
+# Never cancel. Two merges landing close together are two DIFFERENT versions (pr-checks.yml
+# guarantees the second is strictly greater), so both have to publish — and interrupting a release
+# mid-flight leaves npm, the git tag, the GitHub release and S3 disagreeing about what shipped.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   check-version:
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
+      # The version is read ONCE, here, and every job below consumes this output. It feeds the git
+      # tag, `__APP_VERSION__` baked into the binaries, the GitHub release title and the S3 prefix
+      # — all of which have to agree, and each of which used to re-read package.json from its own
+      # checkout to find out.
       - name: Check if version is already published
         id: check
         run: |
           LOCAL_VERSION=$(node -p "require('./package.json').version")
           PUBLISHED=$(npm view @mindstudio-ai/local-model-tunnel version 2>/dev/null || echo "0.0.0")
+          echo "version=${LOCAL_VERSION}" >> "$GITHUB_OUTPUT"
           if [ "$LOCAL_VERSION" != "$PUBLISHED" ]; then
             echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "Version $LOCAL_VERSION not yet published (npm has $PUBLISHED)"
@@ -42,17 +78,40 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      - run: npm ci
+      # --ignore-scripts, matching the other package repos. A bare `npm ci` fires this package's own
+      # `prepare: npm run build`, so the tree was built three times per release: prepare, the
+      # explicit step below, then `prepublishOnly`. Safe to skip because tsup and esbuild take their
+      # platform binaries from optionalDependencies rather than from a postinstall.
+      - run: npm ci --ignore-scripts
 
       # tsup transpiles without typechecking, so the build alone catches no type
       # errors. This is the gate tsup.config.ts already refers to for dev-worker,
       # whose no-export isolated DTS compilation can't see node globals.
       - run: npm run typecheck
 
+      # Kept even though `prepublishOnly` would build anyway: failing here points at the build,
+      # rather than surfacing as a failure inside `npm publish`.
       - run: npm run build
 
       - name: Publish to npm
         run: npm publish --access public
+
+      # Tagged HERE rather than in `release`, so a tag only ever names something that actually
+      # reached npm, and so it survives a binaries job that fails afterwards. No commit to push —
+      # under merge = release the version is already on main.
+      #
+      # continue-on-error because this step runs AFTER the publish: the package is already live, and
+      # failing the job would skip `release`, which is what creates the GitHub release and uploads to
+      # the S3 prefix install.sh reads. A missing tag is a far smaller problem than a version that is
+      # on npm with no binaries, and `gh release create` below recreates the tag if it is absent.
+      # The step still shows as failed in the run, so it is visible rather than swallowed (the old
+      # `git tag || true` was not).
+      - name: Tag the release
+        continue-on-error: true
+        run: |
+          VERSION="v${{ needs.check-version.outputs.version }}"
+          git tag "$VERSION"
+          git push origin "$VERSION"
 
   build-binaries:
     needs: check-version
@@ -88,12 +147,20 @@ jobs:
           echo '{"name":"react-devtools-core","version":"0.0.0","main":"index.js"}' > node_modules/react-devtools-core/package.json
           echo 'module.exports = { initialize() {}, connectToDevTools() {} };' > node_modules/react-devtools-core/index.js
 
+      # `__APP_VERSION__` comes from the gate's output, NOT from this job's own package.json.
+      #
+      # It happens to be the same value today, because merge = release means the bumped version is
+      # already committed at the ref this job checks out. It would NOT be under a dispatch-and-bump
+      # workflow, where the version commit is pushed at the end of the publish job while this one
+      # checks out `github.sha` — the pre-bump commit. That baked the old version into every binary
+      # while npm served the new one, and `checkForUpdate()` (src/update.ts) then told everyone who
+      # had just installed that an update was available for the version they were on. Reading the
+      # gate makes that impossible rather than merely unlikely.
       - name: Build standalone binary
         run: |
-          VERSION=$(node -p "require('./package.json').version")
           bun build src/cli.ts \
             --compile \
-            --define __APP_VERSION__="\"$VERSION\"" \
+            --define __APP_VERSION__="\"${{ needs.check-version.outputs.version }}\"" \
             --target=${{ matrix.target }} \
             --outfile=${{ matrix.artifact }}
 
@@ -104,9 +171,10 @@ jobs:
           path: ${{ matrix.artifact }}
 
   release:
-    needs: [publish-npm, build-binaries]
+    needs: [check-version, publish-npm, build-binaries]
     runs-on: ubuntu-latest
     steps:
+      # For install.sh / install.ps1, which the S3 step below uploads.
       - uses: actions/checkout@v4
 
       - name: Download all artifacts
@@ -115,24 +183,16 @@ jobs:
           path: binaries
           merge-multiple: true
 
-      - name: Get version
-        id: version
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-
-      - name: Tag and create GitHub Release
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="v${{ steps.version.outputs.version }}"
-
-          # Tag the release
-          git tag "$VERSION" || true
-          git push origin "$VERSION" || true
+          VERSION="v${{ needs.check-version.outputs.version }}"
 
           # Make binaries executable
           chmod +x binaries/mindstudio-local-*
 
-          # Create release
+          # The tag already exists — publish-npm created it once the package was live.
           gh release create "$VERSION" \
             --title "$VERSION" \
             --generate-notes \
@@ -143,7 +203,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
-          VERSION="v${{ steps.version.outputs.version }}"
+          VERSION="v${{ needs.check-version.outputs.version }}"
           BUCKET="${{ secrets.AWS_S3_BUCKET }}"
 
           # Upload versioned binaries
