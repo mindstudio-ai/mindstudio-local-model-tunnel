@@ -25,12 +25,17 @@ import type { Page } from 'puppeteer-core';
  */
 interface RecordingMeta {
   /**
-   * Private-bucket storage ref (`s3://bucket/key`). Replays can contain
-   * whatever the previewed app rendered, so chunks are stored privately and
-   * the editor resolves this to a presigned URL via the app's
+   * Private-bucket storage ref (`s3://bucket/key`). Chunks are stored privately
+   * by default — publishing a replay is a deliberate copy to a public store —
+   * and the editor resolves this to a presigned URL via the app's
    * `attachment-url` endpoint before fetching.
    */
   path: string;
+  /** The app store and store-relative key of this chunk. Unlike `path`, these
+   *  are what `remy-admin files ls|sign|fetch` takes, so they are the handle
+   *  the agent uses to get at a replay it just recorded. */
+  store: string;
+  key: string;
   sessionId: string;
   /** Document lifetime the events belong to; a new runId = fresh FullSnapshot. */
   runId: string;
@@ -438,7 +443,7 @@ async function captureScreenshotStep(
 }
 
 /**
- * Upload one continuous-recording chunk to the app's private `_recordings`
+ * Upload one continuous-recording chunk to the app's private `qa-recordings`
  * store and return its playback metadata (RecordingMeta). Folds in the events
  * of a previously failed upload (see `carry`). Returns null when there's
  * nothing to upload or the upload fails — in which case the events are held
@@ -470,12 +475,14 @@ async function uploadRecording(
   const body = JSON.stringify(chunkEvents);
 
   try {
-    const { uploadUrl, uploadFields, path } = await getRecordingUploadUrl(
-      appId,
-      session.sessionId,
-      RECORDING_SESSION_ID,
-      seq,
-    );
+    const { uploadUrl, uploadFields, path, store, key } =
+      await getRecordingUploadUrl(
+        appId,
+        session.sessionId,
+        RECORDING_SESSION_ID,
+        chunkRunId,
+        seq,
+      );
     const form = new FormData();
     for (const [k, v] of Object.entries(uploadFields)) form.append(k, v);
     form.append(
@@ -501,6 +508,8 @@ async function uploadRecording(
     });
     return {
       path,
+      store,
+      key,
       sessionId: RECORDING_SESSION_ID,
       runId: chunkRunId,
       seq,

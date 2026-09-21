@@ -1,13 +1,20 @@
 /**
  * Export a browser-test replay (rrweb events) as an mp4, rendered on the box.
  *
- * The editor uploads the stitched, dead-air-compressed event stream — the same
- * artifact its Share button produces — and hands us the URL. We open a second
- * tab on the supervisor's Chrome, load a proxy-served replay page that plays
- * those events with the rrweb Replayer, capture DevTools screencast frames to
- * disk while it plays, and encode them once with the box's ffmpeg to H.264.
- * Frames carry Chrome's own timestamps, so timing is exact however fast the
- * box is: no intermediate video, no frames buffered in memory.
+ * The caller names a recording session and a time window; we fetch that window
+ * from the platform already stitched and dead-air-compressed (the editor's
+ * player renders the identical artifact, which is what makes the video match
+ * what the user watched). We then open a second tab on the supervisor's Chrome,
+ * load a proxy-served replay page that plays those events with the rrweb
+ * Replayer, capture DevTools screencast frames to disk while it plays, and
+ * encode them once with the box's ffmpeg to H.264. Frames carry Chrome's own
+ * timestamps, so timing is exact however fast the box is: no intermediate
+ * video, no frames buffered in memory.
+ *
+ * The editor used to stitch client-side and upload the result to a PUBLIC
+ * bucket purely so this command could fetch it back. Two callers now ask for
+ * the same server-side stitch instead, so there is no intermediate artifact and
+ * no copy of the app's DOM published as a side effect of exporting.
  *
  * Why not puppeteer's `page.screencast()`: it streams PNG frames into a
  * single-threaded real-time VP9 encode with no backpressure. On a two-core box
@@ -16,8 +23,11 @@
  *
  * Concurrency: the export enqueues behind any in-flight browser command
  * (`enqueueBrowserWork`) and, once accepted, makes later browser/screenshot/
- * render commands fail fast with BUSY (`exportGate`, browser.ts). The sandbox
- * additionally refuses to start one while the agent is working.
+ * render commands fail fast with BUSY (`exportGate`, browser.ts). That is the
+ * whole of the mutual exclusion. The sandbox additionally refuses a request
+ * from the EDITOR while the agent is working — but not one from the agent
+ * itself, which is busy by definition while asking and blocked until this
+ * returns (see startRecordingExport in the sandbox's tunnel process).
  */
 
 import { spawn } from 'node:child_process';
@@ -25,7 +35,7 @@ import { mkdir, readFile, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { CDPSession, Page } from 'puppeteer-core';
-import { getUploadUrl } from '../api';
+import { getStitchedRecording, getUploadUrl } from '../api';
 import { resolveFfmpegPath } from '../browser';
 import { emitEvent } from '../ipc/ipc';
 import type { RenderJobConfig, RenderStageStyle } from '../proxy/proxy';
@@ -38,6 +48,14 @@ import type { CommandContext } from './types';
 // token, so it must not be guessable (the proxy's internal routes may be
 // reachable through the public preview host while the job is live).
 const JOB_ID_RE = /^[a-f0-9]{32}$/;
+
+// Minted per tunnel process in stdin-commands/browser.ts, same shape.
+const RECORDING_SESSION_ID_RE = /^[a-f0-9]{32}$/;
+
+// Where the finished mp4 lands when the caller doesn't say. A normal public app
+// store, not the `_sandbox-tmp` scratch prefix screenshots use: the whole point
+// of an export is a URL somebody embeds somewhere durable.
+const DEFAULT_EXPORT_STORE = 'assets';
 
 const MAX_EVENTS_BYTES = 256 * 1024 * 1024;
 // Stitched replays are dead-air compressed; a typical run is tens of seconds.
@@ -114,6 +132,31 @@ function parseStage(value: unknown): RenderStageStyle | null {
     grain: v.grain === true,
     windowRadius: radius,
   };
+}
+
+/** Where the mp4 goes: one of the app's own stores, public unless asked. */
+function parseTarget(cmd: Record<string, unknown>): {
+  store: string;
+  access: 'public' | 'private';
+} {
+  const store = cmd.store === undefined ? DEFAULT_EXPORT_STORE : cmd.store;
+  if (typeof store !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(store)) {
+    throw new CommandError(
+      '"store" must be a valid store name (lowercase [a-z0-9_-])',
+      'INVALID_INPUT',
+    );
+  }
+  if (
+    cmd.access !== undefined &&
+    cmd.access !== 'public' &&
+    cmd.access !== 'private'
+  ) {
+    throw new CommandError(
+      '"access" must be "public" or "private"',
+      'INVALID_INPUT',
+    );
+  }
+  return { store, access: cmd.access === 'private' ? 'private' : 'public' };
 }
 
 /**
@@ -204,17 +247,27 @@ export async function handleExportRecording(
   cmd: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const jobId = typeof cmd.jobId === 'string' ? cmd.jobId : '';
-  const eventsUrl = typeof cmd.eventsUrl === 'string' ? cmd.eventsUrl : '';
+  const recordingSessionId =
+    typeof cmd.recordingSessionId === 'string' ? cmd.recordingSessionId : '';
+  const startTs = Number(cmd.startTs);
+  const endTs = Number(cmd.endTs);
   const stage = parseStage(cmd.stage);
+  const target = parseTarget(cmd);
   if (!JOB_ID_RE.test(jobId)) {
     throw new CommandError(
       'export-recording requires a 32-hex "jobId"',
       'INVALID_INPUT',
     );
   }
-  if (!eventsUrl.startsWith('https://')) {
+  if (!RECORDING_SESSION_ID_RE.test(recordingSessionId)) {
     throw new CommandError(
-      'export-recording requires an https "eventsUrl"',
+      'export-recording requires a 32-hex "recordingSessionId"',
+      'INVALID_INPUT',
+    );
+  }
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs < startTs) {
+    throw new CommandError(
+      'export-recording requires numeric "startTs" and "endTs" (epoch ms)',
       'INVALID_INPUT',
     );
   }
@@ -252,7 +305,9 @@ export async function handleExportRecording(
     return await enqueueBrowserWork(() =>
       runExport(ctx, {
         jobId,
-        eventsUrl,
+        recordingSessionId,
+        range: { startTs, endTs },
+        target,
         appId,
         sessionId: session.sessionId,
         proxyPort: ctx.state.proxyPort!,
@@ -268,8 +323,14 @@ export async function handleExportRecording(
 
 interface ExportJob {
   jobId: string;
-  eventsUrl: string;
+  /** The rrweb recording session, and the window of it to render. */
+  recordingSessionId: string;
+  range: { startTs: number; endTs: number };
+  /** Where the finished mp4 is written. */
+  target: { store: string; access: 'public' | 'private' };
   appId: string;
+  /** The DEV session — what authenticates our calls to the platform. Not the
+   *  recording session; the two are deliberately separate lifetimes. */
   sessionId: string;
   proxyPort: number;
   ffmpeg: string;
@@ -305,7 +366,7 @@ async function runExport(
   try {
     // 1. The events, held in memory for the render page to fetch locally.
     progress(jobId, 'loading', 0);
-    const { eventsJson, width, height } = await fetchEvents(job.eventsUrl);
+    const { eventsJson, width, height } = await fetchEvents(job);
     const geometry = planGeometry(width, height, job.stage);
     proxy.setRenderJob(jobId, eventsJson, geometry);
     checkAbort();
@@ -460,16 +521,20 @@ async function runExport(
       progress(jobId, 'encoding', pct),
     );
 
-    // 7. Upload through the same presigned flow screenshots use.
+    // 7. Upload through the same presigned flow screenshots use, but into one
+    //    of the app's own stores — a changelog entry embeds this URL for good,
+    //    and the screenshot path writes to a scratch prefix.
     checkAbort();
     progress(jobId, 'uploading', 0);
     const bytes = (await stat(mp4)).size;
-    const { uploadUrl, uploadFields, publicUrl } = await getUploadUrl(
-      job.appId,
-      job.sessionId,
-      'mp4',
-      'video/mp4',
-    );
+    const { uploadUrl, uploadFields, publicUrl, store, key } =
+      await getUploadUrl(
+        job.appId,
+        job.sessionId,
+        'mp4',
+        'video/mp4',
+        job.target,
+      );
     const form = new FormData();
     for (const [k, v] of Object.entries(uploadFields)) form.append(k, v);
     form.append(
@@ -495,11 +560,16 @@ async function runExport(
       frames: frames.length,
       bytes,
       elapsedMs,
+      store: store ?? job.target.store,
     });
     return {
       success: true,
       jobId,
-      url: publicUrl,
+      // Absent for a private target; `store`/`key` locate it either way.
+      ...(publicUrl ? { url: publicUrl } : {}),
+      store: store ?? job.target.store,
+      ...(key ? { key } : {}),
+      access: job.target.access,
       width: outWidth,
       height: outHeight,
       durationMs: total,
@@ -514,29 +584,29 @@ async function runExport(
   }
 }
 
-/** Fetch and sanity-check the events; the canvas is the largest Meta size. */
+/**
+ * Fetch the stitched window from the platform and sanity-check it; the canvas
+ * is the largest Meta size in the stream.
+ */
 async function fetchEvents(
-  url: string,
+  job: ExportJob,
 ): Promise<{ eventsJson: string; width: number; height: number }> {
-  const res = await fetch(url);
-  if (!res.ok) {
+  const stitched = await getStitchedRecording(
+    job.appId,
+    job.sessionId,
+    job.recordingSessionId,
+    job.range,
+  );
+  const events = stitched.events;
+  if (!Array.isArray(events) || events.length === 0) {
     throw new CommandError(
-      `Could not fetch the recording (HTTP ${res.status})`,
+      'That recording window has nothing playable — the run may have lost the chunk carrying its first snapshot',
       'INVALID_INPUT',
     );
   }
-  const eventsJson = await res.text();
+  const eventsJson = JSON.stringify(events);
   if (eventsJson.length > MAX_EVENTS_BYTES) {
     throw new CommandError('Recording is too large to render', 'INVALID_INPUT');
-  }
-  let events: unknown;
-  try {
-    events = JSON.parse(eventsJson);
-  } catch {
-    throw new CommandError('Recording is not valid JSON', 'INVALID_INPUT');
-  }
-  if (!Array.isArray(events) || events.length === 0) {
-    throw new CommandError('Recording has no events', 'INVALID_INPUT');
   }
   let width = 0;
   let height = 0;

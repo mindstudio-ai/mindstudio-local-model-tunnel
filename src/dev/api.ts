@@ -337,45 +337,95 @@ export async function fetchCallbackToken(
  * Presigned upload for a public, world-fetchable scratch file (screenshots —
  * vision models fetch the URL directly). Recording chunks are private and go
  * through `getRecordingUploadUrl`.
+ *
+ * `store` opts out of the scratch prefix and writes into one of the app's own
+ * stores instead — durable, listable, and safe for a URL somebody embeds for
+ * good (a replay mp4 in a changelog entry).
  */
 export async function getUploadUrl(
   appId: string,
   sessionId: string,
   extension: string,
   contentType: string,
+  target?: { store: string; access?: 'public' | 'private' },
 ): Promise<{
   uploadUrl: string;
   uploadFields: Record<string, string>;
-  publicUrl: string;
+  /** Absent for a private `store` target — there is no public URL to give. */
+  publicUrl?: string;
+  /** Present only on the `store` path. */
+  store?: string;
+  key?: string;
 }> {
   return apiRequest(
     'POST',
     `${basePath(appId)}/manage/upload`,
     getHeaders(sessionId),
-    { extension, contentType },
+    {
+      extension,
+      contentType,
+      ...(target ? { store: target.store, access: target.access } : {}),
+    },
   );
 }
 
 /**
  * Presigned upload for one rrweb recording chunk into the app's private
- * `_recordings` store, keyed `{recordingSessionId}/{seq}.json` so a retried
- * upload overwrites. `path` is the s3:// ref the editor signs for playback.
+ * `qa-recordings` store, keyed `{recordingSessionId}/{runId}/{seq}.json` so a
+ * retried upload overwrites and the key alone says which run a chunk belongs
+ * to. `path` is the s3:// ref the editor signs for playback; `store`/`key` are
+ * what the agent hands to `remy-admin files`.
  */
 export async function getRecordingUploadUrl(
   appId: string,
   sessionId: string,
   recordingSessionId: string,
+  runId: string,
   seq: number,
 ): Promise<{
   uploadUrl: string;
   uploadFields: Record<string, string>;
   path: string;
+  store: string;
+  key: string;
 }> {
   return apiRequest(
     'POST',
     `${basePath(appId)}/recordings/upload`,
     getHeaders(sessionId),
-    { sessionId: recordingSessionId, seq },
+    { sessionId: recordingSessionId, runId, seq },
+  );
+}
+
+/**
+ * A window of one recording session, stitched into a single playable rrweb
+ * stream by the platform — the same artifact the editor's player renders.
+ *
+ * The replay exporter fetches this rather than being handed a pre-stitched
+ * blob: the stitching rule (concatenate from the run's FullSnapshot anchor,
+ * then collapse dead air) lives in one place server-side, which is what keeps
+ * an exported mp4 identical to what the user watched.
+ */
+export async function getStitchedRecording(
+  appId: string,
+  sessionId: string,
+  recordingSessionId: string,
+  range: { startTs: number; endTs: number },
+): Promise<{
+  events: unknown[];
+  clipStartMs: number;
+  clipEndMs?: number;
+}> {
+  const query = new URLSearchParams({
+    startTs: String(range.startTs),
+    endTs: String(range.endTs),
+  });
+  return apiRequest(
+    'GET',
+    `${basePath(appId)}/recordings/${encodeURIComponent(
+      recordingSessionId,
+    )}/stitched?${query.toString()}`,
+    getHeaders(sessionId),
   );
 }
 
