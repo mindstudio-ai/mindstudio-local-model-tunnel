@@ -1,33 +1,12 @@
 #!/usr/bin/env node
 
-function getFlag(name: string): string | undefined {
-  const idx = process.argv.indexOf(name);
-  if (idx === -1) return undefined;
-  return process.argv[idx + 1];
-}
+// The TUI is the only mode. There was a `--headless` branch here that started the Remy dev tunnel
+// without an interface; the tunnel moved into @madewithremy/sandbox in September 2026, where it is a
+// second bin of the C&C server that spawns it.
 
 async function main() {
-  if (process.argv.includes('--headless')) {
-    const { startHeadless } = await import('./headless.js');
-    await startHeadless({
-      cwd: process.cwd(),
-      devPort: getFlag('--port') ? Number(getFlag('--port')) : undefined,
-      proxyPort: getFlag('--proxy-port')
-        ? Number(getFlag('--proxy-port'))
-        : undefined,
-      bindAddress: getFlag('--bind'),
-      logLevel:
-        (getFlag('--log-level') as 'error' | 'warn' | 'info' | 'debug') ??
-        undefined,
-      sandboxBrowser: process.argv.includes('--sandbox-browser'),
-      // Only a Remy dev box passes this; a laptop is `cli`, which is also what the platform assumes
-      // when nothing says otherwise.
-      devOrigin: getFlag('--dev-origin') === 'sandbox' ? 'sandbox' : 'cli',
-    });
-  } else {
-    const { startTUI } = await import('./tui/index.js');
-    await startTUI();
-  }
+  const { startTUI } = await import('./tui/index.js');
+  await startTUI();
   process.exit(0);
 }
 

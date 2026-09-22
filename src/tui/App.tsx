@@ -13,11 +13,9 @@ import { DashboardPage } from './models/pages/DashboardPage';
 import { SetupPage } from './models/pages/SetupPage';
 import { InterfacesPage } from './interfaces/pages/InterfacesPage';
 import { OnboardingPage } from './pages/OnboardingPage';
-import { DevPage } from './dev/pages/DevPage';
 import { TunnelRunner } from '../runner';
 import { syncModels, type ModelTypeMindStudio } from '../api';
 import { getApiKey, getUserId, getConfigPath } from '../config';
-import type { AppConfig } from '../dev/config/types';
 import type { Page } from './types';
 
 const MODEL_TYPE_MAP: Record<string, ModelTypeMindStudio> = {
@@ -28,10 +26,9 @@ const MODEL_TYPE_MAP: Record<string, ModelTypeMindStudio> = {
 
 interface AppProps {
   runner: TunnelRunner;
-  appConfig?: AppConfig;
 }
 
-export function App({ runner, appConfig }: AppProps) {
+export function App({ runner }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const {
@@ -60,7 +57,7 @@ export function App({ runner, appConfig }: AppProps) {
   } = useSyncedModels(connectionStatus);
   const shouldOnboard = getApiKey() === undefined || getUserId() === undefined;
   const [page, setPage] = useState<Page>(
-    shouldOnboard ? 'onboarding' : appConfig ? 'dev' : 'dashboard',
+    shouldOnboard ? 'onboarding' : 'dashboard',
   );
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>(
     'idle',
@@ -163,9 +160,6 @@ export function App({ runner, appConfig }: AppProps) {
         case 'setup':
           setPage('setup');
           break;
-        case 'dev':
-          setPage('dev');
-          break;
         case 'dashboard':
           setPage('dashboard');
           break;
@@ -254,13 +248,6 @@ export function App({ runner, appConfig }: AppProps) {
               sessions={editorSessions.sessions}
               refreshStatus={editorSessions.refreshStatus}
               refresh={editorSessions.refresh}
-            />
-          )}
-          {page === 'dev' && appConfig && (
-            <DevPage
-              appConfig={appConfig}
-              onNavigate={handleNavigate}
-              termHeight={termHeight}
             />
           )}
         </>

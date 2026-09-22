@@ -8,7 +8,6 @@ interface EnvironmentConfig {
   apiKey?: string;
   userId?: string;
   apiBaseUrl: string;
-  dbWsUrl: string;
 }
 
 interface ConfigSchema {
@@ -31,11 +30,9 @@ interface ConfigSchema {
 const DEFAULT_ENVIRONMENTS: Record<Environment, EnvironmentConfig> = {
   prod: {
     apiBaseUrl: 'https://api.mindstudio.ai',
-    dbWsUrl: 'wss://api-socket.mindstudio.ai/db',
   },
   local: {
     apiBaseUrl: 'http://localhost:3129',
-    dbWsUrl: 'ws://localhost:8888/db',
   },
 };
 
@@ -55,10 +52,6 @@ export const config = new Conf<ConfigSchema>({
 // Environment management
 export function getEnvironment(): Environment {
   return config.get('environment');
-}
-
-export function setEnvironment(env: Environment): void {
-  config.set('environment', env);
 }
 
 // Get config for current environment
@@ -81,11 +74,6 @@ export function setApiKey(key: string): void {
   setEnvConfig('apiKey', key);
 }
 
-export function clearApiKey(): void {
-  const env = getEnvironment();
-  config.delete(`environments.${env}.apiKey` as keyof ConfigSchema);
-}
-
 // User ID (per environment)
 export function getUserId(): string | undefined {
   return getEnvConfig().userId;
@@ -95,42 +83,9 @@ export function setUserId(id: string): void {
   setEnvConfig('userId', id);
 }
 
-export function clearUserId(): void {
-  const env = getEnvironment();
-  config.delete(`environments.${env}.userId` as keyof ConfigSchema);
-}
-
 // API Base URL (per environment)
 export function getApiBaseUrl(): string {
   return getEnvConfig().apiBaseUrl;
-}
-
-export function setApiBaseUrl(url: string): void {
-  setEnvConfig('apiBaseUrl', url);
-}
-
-/**
- * DB WebSocket URL for the current environment, or undefined when the stored config has none.
- *
- * Undefined is a MEANINGFUL answer, not a gap to paper over: the worker does
- * `if (dbWsUrl) process.env.DB_WS_URL = dbWsUrl`, so absence selects the fetch transport, which
- * addresses whatever `apiBaseUrl` this config points at. That is the only correct answer for a
- * config written by something that does not know our built-in URLs — a dev box writes
- * `environments.prod` with an `apiBaseUrl` aimed at whichever API booted it and no `dbWsUrl` at all.
- *
- * `conf` merges its `defaults` shallowly, so such a config replaces the default `environments`
- * whole and this reads undefined. Do NOT "fix" that by filling the per-env default in per key: the
- * default `dbWsUrl` is an absolute production URL with no relationship to the stored `apiBaseUrl`,
- * so doing that points a box's database calls at production while its method dispatch — and the
- * hook token authorizing those calls — came from somewhere else entirely. The symptom is
- * `[db] invalid_authorization` on every database call from an otherwise healthy box.
- */
-export function getDbWsUrl(): string | undefined {
-  return getEnvConfig()?.dbWsUrl;
-}
-
-export function setDbWsUrl(url: string): void {
-  setEnvConfig('dbWsUrl', url);
 }
 
 export function getConfigPath(): string {
@@ -183,19 +138,4 @@ export function deleteLocalInterfacePath(key: string): void {
   const interfaces = config.get('localInterfaces');
   delete interfaces[key];
   config.set('localInterfaces', interfaces);
-}
-
-// Get all environment info for display
-export function getEnvironmentInfo(): {
-  current: Environment;
-  apiBaseUrl: string;
-  hasApiKey: boolean;
-} {
-  const env = getEnvironment();
-  const envConfig = getEnvConfig();
-  return {
-    current: env,
-    apiBaseUrl: envConfig.apiBaseUrl,
-    hasApiKey: !!envConfig.apiKey,
-  };
 }

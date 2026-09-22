@@ -18,11 +18,13 @@ export function getInstallMethod(): InstallMethod {
   return 'npm';
 }
 
-export function getCurrentVersion(): string {
+// The next three are `checkForUpdate`'s internals, not module surface — it is
+// the only caller of each.
+function getCurrentVersion(): string {
   return __APP_VERSION__;
 }
 
-export async function fetchLatestVersion(): Promise<string | null> {
+async function fetchLatestVersion(): Promise<string | null> {
   try {
     const res = await fetch(
       'https://registry.npmjs.org/@mindstudio-ai/local-model-tunnel/latest',
@@ -36,7 +38,7 @@ export async function fetchLatestVersion(): Promise<string | null> {
   }
 }
 
-export function isNewerVersion(current: string, latest: string): boolean {
+function isNewerVersion(current: string, latest: string): boolean {
   const currentParts = current.split('.').map(Number);
   const latestParts = latest.split('.').map(Number);
   for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
