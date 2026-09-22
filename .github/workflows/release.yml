@@ -85,8 +85,7 @@ jobs:
       - run: npm ci --ignore-scripts
 
       # tsup transpiles without typechecking, so the build alone catches no type
-      # errors. This is the gate tsup.config.ts already refers to for dev-worker,
-      # whose no-export isolated DTS compilation can't see node globals.
+      # errors. This is the only gate that does.
       - run: npm run typecheck
 
       # Kept even though `prepublishOnly` would build anyway: failing here points at the build,
